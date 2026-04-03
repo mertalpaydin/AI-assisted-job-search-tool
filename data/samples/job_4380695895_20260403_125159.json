@@ -1,0 +1,752 @@
+{
+  "data": {
+    "standardizedTitle": "urn:li:fs_title:15746",
+    "companyDetails": {
+      "company": "urn:li:fs_normalized_company:68769508",
+      "*companyResolutionResult": "urn:li:fs_normalized_company:68769508",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.web.shared.WebJobPostingCompany"
+      ],
+      "$type": "com.linkedin.voyager.jobs.JobPostingCompany"
+    },
+    "matchType": null,
+    "employmentStatus": "urn:li:fs_employmentStatus:FULL_TIME",
+    "ownerViewEnabled": false,
+    "skillMatches": null,
+    "hiringDashboardViewEnabled": false,
+    "trackingPixelUrl": null,
+    "talentHubJob": false,
+    "formattedLocation": "European Union",
+    "companyDescription": null,
+    "jobPostingUrl": "https://www.linkedin.com/jobs/view/4380695895/?trk=jobs_biz_prem_srch",
+    "applies": 0,
+    "*allJobHiringTeamMembersInjectionResult": "urn:li:fs_jobHiringTeam:4380695895",
+    "workplaceTypesResolutionResults": {
+      "*urn:li:fs_workplaceType:2": "urn:li:fs_workplaceType:2"
+    },
+    "poster": null,
+    "dashEntityUrn": "urn:li:fsd_jobPosting:4380695895",
+    "*employmentStatusResolutionResult": "urn:li:fs_employmentStatus:FULL_TIME",
+    "eligibleForLearningCourseRecsUpsell": false,
+    "eligibleForSharingProfileWithPoster": false,
+    "trustReviewDecision": null,
+    "originalListedAt": 1772800054000,
+    "entityUrn": "urn:li:fs_normalized_jobPosting:4380695895",
+    "workRemoteAllowed": true,
+    "applyMethod": {
+      "unifyApplyEnabled": true,
+      "easyApplyUrl": "https://www.linkedin.com/job-apply/4380695895",
+      "$type": "com.linkedin.voyager.jobs.ComplexOnsiteApply"
+    },
+    "benefitsDataSource": "JOB_POSTER",
+    "*savingInfo": "urn:li:fs_jobSavingInfo:4380695895",
+    "draftApplicationInfo": null,
+    "formattedJobFunctions": [
+      "Engineering",
+      "Information Technology"
+    ],
+    "messagingStatus": null,
+    "dashJobPostingCardUrn": "urn:li:fsd_jobPostingCard:(4380695895,JOB_DETAILS)",
+    "locationVisibility": "ADDRESS",
+    "appeal": null,
+    "expireAt": 1775392054000,
+    "$recipeTypes": [
+      "com.linkedin.voyager.deco.jobs.web.shared.WebFullJobPosting"
+    ],
+    "$type": "com.linkedin.voyager.jobs.JobPosting",
+    "standardizedAddresses": null,
+    "claimableByViewer": false,
+    "inferredBenefits": null,
+    "formattedIndustries": [
+      "Automotive"
+    ],
+    "industries": [
+      3198
+    ],
+    "salaryInsights": {
+      "lockModuleShown": false,
+      "salaryExplorerUrl": "https://www.linkedin.com/salary/",
+      "insightExists": false,
+      "jobCompensationAvailable": true,
+      "$type": "com.linkedin.voyager.premium.SalaryInsights"
+    },
+    "country": "urn:li:fs_country:oo",
+    "jobPosterEntitlements": {
+      "entitledToCopyJob": false,
+      "entitledToAccessJobDashboard": false,
+      "$type": "com.linkedin.voyager.jobs.JobPosterEntitlements",
+      "entitledToViewFreeJobInfo": false,
+      "entitledToPromoteJob": false,
+      "entitledToEditJob": false,
+      "entitledToViewBillingInfo": false
+    },
+    "*applyingInfo": "urn:li:fs_jobApplyingInfo:4380695895",
+    "locationUrn": "urn:li:fs_geo:91000000",
+    "jobApplicationLimitReached": false,
+    "closedAt": null,
+    "new": false,
+    "applicantTrackingSystem": "LinkedIn",
+    "workplaceTypes": [
+      "urn:li:fs_workplaceType:2"
+    ],
+    "contentSource": "JOBS_PREMIUM_OFFLINE",
+    "postalAddress": null,
+    "messagingToken": null,
+    "formattedExperienceLevel": "",
+    "yearsOfExperienceMatch": null,
+    "jobFunctions": [
+      "ENG",
+      "IT"
+    ],
+    "benefits": [],
+    "encryptedPricingParams": "CwIAAAGdUvieFGoAtY8SaLdO8UZqFQYWkWb-WNh3HRaNqLeXwvz1UnT7putT27jU2mnng_9qWTCO9_KyTvIYbOAFO1JCtEaT5qUWBOfKNKuOsN-on7TGT0tochLskbIiedCjlslKriMpWJbgVZivTIdEzLzxIZT6J26mheZCAlBsqN_ZmRKjiDotgohe7WO-qFY_xGuXECVDLwu3k7VgMrYkU9ZY8mReg8Ii2g",
+    "jobState": "LISTED",
+    "trackingUrn": "urn:li:jobPosting:4380695895",
+    "description": {
+      "attributes": [
+        {
+          "start": 0,
+          "length": 64,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 64,
+          "length": 24,
+          "type": {
+            "url": "https://www.youtube.com/shorts/TbG_yKPyIaA",
+            "$type": "com.linkedin.pemberly.text.Hyperlink"
+          },
+          "attributeKindUnion": {
+            "hyperlink": {
+              "url": "https://www.youtube.com/shorts/TbG_yKPyIaA",
+              "$type": "com.linkedin.pemberly.text.Hyperlink"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 64,
+          "length": 24,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 88,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 88,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 109,
+          "length": 28,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 89,
+          "length": 48,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 137,
+          "length": 21,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 137,
+          "length": 82,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 219,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 219,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 461,
+          "length": 24,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 220,
+          "length": 379,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 599,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 599,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 600,
+          "length": 22,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Italic"
+          },
+          "attributeKindUnion": {
+            "italic": {
+              "$type": "com.linkedin.pemberly.text.Italic"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 600,
+          "length": 22,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 622,
+          "length": 56,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 678,
+          "length": 53,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 731,
+          "length": 128,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 859,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 859,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 860,
+          "length": 24,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Italic"
+          },
+          "attributeKindUnion": {
+            "italic": {
+              "$type": "com.linkedin.pemberly.text.Italic"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 860,
+          "length": 24,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 884,
+          "length": 49,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 933,
+          "length": 60,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 993,
+          "length": 54,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1047,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1047,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1048,
+          "length": 14,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Italic"
+          },
+          "attributeKindUnion": {
+            "italic": {
+              "$type": "com.linkedin.pemberly.text.Italic"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1048,
+          "length": 14,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1062,
+          "length": 54,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1116,
+          "length": 54,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1170,
+          "length": 49,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1219,
+          "length": 43,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Paragraph"
+          },
+          "attributeKindUnion": {
+            "paragraph": {
+              "$type": "com.linkedin.pemberly.text.Paragraph"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        }
+      ],
+      "text": "🎥 Click below for a short video to see what the job looks like: Computer Vision Engineer\nLogatec, Slovenia | Relocation support availableOn-site collaboration with the software, mechanical design and manufacturing team.\nAt Pek Automotive in Slovenia we design and build advanced autonomous electric systems and robotic vehicles used in demanding real-world environments such as agriculture and rescue operations. We are expanding our R&D team and looking for a Computer Vision Engineer who will enjoy developing computer vision based instruments for our powering next-generation autonomous machines.\nWhat you will work on:• Develop and implement algorithms for image processing,• Develop and implement image recognition algorithms,• Interact with the other members of R&D team for improving performance of produced and developed computer vision based systems.\nWhat we are looking for:• Experience in image processing and recognition,• Experience in optic systems selection for computer vision,• Implementing and testing computer vision algorithms.\nWhat we offer:• Work on real-world autonomous machines and robotics,• Relocation support and visa assistance for Slovenia,• A collaborative international engineering team,• Career growth and learning opportunities.",
+      "$type": "com.linkedin.pemberly.text.AttributedText"
+    },
+    "hiringTeamEntitlements": null,
+    "formattedEmploymentStatus": "Full-time",
+    "repostedJobPosting": null,
+    "title": "Computer Vision Engineer for Outdoor Robotics Solutions in Slovenia",
+    "skillsDescription": null,
+    "trustReviewSla": null,
+    "jobRegion": null,
+    "thirdPartySourced": false,
+    "views": 0,
+    "*standardizedTitleResolutionResult": "urn:li:fs_title:15746",
+    "eligibleForReferrals": false,
+    "listedAt": 1772800054000,
+    "degreeMatches": null,
+    "jobPostingId": 4380695895,
+    "allowedToEdit": false,
+    "sourceDomain": null
+  },
+  "included": [
+    {
+      "trackingUrn": null,
+      "followingType": "DEFAULT",
+      "followingCount": null,
+      "$type": "com.linkedin.voyager.common.FollowingInfo",
+      "entityUrn": "urn:li:fs_followingInfo:urn:li:company:68769508",
+      "following": false,
+      "dashFollowingStateUrn": "urn:li:fsd_followingState:urn:li:fsd_company:68769508",
+      "followerCount": 11304
+    },
+    {
+      "resumeDownloadUrl": null,
+      "appliedTime": null,
+      "resumeFileType": null,
+      "entityUrn": "urn:li:fs_jobApplyingInfo:4380695895",
+      "applied": false,
+      "activities": null,
+      "closed": false,
+      "viewedByJobPosterAt": null,
+      "resumeFileName": null,
+      "appliedAt": null,
+      "$type": "com.linkedin.voyager.entities.shared.JobApplyingInfo"
+    },
+    {
+      "saved": false,
+      "entityUrn": "urn:li:fs_jobSavingInfo:4380695895",
+      "savedAt": null,
+      "dashSaveStateUrn": "urn:li:fsd_saveState:(SAVE,urn:li:fsd_jobPosting:4380695895)",
+      "$type": "com.linkedin.voyager.entities.shared.JobSavingInfo"
+    },
+    {
+      "entityUrn": "urn:li:fs_jobHiringTeam:4380695895",
+      "hiringTeamMembers": [],
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.web.shared.WebAllJobHiringTeamMembers"
+      ],
+      "$type": "com.linkedin.voyager.jobs.JobHiringTeam"
+    },
+    {
+      "localizedName": "Full-time",
+      "entityUrn": "urn:li:fs_employmentStatus:FULL_TIME",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.shared.WebFullEmploymentStatus"
+      ],
+      "$type": "com.linkedin.voyager.jobs.shared.EmploymentStatus"
+    },
+    {
+      "localizedName": "Computer Vision Engineer",
+      "entityUrn": "urn:li:fs_title:15746",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.web.shared.WebFullTitle"
+      ],
+      "$type": "com.linkedin.voyager.jobs.shared.Title"
+    },
+    {
+      "localizedName": "Remote",
+      "entityUrn": "urn:li:fs_workplaceType:2",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.shared.WebJobDetailsWorkplaceType"
+      ],
+      "$type": "com.linkedin.voyager.jobs.shared.WorkplaceType"
+    },
+    {
+      "description": "Design and manufacture of special-purpose electric vehicles",
+      "staffCount": 67,
+      "viewerFollowingJobsUpdates": false,
+      "entityUrn": "urn:li:fs_normalized_company:68769508",
+      "staffCountRange": {
+        "start": 51,
+        "end": 200,
+        "$type": "com.linkedin.voyager.organization.shared.StaffCountRange"
+      },
+      "headquarter": {
+        "geographicArea": "Slovenia",
+        "country": "SI",
+        "city": "Logatec ",
+        "postalCode": "1370 ",
+        "line1": "Obrtniška ulica 17",
+        "$type": "com.linkedin.common.Address"
+      },
+      "logo": {
+        "image": {
+          "digitalmediaAsset": "urn:li:digitalmediaAsset:D4D0BAQGfg9Em1wbzgQ",
+          "$type": "com.linkedin.common.VectorImage",
+          "rootUrl": "https://media.licdn.com/dms/image/v2/D4D0BAQGfg9Em1wbzgQ/company-logo_",
+          "artifacts": [
+            {
+              "width": 100,
+              "expiresAt": 1776902400000,
+              "fileIdentifyingUrlPathSegment": "100_100/B4DZXxFo16HIAQ-/0/1743506542450/pek_automotive_logo?e=1776902400&v=beta&t=35t3csXPc5XntHkE7D55uNZYHIJYJe3bgM-iygcGc38",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 100
+            },
+            {
+              "width": 400,
+              "expiresAt": 1776902400000,
+              "fileIdentifyingUrlPathSegment": "400_400/B4DZXxFo16HIAY-/0/1743506542450/pek_automotive_logo?e=1776902400&v=beta&t=nEpvBgtmvt496rPav9t4Q_zKAL8Y6TJeY4lUx8fVDNM",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 400
+            },
+            {
+              "width": 200,
+              "expiresAt": 1776902400000,
+              "fileIdentifyingUrlPathSegment": "200_200/B4DZXxFo16HIAI-/0/1743506542450/pek_automotive_logo?e=1776902400&v=beta&t=lSrRL8aG2Dp_Ka2Uf4aHzS6R9gtBJyYN0ONAYvuleCk",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 200
+            }
+          ]
+        },
+        "type": "SQUARE_LOGO",
+        "$type": "com.linkedin.voyager.organization.CompanyLogoImage"
+      },
+      "universalName": "pek-automotive",
+      "specialities": [],
+      "coverPhoto": null,
+      "*followingInfo": "urn:li:fs_followingInfo:urn:li:company:68769508",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.organization.shared.WebJobCompany"
+      ],
+      "url": "https://www.linkedin.com/company/pek-automotive",
+      "$type": "com.linkedin.voyager.organization.Company",
+      "lcpTreatment": false,
+      "industries": [
+        "Motor Vehicle Manufacturing"
+      ],
+      "name": "PeK Automotive",
+      "backgroundCoverImage": {
+        "image": {
+          "digitalmediaAsset": "urn:li:digitalmediaAsset:D4D3DAQERYxdP3E8sBA",
+          "$type": "com.linkedin.common.VectorImage",
+          "rootUrl": "https://media.licdn.com/dms/image/v2/D4D3DAQERYxdP3E8sBA/image-scale_1",
+          "artifacts": [
+            {
+              "width": 1128,
+              "expiresAt": 1775818800000,
+              "fileIdentifyingUrlPathSegment": "91_1128/B4DZXxSADaG8Ac-/0/1743509784218/pek_automotive_cover?e=1775818800&v=beta&t=amNCgdeaVm9A3PptSr4xkbliwriLI8G_fFHkKwctOpI",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 191
+            },
+            {
+              "width": 750,
+              "expiresAt": 1775818800000,
+              "fileIdentifyingUrlPathSegment": "27_750/B4DZXxSADaG8AM-/0/1743509784218/pek_automotive_cover?e=1775818800&v=beta&t=rbQkq3cioLsXs2dEV7BEUjsDNA6iHtEcQCxe41Clb8Q",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 126
+            },
+            {
+              "width": 108,
+              "expiresAt": 1775818800000,
+              "fileIdentifyingUrlPathSegment": "08_640/B4DZXxSADaG8AQ-/0/1743509784185/pek_automotive_cover?e=1775818800&v=beta&t=m76IT29VkqcFdX3B-WUlJnZFfL6AtBYHaySeDG4w97k",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 18
+            }
+          ]
+        },
+        "$type": "com.linkedin.voyager.identity.profile.BackgroundImage",
+        "cropInfo": {
+          "width": 1128,
+          "x": 0,
+          "y": 0,
+          "$type": "com.linkedin.voyager.identity.profile.ImageCropInfo",
+          "height": 191
+        }
+      }
+    }
+  ]
+}

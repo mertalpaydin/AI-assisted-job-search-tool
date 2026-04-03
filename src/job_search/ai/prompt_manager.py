@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+class PromptManager:
+    """Loads prompts.yaml and cv.yaml, formats prompts for screening and cover letters."""
+
+    def __init__(
+        self,
+        prompts_path: str = "config/prompts.yaml",
+        cv_path: str = "config/cv.yaml",
+    ) -> None:
+        self._prompts = self._load_yaml(prompts_path)
+        self._cv = self._load_yaml(cv_path)
+        self._cv_text = self._render_cv_text()
+
+    @staticmethod
+    def _load_yaml(path: str) -> dict[str, Any]:
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"File not found: {p}")
+        with p.open(encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+    def _render_cv_text(self) -> str:
+        """Flatten cv.yaml into a plain-text representation for prompt injection."""
+        cv = self._cv.get("cv", {})
+        lines: list[str] = []
+
+        info = cv.get("personal_info", {})
+        if info.get("name"):
+            lines.append(f"Name: {info['name']}")
+        if info.get("location"):
+            lines.append(f"Location: {info['location']}")
+
+        if cv.get("summary"):
+            lines.append(f"\nSummary:\n{cv['summary'].strip()}")
+
+        skills = cv.get("skills", {})
+        tech = skills.get("technical", [])
+        if tech:
+            lines.append(f"\nTechnical Skills: {', '.join(tech)}")
+
+        langs = skills.get("languages", [])
+        if langs:
+            lang_str = ", ".join(f"{l['language']} ({l['level']})" for l in langs)
+            lines.append(f"Languages: {lang_str}")
+
+        for exp in cv.get("experience", []):
+            lines.append(
+                f"\nExperience: {exp.get('title')} at {exp.get('company')} "
+                f"({exp.get('duration')})\n{exp.get('description', '').strip()}"
+            )
+
+        for edu in cv.get("education", []):
+            lines.append(
+                f"\nEducation: {edu.get('degree')} — {edu.get('institution')} ({edu.get('year')})"
+            )
+
+        prefs = cv.get("preferences", {})
+        if prefs.get("desired_roles"):
+            lines.append(f"\nDesired Roles: {', '.join(prefs['desired_roles'])}")
+        if prefs.get("german_requirement"):
+            lines.append(f"German Requirement Preference: {prefs['german_requirement']}")
+
+        return "\n".join(lines)
+
+    @property
+    def cv_text(self) -> str:
+        return self._cv_text
+
+    @property
+    def cv_summary(self) -> str:
+        """Shorter CV summary for cover letter prompts."""
+        cv = self._cv.get("cv", {})
+        info = cv.get("personal_info", {})
+        summary = cv.get("summary", "").strip()
+        skills = ", ".join(cv.get("skills", {}).get("technical", [])[:5])
+        return f"{info.get('name', '')} — {summary}\nKey skills: {skills}"
+
+    def format_screening_prompt(
+        self,
+        job_title: str,
+        company_name: str | None,
+        job_location: str | None,
+        remote_allowed: bool | None,
+        job_description: str | None,
+    ) -> tuple[str, str]:
+        """Return (system_prompt, user_prompt) for the screening task."""
+        cfg = self._prompts["screening"]
+        system = cfg["system_prompt"].strip()
+        user = cfg["user_prompt_template"].format(
+            cv_text=self._cv_text,
+            job_title=job_title or "",
+            company_name=company_name or "Unknown",
+            job_location=job_location or "Unknown",
+            remote_allowed="Yes" if remote_allowed else "No",
+            job_description=(job_description or "")[:3000],
+        )
+        return system, user
+
+    def format_cover_letter_prompt(
+        self,
+        job_title: str,
+        company_name: str | None,
+        job_location: str | None,
+        job_description: str | None,
+    ) -> tuple[str, str]:
+        """Return (system_prompt, user_prompt) for cover letter generation."""
+        cfg = self._prompts["cover_letter"]
+        system = cfg["system_prompt"].strip()
+        user = cfg["user_prompt_template"].format(
+            cv_summary=self.cv_summary,
+            job_title=job_title or "",
+            company_name=company_name or "Unknown",
+            job_location=job_location or "Unknown",
+            job_description=(job_description or "")[:3000],
+        )
+        return system, user

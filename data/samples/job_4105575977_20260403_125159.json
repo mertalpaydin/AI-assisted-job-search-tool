@@ -1,0 +1,1285 @@
+{
+  "data": {
+    "standardizedTitle": "urn:li:fs_title:25169",
+    "companyDetails": {
+      "company": "urn:li:fs_normalized_company:3243750",
+      "*companyResolutionResult": "urn:li:fs_normalized_company:3243750",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.web.shared.WebJobPostingCompany"
+      ],
+      "$type": "com.linkedin.voyager.jobs.JobPostingCompany"
+    },
+    "matchType": null,
+    "employmentStatus": "urn:li:fs_employmentStatus:FULL_TIME",
+    "ownerViewEnabled": false,
+    "skillMatches": null,
+    "hiringDashboardViewEnabled": false,
+    "trackingPixelUrl": null,
+    "talentHubJob": false,
+    "formattedLocation": "Vienna, Vienna, Austria",
+    "companyDescription": {
+      "attributes": [
+        {
+          "start": 368,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 369,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 696,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 727,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 728,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 968,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 969,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1098,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1099,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1136,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1137,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1253,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1254,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        }
+      ],
+      "text": "Helvetia Versicherungen mit Sitz in St. Gallen (Schweiz) hat sich seit 1858 zu einer erfolgreichen internationalen Versicherungsgruppe entwickelt. Was uns eint, ist unsere Unternehmenskultur. Unsere gemeinsamen Werte und Prinzipien, die uns prägen in der Art, wie wir führen, zusammenarbeiten und unsere Organisation gestalten: mit Vertrauen, Dynamik und Begeisterung.\n\nIm Team Helvetia engagieren wir uns ambitioniert und begeistert für gemeinsame Ziele. Wir sind Menschen, auf die man sich verlassen kann. Wir unterstützen, fordern und fördern uns gegenseitig, um miteinander zu wachsen. Sind Sie neugierig geworden? Schauen Sie sich bitte unsere derzeit offenen Stellen auf unserer Website an:\nwww.helvetia.at/offene-stellen\n\nSehr gerne können Sie uns auch Ihrer Initiativbewerbung schicken - nützen Sie dazu unser Online Bewerbungsformular: https://jobs.helvetia.com/offene-stellen/initiativbewerbung-w-m-d-helvetia-oesterreich/ed174fb1-f2b1-417e-ab23-3c30d0f0fce0\n\nInformation zur Datenverarbeitung im Zusammenhang mit Internetseiten von Helvetia Versicherungen AG: www.helvetia.at/datenschutz\n\nImpressum: www.helvetia.at/impressum\n\nEin respektvoller Umgang miteinander ist uns wichtig. Hier finden Sie unsere Netiquette: www.helvetia.at/netiquette\n\nErfahren Sie mehr über uns: www.helvetia.at/ueber-uns",
+      "$type": "com.linkedin.pemberly.text.AttributedText"
+    },
+    "jobPostingUrl": "https://www.linkedin.com/jobs/view/4105575977/?trk=jobs_biz_prem_srch",
+    "applies": 0,
+    "*allJobHiringTeamMembersInjectionResult": "urn:li:fs_jobHiringTeam:4105575977",
+    "workplaceTypesResolutionResults": {
+      "*urn:li:fs_workplaceType:3": "urn:li:fs_workplaceType:3"
+    },
+    "poster": null,
+    "dashEntityUrn": "urn:li:fsd_jobPosting:4105575977",
+    "*employmentStatusResolutionResult": "urn:li:fs_employmentStatus:FULL_TIME",
+    "eligibleForLearningCourseRecsUpsell": false,
+    "eligibleForSharingProfileWithPoster": true,
+    "trustReviewDecision": null,
+    "originalListedAt": 1734619847000,
+    "entityUrn": "urn:li:fs_normalized_jobPosting:4105575977",
+    "workRemoteAllowed": false,
+    "applyMethod": {
+      "companyApplyUrl": "https://ohws.prospective.ch/public/v1/jobs/d49abfc9-8f7d-4760-8980-cd7ae92737ea/?track=eyJvaHdzIjp0cnVlLCJhY3Rpb24iOiJJTlRFUk1FRElBVEVfVklFVyIsInBsYXRmb3JtIjoiMjI0NjQ1NWQtMDNjNy00ZDJlLThkMWMtZjFkNDJlZDA3ZWUyIiwiam9iSWQiOjkzOTExMjl9.6aL_bLLQBTZxHpQaU6vdzyiFcIloepiaS3H1WYLQlho",
+      "applyStartersPreferenceVoid": true,
+      "inPageOffsiteApply": false,
+      "$type": "com.linkedin.voyager.jobs.OffsiteApply"
+    },
+    "benefitsDataSource": "JOB_POSTER",
+    "*savingInfo": "urn:li:fs_jobSavingInfo:4105575977",
+    "draftApplicationInfo": null,
+    "formattedJobFunctions": [
+      "Engineering",
+      "Information Technology"
+    ],
+    "messagingStatus": null,
+    "dashJobPostingCardUrn": "urn:li:fsd_jobPostingCard:(4105575977,JOB_DETAILS)",
+    "locationVisibility": "ADDRESS",
+    "appeal": null,
+    "expireAt": 1776969847000,
+    "$recipeTypes": [
+      "com.linkedin.voyager.deco.jobs.web.shared.WebFullJobPosting"
+    ],
+    "$type": "com.linkedin.voyager.jobs.JobPosting",
+    "standardizedAddresses": null,
+    "claimableByViewer": false,
+    "inferredBenefits": null,
+    "formattedIndustries": [
+      "Insurance"
+    ],
+    "industries": [
+      42
+    ],
+    "salaryInsights": {
+      "lockModuleShown": false,
+      "salaryExplorerUrl": "https://www.linkedin.com/salary/",
+      "insightExists": false,
+      "jobCompensationAvailable": true,
+      "$type": "com.linkedin.voyager.premium.SalaryInsights"
+    },
+    "country": "urn:li:fs_country:at",
+    "jobPosterEntitlements": {
+      "entitledToCopyJob": false,
+      "entitledToAccessJobDashboard": false,
+      "$type": "com.linkedin.voyager.jobs.JobPosterEntitlements",
+      "entitledToViewFreeJobInfo": false,
+      "entitledToPromoteJob": false,
+      "entitledToEditJob": false,
+      "entitledToViewBillingInfo": false
+    },
+    "*applyingInfo": "urn:li:fs_jobApplyingInfo:4105575977",
+    "locationUrn": "urn:li:fs_geo:104669944",
+    "jobApplicationLimitReached": false,
+    "closedAt": null,
+    "new": false,
+    "applicantTrackingSystem": null,
+    "workplaceTypes": [
+      "urn:li:fs_workplaceType:3"
+    ],
+    "contentSource": "JOBS_PREMIUM_OFFLINE",
+    "postalAddress": null,
+    "messagingToken": null,
+    "formattedExperienceLevel": "",
+    "yearsOfExperienceMatch": null,
+    "jobFunctions": [
+      "ENG",
+      "IT"
+    ],
+    "benefits": [],
+    "encryptedPricingParams": "CwIAAAGdUvigRRjUidlJsoomIrLvse5fsvbQQLk0LUh2yYHZUz1l-XL0fXIazoj8qrhCodCNiZXl8V501CtTg_XKvdy5sFTdQbFnKzQekZDw5sRfVpcnZw7CxopjMW_zBi6ttLWhilORYrM9TITfeI-8VvULaL04KZHqVuzPkxU49xDsyirSzu8taPM1clkmb-3DnrqPLj5PXlZD1R6UsmYbOO6CRHwL-uBQ7Q",
+    "jobState": "LISTED",
+    "trackingUrn": "urn:li:jobPosting:4105575977",
+    "description": {
+      "attributes": [
+        {
+          "start": 62,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 63,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 0,
+          "length": 64,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 362,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 363,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 357,
+          "length": 7,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 383,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 384,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 364,
+          "length": 21,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 385,
+          "length": 187,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 572,
+          "length": 139,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 711,
+          "length": 81,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 883,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 884,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 885,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 886,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 792,
+          "length": 95,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 385,
+          "length": 502,
+          "type": {
+            "ordered": false,
+            "$type": "com.linkedin.pemberly.text.List"
+          },
+          "attributeKindUnion": {
+            "list": {
+              "ordered": false,
+              "$type": "com.linkedin.pemberly.text.List"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 906,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 907,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 887,
+          "length": 21,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 908,
+          "length": 57,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 965,
+          "length": 81,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1046,
+          "length": 101,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1188,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1189,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1190,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1191,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1147,
+          "length": 45,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 908,
+          "length": 284,
+          "type": {
+            "ordered": false,
+            "$type": "com.linkedin.pemberly.text.List"
+          },
+          "attributeKindUnion": {
+            "list": {
+              "ordered": false,
+              "$type": "com.linkedin.pemberly.text.List"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1210,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1211,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1192,
+          "length": 20,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1212,
+          "length": 40,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1326,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1327,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1328,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1329,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1252,
+          "length": 78,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.ListItem"
+          },
+          "attributeKindUnion": {
+            "listItem": {
+              "$type": "com.linkedin.pemberly.text.ListItem"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1212,
+          "length": 118,
+          "type": {
+            "ordered": false,
+            "$type": "com.linkedin.pemberly.text.List"
+          },
+          "attributeKindUnion": {
+            "list": {
+              "ordered": false,
+              "$type": "com.linkedin.pemberly.text.List"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1334,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1335,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1358,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1359,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1377,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1378,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1615,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1616,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1647,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1648,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1658,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1659,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1763,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1764,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1765,
+          "length": 18,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1827,
+          "length": 12,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1967,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1968,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1990,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1991,
+          "length": 1,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.LineBreak"
+          },
+          "attributeKindUnion": {
+            "lineBreak": {
+              "$type": "com.linkedin.pemberly.text.LineBreak"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 1969,
+          "length": 23,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        },
+        {
+          "start": 2278,
+          "length": 5,
+          "type": {
+            "$type": "com.linkedin.pemberly.text.Bold"
+          },
+          "attributeKindUnion": {
+            "bold": {
+              "$type": "com.linkedin.pemberly.text.Bold"
+            }
+          },
+          "$type": "com.linkedin.pemberly.text.Attribute"
+        }
+      ],
+      "text": "Team Data Science. Wien. Vollzeit oder Teilzeit ab 30 Stunden.\n\nInnovativ, gut ausgebildet und immer auf der Suche nach kreativen Lösungen. Das bedeutet Arbeiten in der IT von Helvetia. Auf Menschen, die technisch talentiert sind, gerne auch im Team Verantwortung übernehmen, warten hier ständig neue Herausforderungen. Wir freuen uns auf deine Bewerbung – &Los.\n\nDeine Verantwortung\n\nAls Mitglied eines internationalen agilen Produktteams entwickelst, wartest und optimierst du Cloud-Native Lösungen auf Basis von Containertechnologien und modernen Architekturparadigmen.Identifikation, Planung und Umsetzung von GenAI & Data Science Use Cases entlang des analytischen Lifecycles & moderner SoftwareentwicklungSelbständige und länderübergreifende Organisation, Koordination und ProjektarbeitDurch Sparring, Coaching und regelmäßigen Austausch förderst du den internen Wissensaufbau.\n\n\n\nDeine Qualifikation\n\nStudium der Informatik oder eine vergleichbare AusbildungMehrjährige Erfahrung in der Softwareentwicklung mit Python im Bereich AI / GenAIKenntnisse mit der Cloud (AWS oder Azure) sowie mit Container Technologien (Docker) sind von Vorteil.Sehr gute Deutsch- und Englischkenntnisse\n\n\n\nDas bringst du mit\n\nFreude an einem aktiv gelebten TeamgeistEigeninitiative und Motivation Neues zu lernen und sich weiterzuentwickeln\n\n\n\nWien\n\nTeilzeit oder Vollzeit\n\nChancengleichheit\n\nBei Helvetia zählen Qualifikation, Einzigartigkeit und Begeisterung. Chancengleichheit ist uns wichtig. Wir freuen uns über vielfältige Bewerbungen von Menschen jeden Geschlechtes, unterschiedlicher Herkunft, Altersgruppe oder Religion.\n\nJunior / Professional / Senior\n\nab sofort\n\nEUR 65.000* *mit der Möglichkeit einer höheren Bezahlung bei entsprechender Qualifikation und Erfahrung\n\nRafael Rastbichler Recruiting Experte +43 (0) 50 222 1232 und Patrik Klein Recruiting Partner Mache den ersten Schritt und bewerbe dich ausschliesslich online. Wir berücksichtigen nur Direktbewerbungen.\n\nArbeiten bei Helvetia\n\nDas Team Helvetia ist gemeinsam da, wenn es drauf ankommt. Wir sind Menschen, auf die man sich verlassen kann. Die einander unterstützen und sich füreinander einsetzen. Die einander fordern und fördern. Die begeistern und sich begeistern lassen. So gestalten wir gemeinsam die Zukunft. &Los!",
+      "$type": "com.linkedin.pemberly.text.AttributedText"
+    },
+    "hiringTeamEntitlements": null,
+    "formattedEmploymentStatus": "Full-time",
+    "repostedJobPosting": null,
+    "title": "Senior Python Developer für GenAI (w/m/d).",
+    "skillsDescription": null,
+    "trustReviewSla": null,
+    "jobRegion": null,
+    "thirdPartySourced": false,
+    "views": 0,
+    "*standardizedTitleResolutionResult": "urn:li:fs_title:25169",
+    "eligibleForReferrals": false,
+    "listedAt": 1774377847000,
+    "degreeMatches": null,
+    "jobPostingId": 4105575977,
+    "allowedToEdit": false,
+    "sourceDomain": "ohws.prospective.ch"
+  },
+  "included": [
+    {
+      "trackingUrn": null,
+      "followingType": "DEFAULT",
+      "followingCount": null,
+      "$type": "com.linkedin.voyager.common.FollowingInfo",
+      "entityUrn": "urn:li:fs_followingInfo:urn:li:company:3243750",
+      "following": false,
+      "dashFollowingStateUrn": "urn:li:fsd_followingState:urn:li:fsd_company:3243750",
+      "followerCount": 4976
+    },
+    {
+      "resumeDownloadUrl": null,
+      "appliedTime": null,
+      "resumeFileType": null,
+      "entityUrn": "urn:li:fs_jobApplyingInfo:4105575977",
+      "applied": false,
+      "activities": null,
+      "closed": false,
+      "viewedByJobPosterAt": null,
+      "resumeFileName": null,
+      "appliedAt": null,
+      "$type": "com.linkedin.voyager.entities.shared.JobApplyingInfo"
+    },
+    {
+      "saved": false,
+      "entityUrn": "urn:li:fs_jobSavingInfo:4105575977",
+      "savedAt": null,
+      "dashSaveStateUrn": "urn:li:fsd_saveState:(SAVE,urn:li:fsd_jobPosting:4105575977)",
+      "$type": "com.linkedin.voyager.entities.shared.JobSavingInfo"
+    },
+    {
+      "entityUrn": "urn:li:fs_jobHiringTeam:4105575977",
+      "hiringTeamMembers": [],
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.web.shared.WebAllJobHiringTeamMembers"
+      ],
+      "$type": "com.linkedin.voyager.jobs.JobHiringTeam"
+    },
+    {
+      "localizedName": "Full-time",
+      "entityUrn": "urn:li:fs_employmentStatus:FULL_TIME",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.shared.WebFullEmploymentStatus"
+      ],
+      "$type": "com.linkedin.voyager.jobs.shared.EmploymentStatus"
+    },
+    {
+      "localizedName": "Python Developer",
+      "entityUrn": "urn:li:fs_title:25169",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.web.shared.WebFullTitle"
+      ],
+      "$type": "com.linkedin.voyager.jobs.shared.Title"
+    },
+    {
+      "localizedName": "Hybrid",
+      "entityUrn": "urn:li:fs_workplaceType:3",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.jobs.shared.WebJobDetailsWorkplaceType"
+      ],
+      "$type": "com.linkedin.voyager.jobs.shared.WorkplaceType"
+    },
+    {
+      "description": "For more than 160 years, we have been offering individual insurance policies in top Swiss quality in Austria to meet the demands of our customers.",
+      "staffCount": 365,
+      "viewerFollowingJobsUpdates": false,
+      "entityUrn": "urn:li:fs_normalized_company:3243750",
+      "staffCountRange": {
+        "start": 501,
+        "end": 1000,
+        "$type": "com.linkedin.voyager.organization.shared.StaffCountRange"
+      },
+      "headquarter": {
+        "geographicArea": "Österreich",
+        "country": "AT",
+        "city": "Wien",
+        "postalCode": "1010",
+        "line1": "Hoher Markt 10-11",
+        "$type": "com.linkedin.common.Address"
+      },
+      "logo": {
+        "image": {
+          "digitalmediaAsset": "urn:li:digitalmediaAsset:C4E0BAQG-j3ByRfka-g",
+          "$type": "com.linkedin.common.VectorImage",
+          "rootUrl": "https://media.licdn.com/dms/image/v2/C4E0BAQG-j3ByRfka-g/company-logo_",
+          "artifacts": [
+            {
+              "width": 200,
+              "expiresAt": 1776902400000,
+              "fileIdentifyingUrlPathSegment": "200_200/company-logo_200_200/0/1632383236024/helvetia_versicherungen_ag_logo?e=1776902400&v=beta&t=mS6jaVbvVekfV7_Yk_sGbphgE0IdJ0Mpva05imefb0c",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 200
+            },
+            {
+              "width": 100,
+              "expiresAt": 1776902400000,
+              "fileIdentifyingUrlPathSegment": "100_100/company-logo_100_100/0/1632383236024/helvetia_versicherungen_ag_logo?e=1776902400&v=beta&t=Y5Y7kj2W2eGO9M0Eq2Z-Q8qYljOsiWk_IAQ0Jjf6aBM",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 100
+            },
+            {
+              "width": 400,
+              "expiresAt": 1776902400000,
+              "fileIdentifyingUrlPathSegment": "400_400/company-logo_400_400/0/1632383236024/helvetia_versicherungen_ag_logo?e=1776902400&v=beta&t=Y8r0RFO5jtnPPUTxUqRm3U61P9e4xKDwYBysxkU9mcE",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 400
+            }
+          ]
+        },
+        "type": "SQUARE_LOGO",
+        "$type": "com.linkedin.voyager.organization.CompanyLogoImage"
+      },
+      "universalName": "helvetia-versicherungen-oesterreich",
+      "specialities": [],
+      "coverPhoto": {
+        "$type": "com.linkedin.voyager.common.MediaProcessorImage",
+        "id": "/p/2/005/056/136/0c22f4f.png"
+      },
+      "*followingInfo": "urn:li:fs_followingInfo:urn:li:company:3243750",
+      "$recipeTypes": [
+        "com.linkedin.voyager.deco.organization.shared.WebJobCompany"
+      ],
+      "url": "https://www.linkedin.com/company/helvetia-versicherungen-oesterreich",
+      "$type": "com.linkedin.voyager.organization.Company",
+      "lcpTreatment": false,
+      "industries": [
+        "Insurance"
+      ],
+      "name": "Helvetia Insurance Austria",
+      "backgroundCoverImage": {
+        "image": {
+          "digitalmediaAsset": "urn:li:digitalmediaAsset:C4D1BAQG6BQIBqpNo8g",
+          "$type": "com.linkedin.common.VectorImage",
+          "rootUrl": "https://media.licdn.com/dms/image/v2/C4D1BAQG6BQIBqpNo8g/company-background_",
+          "artifacts": [
+            {
+              "width": 1584,
+              "expiresAt": 1775818800000,
+              "fileIdentifyingUrlPathSegment": "10000/company-background_10000/0/1647266426644/helvetia_versicherungen_oesterreich_cover?e=1775818800&v=beta&t=gKNzs3NkTsSpVSRlbTTTbkKLjTxNiKCGOpPl8jywGR4",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 396
+            },
+            {
+              "width": 400,
+              "expiresAt": 1775818800000,
+              "fileIdentifyingUrlPathSegment": "400/company-background_400/0/1647266426645/helvetia_versicherungen_oesterreich_cover?e=1775818800&v=beta&t=tjsqnHJ_aBnannKWBTrH5iHglbE6QkTF3PHNT2l41lg",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 100
+            },
+            {
+              "width": 200,
+              "expiresAt": 1775818800000,
+              "fileIdentifyingUrlPathSegment": "200/company-background_200/0/1647266426645/helvetia_versicherungen_oesterreich_cover?e=1775818800&v=beta&t=s7WaYHAcK9RneAWE7I3dKt9kL9Hri89aJIJpFXU4Jog",
+              "$type": "com.linkedin.common.VectorArtifact",
+              "height": 50
+            }
+          ]
+        },
+        "$type": "com.linkedin.voyager.identity.profile.BackgroundImage",
+        "cropInfo": {
+          "width": 1584,
+          "x": 0,
+          "y": 68,
+          "$type": "com.linkedin.voyager.identity.profile.ImageCropInfo",
+          "height": 268
+        }
+      }
+    }
+  ]
+}
