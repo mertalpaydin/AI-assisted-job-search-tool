@@ -1,0 +1,528 @@
+{
+  "job_fields": [
+    {
+      "field_name": "$recipeTypes",
+      "json_path": "data.$recipeTypes",
+      "type": "ARRAY",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "*allJobHiringTeamMembersInjectionResult",
+      "json_path": "data.*allJobHiringTeamMembersInjectionResult",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "*applyingInfo",
+      "json_path": "data.*applyingInfo",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "*employmentStatusResolutionResult",
+      "json_path": "data.*employmentStatusResolutionResult",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "*savingInfo",
+      "json_path": "data.*savingInfo",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "*standardizedTitleResolutionResult",
+      "json_path": "data.*standardizedTitleResolutionResult",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "allowedToEdit",
+      "json_path": "data.allowedToEdit",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "appeal",
+      "json_path": "data.appeal",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "applicantTrackingSystem",
+      "json_path": "data.applicantTrackingSystem",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "applies",
+      "json_path": "data.applies",
+      "type": "INTEGER",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "applyMethod",
+      "json_path": "data.applyMethod",
+      "type": "OBJECT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "benefits",
+      "json_path": "data.benefits",
+      "type": "ARRAY",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "benefitsDataSource",
+      "json_path": "data.benefitsDataSource",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "claimableByViewer",
+      "json_path": "data.claimableByViewer",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "closedAt",
+      "json_path": "data.closedAt",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "companyDescription",
+      "json_path": "data.companyDescription",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "companyDetails",
+      "json_path": "data.companyDetails",
+      "type": "OBJECT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "contentSource",
+      "json_path": "data.contentSource",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "country",
+      "json_path": "data.country",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "dashEntityUrn",
+      "json_path": "data.dashEntityUrn",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "dashJobPostingCardUrn",
+      "json_path": "data.dashJobPostingCardUrn",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "degreeMatches",
+      "json_path": "data.degreeMatches",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "description",
+      "json_path": "data.description",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "draftApplicationInfo",
+      "json_path": "data.draftApplicationInfo",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "eligibleForLearningCourseRecsUpsell",
+      "json_path": "data.eligibleForLearningCourseRecsUpsell",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "eligibleForReferrals",
+      "json_path": "data.eligibleForReferrals",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "eligibleForSharingProfileWithPoster",
+      "json_path": "data.eligibleForSharingProfileWithPoster",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "employmentStatus",
+      "json_path": "data.employmentStatus",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "encryptedPricingParams",
+      "json_path": "data.encryptedPricingParams",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "entityUrn",
+      "json_path": "data.entityUrn",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "expireAt",
+      "json_path": "data.expireAt",
+      "type": "INTEGER",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "formattedEmploymentStatus",
+      "json_path": "data.formattedEmploymentStatus",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "formattedExperienceLevel",
+      "json_path": "data.formattedExperienceLevel",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "formattedIndustries",
+      "json_path": "data.formattedIndustries",
+      "type": "ARRAY",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "formattedJobFunctions",
+      "json_path": "data.formattedJobFunctions",
+      "type": "ARRAY",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "formattedLocation",
+      "json_path": "data.formattedLocation",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "hiringDashboardViewEnabled",
+      "json_path": "data.hiringDashboardViewEnabled",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "hiringTeamEntitlements",
+      "json_path": "data.hiringTeamEntitlements",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "industries",
+      "json_path": "data.industries",
+      "type": "ARRAY",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "inferredBenefits",
+      "json_path": "data.inferredBenefits",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "jobApplicationLimitReached",
+      "json_path": "data.jobApplicationLimitReached",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "jobFunctions",
+      "json_path": "data.jobFunctions",
+      "type": "ARRAY",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "jobPosterEntitlements",
+      "json_path": "data.jobPosterEntitlements",
+      "type": "OBJECT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "jobPostingId",
+      "json_path": "data.jobPostingId",
+      "type": "INTEGER",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "jobPostingUrl",
+      "json_path": "data.jobPostingUrl",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "jobRegion",
+      "json_path": "data.jobRegion",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "jobState",
+      "json_path": "data.jobState",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "listedAt",
+      "json_path": "data.listedAt",
+      "type": "INTEGER",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "locationUrn",
+      "json_path": "data.locationUrn",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "locationVisibility",
+      "json_path": "data.locationVisibility",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "matchType",
+      "json_path": "data.matchType",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "messagingStatus",
+      "json_path": "data.messagingStatus",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "messagingToken",
+      "json_path": "data.messagingToken",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "new",
+      "json_path": "data.new",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "originalListedAt",
+      "json_path": "data.originalListedAt",
+      "type": "INTEGER",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "ownerViewEnabled",
+      "json_path": "data.ownerViewEnabled",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "postalAddress",
+      "json_path": "data.postalAddress",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "poster",
+      "json_path": "data.poster",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "repostedJobPosting",
+      "json_path": "data.repostedJobPosting",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "salaryInsights",
+      "json_path": "data.salaryInsights",
+      "type": "OBJECT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "skillMatches",
+      "json_path": "data.skillMatches",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "skillsDescription",
+      "json_path": "data.skillsDescription",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "sourceDomain",
+      "json_path": "data.sourceDomain",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "standardizedAddresses",
+      "json_path": "data.standardizedAddresses",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "standardizedTitle",
+      "json_path": "data.standardizedTitle",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "talentHubJob",
+      "json_path": "data.talentHubJob",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "thirdPartySourced",
+      "json_path": "data.thirdPartySourced",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "title",
+      "json_path": "data.title",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "trackingPixelUrl",
+      "json_path": "data.trackingPixelUrl",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "trackingUrn",
+      "json_path": "data.trackingUrn",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "trustReviewDecision",
+      "json_path": "data.trustReviewDecision",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "trustReviewSla",
+      "json_path": "data.trustReviewSla",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "views",
+      "json_path": "data.views",
+      "type": "INTEGER",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "workRemoteAllowed",
+      "json_path": "data.workRemoteAllowed",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "workplaceTypes",
+      "json_path": "data.workplaceTypes",
+      "type": "ARRAY",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "workplaceTypesResolutionResults",
+      "json_path": "data.workplaceTypesResolutionResults",
+      "type": "OBJECT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "yearsOfExperienceMatch",
+      "json_path": "data.yearsOfExperienceMatch",
+      "type": "NULL",
+      "sql_type": "TEXT"
+    }
+  ],
+  "company_fields": [
+    {
+      "field_name": "*followingInfo",
+      "json_path": "included_company.*followingInfo",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "headquarter",
+      "json_path": "included_company.headquarter",
+      "type": "OBJECT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "lcpTreatment",
+      "json_path": "included_company.lcpTreatment",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "name",
+      "json_path": "included_company.name",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "specialities",
+      "json_path": "included_company.specialities",
+      "type": "ARRAY",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "staffCount",
+      "json_path": "included_company.staffCount",
+      "type": "INTEGER",
+      "sql_type": "INTEGER"
+    },
+    {
+      "field_name": "staffCountRange",
+      "json_path": "included_company.staffCountRange",
+      "type": "OBJECT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "universalName",
+      "json_path": "included_company.universalName",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "url",
+      "json_path": "included_company.url",
+      "type": "TEXT",
+      "sql_type": "TEXT"
+    },
+    {
+      "field_name": "viewerFollowingJobsUpdates",
+      "json_path": "included_company.viewerFollowingJobsUpdates",
+      "type": "BOOLEAN",
+      "sql_type": "INTEGER"
+    }
+  ]
+}

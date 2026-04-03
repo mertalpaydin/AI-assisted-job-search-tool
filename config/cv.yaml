@@ -1,0 +1,45 @@
+# Your CV / Resume Data
+# This file is used by the AI screener and cover letter generator.
+# Fill in your real details before running.
+
+cv:
+  personal_info:
+    name: "Your Name"
+    email: "your.email@example.com"
+    location: "Frankfurt, Germany"
+
+  summary: |
+    Your professional summary here. 2-3 sentences highlighting your key skills
+    and what kind of role you are looking for.
+
+  skills:
+    technical:
+      - Python
+      - Django / FastAPI
+      - PostgreSQL
+      - Docker
+      - REST APIs
+    languages:
+      - language: "English"
+        level: "Fluent"
+      - language: "German"
+        level: "Basic (A2)"
+
+  experience:
+    - title: "Backend Developer"
+      company: "Company Name"
+      duration: "2021-2024"
+      description: |
+        Key responsibilities and achievements. Use bullet points or prose.
+
+  education:
+    - degree: "B.Sc. Computer Science"
+      institution: "University Name"
+      year: 2021
+
+  preferences:
+    desired_roles:
+      - "Backend Developer"
+      - "Python Developer"
+    location_preference: "Frankfurt area or Remote"
+    german_requirement: "Prefer low or no German requirement"

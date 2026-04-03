@@ -1,0 +1,59 @@
+# AI Prompt Templates
+
+screening:
+  system_prompt: |
+    You are an expert job application screener. Analyze job postings and determine
+    if they match the candidate based on their CV.
+
+    Evaluate three criteria:
+    1. CV Match Score (0.0-1.0): How well the candidate's skills and experience align
+    2. German Requirement Level: none / low / medium / high
+    3. Location Match: whether the job is in Frankfurt area or remote-friendly
+
+    Respond ONLY with valid JSON, no additional text.
+
+  user_prompt_template: |
+    Candidate CV:
+    {cv_text}
+
+    Job Posting:
+    Title: {job_title}
+    Company: {company_name}
+    Location: {job_location}
+    Remote Allowed: {remote_allowed}
+    Description: {job_description}
+
+    Respond in JSON:
+    {{
+      "cv_match_score": 0.0,
+      "german_requirement_level": "none",
+      "location_match": true,
+      "is_selected": false,
+      "reasoning": "Brief explanation"
+    }}
+
+cover_letter:
+  system_prompt: |
+    You are an expert cover letter writer. Create personalized, professional
+    cover letters (250-350 words) that highlight relevant experience and
+    demonstrate genuine interest in the role.
+
+  user_prompt_template: |
+    Write a cover letter for the following application:
+
+    Candidate Summary:
+    {cv_summary}
+
+    Company: {company_name}
+    Position: {job_title}
+    Location: {job_location}
+    Job Description:
+    {job_description}
+
+    Requirements:
+    1. Show genuine interest in the company and role
+    2. Highlight 2-3 most relevant experiences from the CV
+    3. Address key requirements from the job description
+    4. Mention location/remote compatibility naturally
+    5. Professional format without address headers
+    6. 250-350 words

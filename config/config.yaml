@@ -1,0 +1,69 @@
+# Job Search Configuration
+
+search:
+  keywords:
+    - "Python Developer"
+    - "Backend Engineer"
+    - "Machine Learning Engineer"
+    - "Data Engineer"
+
+  locations:
+    - geo_id: "102713980"
+      name: "Frankfurt am Main"
+    - geo_id: "105802260"
+      name: "Remote (Germany)"
+
+  rate_limits:
+    requests_per_minute: 30
+    delay_between_requests: 2
+    max_retries: 3
+
+# AI Screening
+screening:
+  model:
+    path: "data/models/gemma-4-E4B-it-UD-Q4_K_XL.gguf"  # Path to local GGUF file
+    n_gpu_layers: -1        # -1 = offload all layers to GPU
+    n_ctx: 4096             # Context window
+    max_new_tokens: 512
+    temperature: 0.1        # Low temp for deterministic JSON output
+  criteria:
+    min_cv_match_score: 0.65
+    max_german_level: "low"   # none | low | medium | high
+    preferred_locations:
+      - "Frankfurt"
+      - "Remote"
+
+# Cover Letter Generation
+cover_letter:
+  model: "gemini-1.5-flash"
+  temperature: 0.7
+  max_tokens: 1000
+  rate_limits:
+    requests_per_minute: 15
+    retry_delay: 60
+    max_retries: 5
+
+# Concurrency
+concurrency:
+  max_search_workers: 2
+  max_details_workers: 3
+  max_screening_workers: 1
+  max_cover_letter_workers: 3
+
+# Execution
+execution:
+  max_runtime_hours: 8
+  shutdown_conditions:
+    no_new_jobs_minutes: 30
+    check_interval_seconds: 60
+  pickup_on_restart: true
+  checkpoint_interval_minutes: 5
+
+# Database
+database:
+  path: "data/jobs.db"
+
+# Logging
+logging:
+  level: "INFO"
+  file: "logs/job_search.log"

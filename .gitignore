@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+# intellij IDE
+.idea/
+
+# claude code
+.claude/
+
 # Distribution / packaging
 .Python
 build/
@@ -205,3 +211,15 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project-specific sensitive files
+codebase/logins_backup_*.csv
+config/.env
+data/*.db
+logs/
+
+# Large data files (sample JSONs kept in git; real scraped data excluded)
+data/jobs.db
+
+# Local AI model files (GGUF, safetensors, etc.)
+data/models/
