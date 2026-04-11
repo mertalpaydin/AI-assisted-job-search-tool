@@ -24,13 +24,13 @@
 
 ## Sample Files
 
-1. `<your repo dir>\Desktop\AI-assisted-job-search-tool\data\samples\job_4380695895_20260403_125159.json` (25.5 KB)
-2. `<your repo dir>\Desktop\AI-assisted-job-search-tool\data\samples\job_4105575977_20260403_125159.json` (43.5 KB)
-3. `<your repo dir>\Desktop\AI-assisted-job-search-tool\data\samples\job_4392903020_20260403_125159.json` (38.2 KB)
+1. `..\AI-assisted-job-search-tool\data\samples\job_4380695895_20260403_125159.json` (25.5 KB)
+2. `..\AI-assisted-job-search-tool\data\samples\job_4105575977_20260403_125159.json` (43.5 KB)
+3. `..\AI-assisted-job-search-tool\data\samples\job_4392903020_20260403_125159.json` (38.2 KB)
 
 ## Field Catalog
 
-Comprehensive field catalog saved to: `<your repo dir>\Desktop\AI-assisted-job-search-tool\data\samples\field_catalog.yaml`
+Comprehensive field catalog saved to: `..\AI-assisted-job-search-tool\data\samples\field_catalog.yaml`
 
 ## Next Steps
 
