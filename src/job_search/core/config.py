@@ -27,6 +27,7 @@ class SearchConfig(BaseModel):
     keywords: list[str]
     locations: list[LocationConfig]
     rate_limits: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    max_pages: int = 5  # pages of 100 results each, per keyword+location
 
 
 class ScreeningModelConfig(BaseModel):

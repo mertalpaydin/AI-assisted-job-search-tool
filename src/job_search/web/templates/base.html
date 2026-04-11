@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Job Search{% endblock %} — AI Job Search</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    body { background: #f8f9fa; }
+    .sidebar { min-height: 100vh; background: #1a1a2e; }
+    .sidebar .nav-link { color: #adb5bd; border-radius: 6px; }
+    .sidebar .nav-link:hover, .sidebar .nav-link.active { background: #16213e; color: #fff; }
+    .sidebar-brand { color: #fff; font-weight: 700; font-size: 1.1rem; }
+    .stat-card { border: none; border-radius: 12px; }
+    .cover-letter-box { background: #fff; border: 1px solid #dee2e6; border-radius: 8px;
+                        padding: 1.5rem; white-space: pre-wrap; font-family: Georgia, serif;
+                        line-height: 1.7; font-size: 0.95rem; }
+    .badge-match { font-size: 0.8rem; }
+    .status-badge { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  </style>
+</head>
+<body>
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar -->
+    <nav class="col-md-2 sidebar py-3 px-3 d-flex flex-column">
+      <a class="sidebar-brand d-flex align-items-center mb-4 text-decoration-none" href="/">
+        <i class="bi bi-briefcase-fill me-2 text-primary"></i> Job Search
+      </a>
+      <ul class="nav flex-column gap-1">
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="/">
+            <i class="bi bi-speedometer2 me-2"></i>Dashboard
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint in ('jobs','job_detail') %}active{% endif %}" href="/jobs">
+            <i class="bi bi-list-ul me-2"></i>Selected Jobs
+          </a>
+        </li>
+        <li class="nav-item mt-3">
+          <span class="nav-link text-secondary" style="font-size:0.7rem;text-transform:uppercase;letter-spacing:.1em">Filter by status</span>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link small {% if request.args.get('status') == 'pending' %}active{% endif %}"
+             href="/jobs?status=pending"><i class="bi bi-hourglass me-2"></i>Pending</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link small {% if request.args.get('status') == 'applied' %}active{% endif %}"
+             href="/jobs?status=applied"><i class="bi bi-send me-2"></i>Applied</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link small {% if request.args.get('status') == 'interviewing' %}active{% endif %}"
+             href="/jobs?status=interviewing"><i class="bi bi-calendar-check me-2"></i>Interviewing</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link small {% if request.args.get('status') == 'offered' %}active{% endif %}"
+             href="/jobs?status=offered"><i class="bi bi-trophy me-2"></i>Offered</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link small {% if request.args.get('status') == 'rejected' %}active{% endif %}"
+             href="/jobs?status=rejected"><i class="bi bi-x-circle me-2"></i>Rejected</a>
+        </li>
+      </ul>
+    </nav>
+
+    <!-- Main content -->
+    <main class="col-md-10 py-4 px-4">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

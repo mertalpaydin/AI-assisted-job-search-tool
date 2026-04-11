@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}{{ job.title or job.job_id }}{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <a href="/jobs" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Back
+  </a>
+  <h4 class="mb-0 fw-semibold">{{ job.title or "Job " ~ job.job_id }}</h4>
+</div>
+
+<div class="row g-4">
+  <!-- Left: details + cover letter -->
+  <div class="col-md-8">
+    <!-- Job info card -->
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h5 class="card-title mb-1">{{ job.company_name or "Unknown Company" }}</h5>
+            <p class="text-muted mb-0">
+              <i class="bi bi-geo-alt me-1"></i>{{ job.formattedLocation or "N/A" }}
+              {% if job.workRemoteAllowed %}
+              <span class="badge bg-light text-success ms-2">Remote OK</span>
+              {% endif %}
+            </p>
+          </div>
+          {% if job.jobPostingUrl %}
+          <a href="{{ job.jobPostingUrl }}" target="_blank" rel="noopener"
+             class="btn btn-primary btn-sm">
+            <i class="bi bi-box-arrow-up-right me-1"></i>Apply on LinkedIn
+          </a>
+          {% endif %}
+        </div>
+
+        <hr>
+        <div class="row text-center g-2">
+          <div class="col">
+            <div class="text-muted small">CV Match</div>
+            {% if job.cv_match_score is not none %}
+            {% set pct = (job.cv_match_score * 100)|int %}
+            <div class="fw-bold {% if pct >= 80 %}text-success{% elif pct >= 65 %}text-warning{% else %}text-secondary{% endif %}">
+              {{ pct }}%
+            </div>
+            {% else %}<div>—</div>{% endif %}
+          </div>
+          <div class="col">
+            <div class="text-muted small">German Req</div>
+            <div class="fw-semibold">{{ job.german_requirement_level or "—" }}</div>
+          </div>
+          <div class="col">
+            <div class="text-muted small">Job ID</div>
+            <div class="fw-semibold text-muted">{{ job.job_id }}</div>
+          </div>
+          <div class="col">
+            <div class="text-muted small">CL Generated</div>
+            <div>
+              {% if job.generation_date %}
+              {{ job.generation_date[:10] }}
+              {% else %}—{% endif %}
+            </div>
+          </div>
+        </div>
+
+        {% if job.screening_reasoning %}
+        <hr>
+        <div class="small">
+          <span class="text-muted fw-semibold">Screening notes: </span>{{ job.screening_reasoning }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Cover letter -->
+    <div class="card shadow-sm mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-envelope me-2"></i>Cover Letter</span>
+        {% if job.cover_letter_text %}
+        <button class="btn btn-sm btn-outline-secondary" id="copyBtn" onclick="copyCoverLetter()">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% if job.cover_letter_text %}
+        <div class="cover-letter-box" id="coverLetterText">{{ job.cover_letter_text }}</div>
+        {% else %}
+        <div class="text-muted text-center py-4">
+          <i class="bi bi-hourglass fs-2 d-block mb-2"></i>
+          Cover letter not yet generated. Run the pipeline to generate it.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Job description -->
+    {% if job.description %}
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-file-text me-2"></i>Job Description
+      </div>
+      <div class="card-body">
+        <div class="small" style="white-space: pre-wrap; max-height: 400px; overflow-y: auto;">{{ job.description }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Right: status tracking -->
+  <div class="col-md-4">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-kanban me-2"></i>Application Status
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Current:
+          {% set st = job.application_status %}
+          {% if st == "applied" %}<span class="badge bg-primary">applied</span>
+          {% elif st == "interviewing" %}<span class="badge bg-info text-dark">interviewing</span>
+          {% elif st == "offered" %}<span class="badge bg-success">offered</span>
+          {% elif st == "rejected" %}<span class="badge bg-danger">rejected</span>
+          {% else %}<span class="badge bg-light text-muted">pending</span>{% endif %}
+          {% if job.applied_at %}
+          <span class="ms-2 text-muted">· {{ job.applied_at[:10] }}</span>
+          {% endif %}
+        </p>
+
+        <form method="post" action="/jobs/{{ job.job_id }}/status">
+          <div class="d-grid gap-2">
+            {% if job.application_status != "applied" %}
+            <button name="status" value="applied" class="btn btn-primary btn-sm">
+              <i class="bi bi-send me-1"></i>Mark Applied
+            </button>
+            {% endif %}
+            {% if job.application_status != "interviewing" %}
+            <button name="status" value="interviewing" class="btn btn-info btn-sm text-dark">
+              <i class="bi bi-calendar-check me-1"></i>Mark Interviewing
+            </button>
+            {% endif %}
+            {% if job.application_status != "offered" %}
+            <button name="status" value="offered" class="btn btn-success btn-sm">
+              <i class="bi bi-trophy me-1"></i>Mark Offered
+            </button>
+            {% endif %}
+            {% if job.application_status != "rejected" %}
+            <button name="status" value="rejected" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-x-circle me-1"></i>Mark Rejected
+            </button>
+            {% endif %}
+            {% if job.application_status %}
+            <hr class="my-1">
+            <button name="status" value="" class="btn btn-light btn-sm text-muted">
+              <i class="bi bi-arrow-counterclockwise me-1"></i>Clear Status
+            </button>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if job.jobPostingUrl %}
+    <div class="card shadow-sm">
+      <div class="card-body text-center">
+        <a href="{{ job.jobPostingUrl }}" target="_blank" rel="noopener"
+           class="btn btn-primary w-100">
+          <i class="bi bi-linkedin me-2"></i>Open on LinkedIn
+        </a>
+        <div class="text-muted small mt-2">Job ID: {{ job.job_id }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyCoverLetter() {
+  const text = document.getElementById("coverLetterText").innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById("copyBtn");
+    btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
+    btn.classList.replace("btn-outline-secondary", "btn-success");
+    setTimeout(() => {
+      btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy';
+      btn.classList.replace("btn-success", "btn-outline-secondary");
+    }, 2000);
+  });
+}
+</script>
+{% endblock %}
