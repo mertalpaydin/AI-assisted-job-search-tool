@@ -57,6 +57,7 @@ class CoverLetterWorker:
         cover_letter_queue: queue.Queue,
         prompt_manager: PromptManager,
         api_keys: list[str],
+        export_dir: str | None = None,
     ) -> None:
         self._config = config
         self._db = db
@@ -68,6 +69,7 @@ class CoverLetterWorker:
             requests_per_minute=config.cover_letter.rate_limits.requests_per_minute,
         )
         self._cl_cfg = config.cover_letter
+        self._export_dir = export_dir
 
     async def _call_gemini(
         self, api_key: str, system_prompt: str, user_prompt: str
@@ -136,6 +138,13 @@ class CoverLetterWorker:
 
         self._db.save_cover_letter(job_id, text, cl_cfg.model, key_idx)
         logger.info("Cover letter generated for job {} ({})", job_id, job.title)
+
+        if self._export_dir is not None:
+            try:
+                from job_search.export.exporter import export_single_job
+                export_single_job(self._db, job_id, self._export_dir)
+            except Exception as exc:
+                logger.warning("Auto-export failed for job {}: {}", job_id, exc)
 
     async def _worker_loop(self) -> None:
         """Async loop: drain the queue until shutdown."""

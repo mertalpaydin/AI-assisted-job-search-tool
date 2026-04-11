@@ -63,6 +63,8 @@ class JobSearchCoordinator:
         self._monitor_loop()
 
     def cleanup(self) -> None:
+        if self._shutdown.should_shutdown():
+            return  # Idempotent — prevents double-cleanup from SIGTERM + KeyboardInterrupt
         self._shutdown.request_shutdown()
         for t in self._threads:
             t.join(timeout=10)
@@ -74,8 +76,31 @@ class JobSearchCoordinator:
     # Worker startup
     # ------------------------------------------------------------------
 
+    def _start_web_ui(self) -> None:
+        from job_search.web.app import init_app
+
+        flask_app = init_app(self._db)
+        host = self._config.web.host
+        port = self._config.web.port
+
+        def _run() -> None:
+            try:
+                flask_app.run(host=host, port=port, debug=False,
+                              use_reloader=False, threaded=True)
+            except OSError as exc:
+                logger.warning("Web UI failed to start on port {}: {}", port, exc)
+
+        # daemon=True: thread exits automatically when the main process exits.
+        # NOT added to self._threads — Werkzeug has no programmatic shutdown hook.
+        threading.Thread(target=_run, name="web-ui", daemon=True).start()
+        logger.info("Web UI started → http://{}:{}/", host, port)
+
     def _start_workers(self) -> None:
         cfg = self._config
+
+        # --- Web UI (daemon thread, optional) ---
+        if cfg.web.auto_start:
+            self._start_web_ui()
 
         # --- Auth ---
         logger.info("Authenticating with LinkedIn…")
@@ -136,6 +161,7 @@ class JobSearchCoordinator:
                 cover_letter_queue=self._cover_letter_queue,
                 prompt_manager=prompt_manager,
                 api_keys=api_keys,
+                export_dir=self._config.export.output_dir,
             )
             self._spawn("cover-letter", cl_worker.run)
 

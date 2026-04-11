@@ -40,9 +40,10 @@ def init_app(db: DatabaseManager) -> Flask:
 def index():
     db = get_db()
     stats = db.get_stats()
+    pipeline_stats = db.get_pipeline_stats()
     app_counts = db.get_application_counts()
-    return render_template("index.html", stats=stats, app_counts=app_counts,
-                           statuses=APPLICATION_STATUSES)
+    return render_template("index.html", stats=stats, pipeline_stats=pipeline_stats,
+                           app_counts=app_counts, statuses=APPLICATION_STATUSES)
 
 
 @app.route("/jobs")
@@ -74,9 +75,20 @@ def update_status(job_id: int):
     status = request.form.get("status", "").strip()
     if status not in APPLICATION_STATUSES and status != "":
         abort(400)
-    if status:
-        db.mark_application_status(job_id, status)
-    else:
-        # Clear status
-        db.mark_application_status(job_id, None)
+    db.mark_application_status(job_id, status if status else None)
     return redirect(url_for("job_detail", job_id=job_id))
+
+
+@app.route("/jobs/<int:job_id>/quick-apply", methods=["POST"])
+def quick_apply(job_id: int):
+    """Toggle applied status inline from the job list."""
+    db = get_db()
+    job = db.get_selected_job(job_id)
+    if job is None:
+        abort(404)
+    new_status = None if job.application_status == "applied" else "applied"
+    db.mark_application_status(job_id, new_status)
+    status_filter = request.form.get("status_filter", "")
+    if status_filter:
+        return redirect(url_for("jobs", status=status_filter))
+    return redirect(url_for("jobs"))

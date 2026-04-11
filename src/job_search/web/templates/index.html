@@ -1,40 +1,77 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 
-{% block content %}
-<h4 class="mb-4 fw-semibold">Dashboard</h4>
+{% block head_extra %}
+<meta http-equiv="refresh" content="30">
+{% endblock %}
 
-<!-- Pipeline stats -->
-<div class="row g-3 mb-4">
-  {% set cards = [
-    ("Total Found",      stats.total_jobs,              "primary",   "bi-search"),
-    ("Details Scraped",  stats.with_details,            "info",      "bi-file-text"),
-    ("Screened",         stats.screened,                "secondary", "bi-cpu"),
-    ("Selected",         stats.selected,                "success",   "bi-check-circle"),
-    ("Cover Letters",    stats.cover_letters_generated, "warning",   "bi-envelope"),
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h4 class="mb-0 fw-semibold">Dashboard</h4>
+  <span class="text-muted small"><i class="bi bi-arrow-repeat me-1"></i>Auto-refreshes every 30s</span>
+</div>
+
+<!-- Pipeline Funnel -->
+<h5 class="mb-3 fw-semibold">Pipeline Funnel</h5>
+<div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+  {% set funnel = [
+    ("Found",          pipeline_stats.total_found,    "primary",   "bi-search"),
+    ("Scraped",        pipeline_stats.details_scraped,"info",      "bi-file-text"),
+    ("Screened",       pipeline_stats.screened_ok,    "secondary", "bi-cpu"),
+    ("Passed",         pipeline_stats.screen_pass,    "success",   "bi-check-circle"),
+    ("Cover Letters",  pipeline_stats.cl_generated,   "warning",   "bi-envelope"),
   ] %}
-  {% for label, value, color, icon in cards %}
-  <div class="col-md-2">
-    <div class="card stat-card shadow-sm h-100">
-      <div class="card-body text-center py-3">
-        <i class="bi {{ icon }} text-{{ color }} fs-3"></i>
-        <div class="fs-2 fw-bold mt-1">{{ value }}</div>
-        <div class="text-muted small">{{ label }}</div>
-      </div>
+  {% for label, value, color, icon in funnel %}
+  <div class="card stat-card shadow-sm" style="min-width:110px">
+    <div class="card-body text-center py-3 px-2">
+      <i class="bi {{ icon }} text-{{ color }} fs-4"></i>
+      <div class="fs-3 fw-bold mt-1">{{ value }}</div>
+      <div class="text-muted small">{{ label }}</div>
     </div>
   </div>
+  {% if not loop.last %}
+  <i class="bi bi-arrow-right text-muted fs-4 flex-shrink-0"></i>
+  {% endif %}
   {% endfor %}
 </div>
 
-<!-- Application tracking -->
+<!-- Sub-counts (errors / pending) -->
+<div class="d-flex flex-wrap gap-2 mb-4">
+  {% if pipeline_stats.details_pending > 0 %}
+  <span class="badge bg-secondary">{{ pipeline_stats.details_pending }} details pending</span>
+  {% endif %}
+  {% if pipeline_stats.details_error > 0 %}
+  <span class="badge bg-danger">{{ pipeline_stats.details_error }} detail errors</span>
+  {% endif %}
+  {% if pipeline_stats.screened_error > 0 %}
+  <span class="badge bg-danger">{{ pipeline_stats.screened_error }} screen errors</span>
+  {% endif %}
+  {% if pipeline_stats.screen_fail > 0 %}
+  <span class="badge bg-warning text-dark">{{ pipeline_stats.screen_fail }} screened out</span>
+  {% endif %}
+  {% if pipeline_stats.cl_pending > 0 %}
+  <span class="badge bg-secondary">{{ pipeline_stats.cl_pending }} CL pending</span>
+  {% endif %}
+  {% if pipeline_stats.cl_error > 0 %}
+  <span class="badge bg-danger">{{ pipeline_stats.cl_error }} CL errors</span>
+  {% endif %}
+</div>
+
+<!-- Application Tracking -->
 <h5 class="mb-3 fw-semibold">Application Tracking</h5>
 <div class="row g-3 mb-4">
+  {% set applied_count     = app_counts.get("applied", 0) %}
+  {% set interview_count   = app_counts.get("interviewing", 0) %}
+  {% set offered_count     = app_counts.get("offered", 0) %}
+  {% set rejected_count    = app_counts.get("rejected", 0) %}
+  {% set tracked_total     = applied_count + interview_count + offered_count + rejected_count %}
+  {% set pending_count     = [pipeline_stats.screen_pass - tracked_total, 0] | max %}
   {% set track_cards = [
-    ("Pending",      app_counts.get("pending", stats.selected - (app_counts|sum(attribute="value") if app_counts else 0)),  "light",   "bi-hourglass"),
-    ("Applied",      app_counts.get("applied", 0),      "primary", "bi-send"),
-    ("Interviewing", app_counts.get("interviewing", 0), "info",    "bi-calendar-check"),
-    ("Offered",      app_counts.get("offered", 0),      "success", "bi-trophy"),
-    ("Rejected",     app_counts.get("rejected", 0),     "danger",  "bi-x-circle"),
+    ("Pending",      pending_count,    "light",   "bi-hourglass"),
+    ("Applied",      applied_count,    "primary", "bi-send"),
+    ("Interviewing", interview_count,  "info",    "bi-calendar-check"),
+    ("Offered",      offered_count,    "success", "bi-trophy"),
+    ("Rejected",     rejected_count,   "danger",  "bi-x-circle"),
   ] %}
   {% for label, value, color, icon in track_cards %}
   <div class="col-md-2">
