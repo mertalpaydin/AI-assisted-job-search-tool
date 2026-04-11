@@ -35,25 +35,30 @@ screening:
 cover_letter:
   system_prompt: |
     You are an expert cover letter writer. Create personalized, professional
-    cover letters (250-350 words) that highlight relevant experience and
-    demonstrate genuine interest in the role.
+    cover letters that highlight relevant experience and demonstrate genuine
+    interest in the role. Use the candidate's full CV and draft cover letter
+    as context to tailor the output to the specific job posting.
 
   user_prompt_template: |
-    Write a cover letter for the following application:
+    Write a cover letter for the following application.
 
-    Candidate Summary:
-    {cv_summary}
+    --- CANDIDATE CV ---
+    {cv_text}
 
+    --- DRAFT / DEFAULT COVER LETTER ---
+    {draft_cover_letter}
+
+    --- JOB POSTING ---
     Company: {company_name}
     Position: {job_title}
     Location: {job_location}
-    Job Description:
+    Description:
     {job_description}
 
     Requirements:
-    1. Show genuine interest in the company and role
-    2. Highlight 2-3 most relevant experiences from the CV
-    3. Address key requirements from the job description
-    4. Mention location/remote compatibility naturally
-    5. Professional format without address headers
-    6. 250-350 words
+    1. Use the draft cover letter as a stylistic and structural starting point
+    2. Tailor content specifically to the job posting and company
+    3. Highlight the most relevant experiences and skills from the CV
+    4. Address key requirements from the job description
+    5. Mention location/remote compatibility naturally
+    6. Professional format without address headers

@@ -86,6 +86,7 @@ class CoverLetterWorker:
                     system_instruction=system_prompt,
                     temperature=self._cl_cfg.temperature,
                     max_output_tokens=self._cl_cfg.max_tokens,
+                    thinking_config=genai_types.ThinkingConfig(thinking_level="low"),
                 ),
             )
             return response.text

@@ -13,10 +13,19 @@ class PromptManager:
         self,
         prompts_path: str = "config/prompts.yaml",
         cv_path: str = "config/cv.yaml",
+        draft_cover_letter_path: str = "config/cover_letter_draft.txt",
     ) -> None:
         self._prompts = self._load_yaml(prompts_path)
         self._cv = self._load_yaml(cv_path)
         self._cv_text = self._render_cv_text()
+        self._draft_cover_letter = self._load_draft(draft_cover_letter_path)
+
+    @staticmethod
+    def _load_draft(path: str) -> str:
+        p = Path(path)
+        if not p.exists():
+            return "(No draft cover letter provided.)"
+        return p.read_text(encoding="utf-8").strip()
 
     @staticmethod
     def _load_yaml(path: str) -> dict[str, Any]:
@@ -114,10 +123,11 @@ class PromptManager:
         cfg = self._prompts["cover_letter"]
         system = cfg["system_prompt"].strip()
         user = cfg["user_prompt_template"].format(
-            cv_summary=self.cv_summary,
+            cv_text=self._cv_text,
+            draft_cover_letter=self._draft_cover_letter,
             job_title=job_title or "",
             company_name=company_name or "Unknown",
             job_location=job_location or "Unknown",
-            job_description=(job_description or "")[:3000],
+            job_description=job_description or "",
         )
         return system, user

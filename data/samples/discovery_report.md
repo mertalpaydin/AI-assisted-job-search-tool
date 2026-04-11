@@ -24,13 +24,13 @@
 
 ## Sample Files
 
-1. `C:\Users\merta\Desktop\AI-assisted-job-search-tool\data\samples\job_4380695895_20260403_125159.json` (25.5 KB)
-2. `C:\Users\merta\Desktop\AI-assisted-job-search-tool\data\samples\job_4105575977_20260403_125159.json` (43.5 KB)
-3. `C:\Users\merta\Desktop\AI-assisted-job-search-tool\data\samples\job_4392903020_20260403_125159.json` (38.2 KB)
+1. `..\AI-assisted-job-search-tool\data\samples\job_4380695895_20260403_125159.json` (25.5 KB)
+2. `..\AI-assisted-job-search-tool\data\samples\job_4105575977_20260403_125159.json` (43.5 KB)
+3. `..\AI-assisted-job-search-tool\data\samples\job_4392903020_20260403_125159.json` (38.2 KB)
 
 ## Field Catalog
 
-Comprehensive field catalog saved to: `C:\Users\merta\Desktop\AI-assisted-job-search-tool\data\samples\field_catalog.yaml`
+Comprehensive field catalog saved to: `..\AI-assisted-job-search-tool\data\samples\field_catalog.yaml`
 
 ## Next Steps
 
