@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE TABLE IF NOT EXISTS screening_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id INTEGER NOT NULL,
+    job_id INTEGER NOT NULL UNIQUE,
     screening_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     cv_match_score REAL,
     german_requirement_level TEXT,
