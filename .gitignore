@@ -12,6 +12,9 @@ __pycache__/
 # claude code
 .claude/
 
+# Original reference codebase (not part of the new project)
+codebase/
+
 # Distribution / packaging
 .Python
 build/
@@ -215,6 +218,9 @@ __marimo__/
 # Project-specific sensitive files
 codebase/logins_backup_*.csv
 config/.env
+# Personal config files — use *.example versions as templates
+config/cv.yaml
+config/config.yaml
 data/*.db
 logs/
 
