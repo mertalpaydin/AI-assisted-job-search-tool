@@ -19,7 +19,7 @@ _SEARCH_URL = (
     "&count=100&q=jobSearch"
     "&query=(origin:JOB_SEARCH_PAGE_OTHER_ENTRY,selectedFilters:(sortBy:List(DD))"
     ",keywords:{keyword},locationUnion:(geoId:{geo_id}),spellCorrectionEnabled:true)"
-    "&start=0"
+    "&start={start}"
 )
 
 _JOB_CARD_TYPE = "com.linkedin.voyager.dash.jobs.JobPostingCard"
@@ -75,6 +75,7 @@ class SearchWorker:
             for loc in config.search.locations
         ]
         self._pairs: cycle = cycle(pairs)
+        self._max_pages = config.search.max_pages
 
     def run(self) -> None:
         logger.info("Search worker started")
@@ -93,28 +94,48 @@ class SearchWorker:
         logger.info("Search worker stopped")
 
     def _search_once(self, keyword: str, location: LocationConfig) -> None:
-        url = _SEARCH_URL.format(keyword=keyword, geo_id=location.geo_id)
-        resp = self._session.get(url, headers=self._headers, timeout=15)
+        total_new = 0
+        total_seen = 0
 
-        if resp.status_code != 200:
-            logger.warning(
-                "Search HTTP {} for '{}' @ {}: {}",
-                resp.status_code, keyword, location.name, resp.text[:200],
-            )
-            return
+        for page in range(self._max_pages):
+            start = page * 100
+            url = _SEARCH_URL.format(keyword=keyword, geo_id=location.geo_id, start=start)
+            resp = self._session.get(url, headers=self._headers, timeout=15)
 
-        stubs = _parse_search_response(resp.json())
-        new_count = 0
+            if resp.status_code != 200:
+                logger.warning(
+                    "Search HTTP {} for '{}' @ {} (page {}): {}",
+                    resp.status_code, keyword, location.name, page, resp.text[:200],
+                )
+                break
 
-        for stub in stubs:
-            if self._db.job_exists(stub.job_id):
-                continue
-            self._db.insert_job(stub.job_id, keyword, location.geo_id)
-            self._details_queue.put(stub.job_id)
-            self._state.record_new_job()
-            new_count += 1
+            stubs = _parse_search_response(resp.json())
+            if not stubs:
+                break  # No more results
+
+            new_in_page = 0
+            for stub in stubs:
+                if self._db.job_exists(stub.job_id):
+                    continue
+                self._db.insert_job(stub.job_id, keyword, location.geo_id)
+                self._details_queue.put(stub.job_id)
+                self._state.record_new_job()
+                new_in_page += 1
+
+            total_new += new_in_page
+            total_seen += len(stubs)
+
+            if new_in_page == 0:
+                # All jobs on this page already known — no point going deeper
+                break
+
+            # Respect rate limits between pages
+            if page < self._max_pages - 1 and not self._shutdown.should_shutdown():
+                delay = self._config.search.rate_limits.delay_between_requests
+                self._shutdown.wait(timeout=delay)
 
         logger.info(
-            "Search '{}' @ {} — {}/{} new jobs",
-            keyword, location.name, new_count, len(stubs),
+            "Search '{}' @ {} — {}/{} new jobs ({}p)",
+            keyword, location.name, total_new, total_seen,
+            min(self._max_pages, (total_seen // 100) + 1),
         )

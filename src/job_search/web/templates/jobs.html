@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Selected Jobs{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h4 class="mb-0 fw-semibold">
+    Selected Jobs
+    <span class="badge bg-secondary ms-2">{{ jobs|length }}</span>
+  </h4>
+  {% if status_filter %}
+  <a href="/jobs" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-x me-1"></i>Clear filter
+  </a>
+  {% endif %}
+</div>
+
+{% if not jobs %}
+<div class="alert alert-info">No jobs found for this filter.</div>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-hover align-middle bg-white shadow-sm rounded">
+    <thead class="table-light">
+      <tr>
+        <th>Job</th>
+        <th>Location</th>
+        <th class="text-center">Match</th>
+        <th class="text-center">German</th>
+        <th class="text-center">Cover Letter</th>
+        <th class="text-center">Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td>
+          <div class="fw-semibold">{{ job.title or "N/A" }}</div>
+          <div class="text-muted small">{{ job.company_name or "Unknown" }}</div>
+        </td>
+        <td>
+          <span class="small">{{ job.formattedLocation or "N/A" }}</span>
+          {% if job.workRemoteAllowed %}
+          <span class="badge bg-light text-success ms-1 small">Remote</span>
+          {% endif %}
+        </td>
+        <td class="text-center">
+          {% if job.cv_match_score is not none %}
+          {% set pct = (job.cv_match_score * 100)|int %}
+          {% if pct >= 80 %}
+          <span class="badge bg-success badge-match">{{ pct }}%</span>
+          {% elif pct >= 65 %}
+          <span class="badge bg-warning text-dark badge-match">{{ pct }}%</span>
+          {% else %}
+          <span class="badge bg-secondary badge-match">{{ pct }}%</span>
+          {% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-center">
+          {% set gl = job.german_requirement_level or "?" %}
+          {% if gl == "none" %}<span class="badge bg-success small">none</span>
+          {% elif gl == "low" %}<span class="badge bg-info text-dark small">low</span>
+          {% elif gl == "medium" %}<span class="badge bg-warning text-dark small">medium</span>
+          {% elif gl == "high" %}<span class="badge bg-danger small">high</span>
+          {% else %}<span class="badge bg-light text-muted small">{{ gl }}</span>{% endif %}
+        </td>
+        <td class="text-center">
+          {% if job.cover_letter_text %}
+          <i class="bi bi-check-circle-fill text-success"></i>
+          {% else %}
+          <i class="bi bi-hourglass text-muted"></i>
+          {% endif %}
+        </td>
+        <td class="text-center">
+          {% set st = job.application_status %}
+          {% if st == "applied" %}<span class="badge bg-primary status-badge">applied</span>
+          {% elif st == "interviewing" %}<span class="badge bg-info text-dark status-badge">interviewing</span>
+          {% elif st == "offered" %}<span class="badge bg-success status-badge">offered</span>
+          {% elif st == "rejected" %}<span class="badge bg-danger status-badge">rejected</span>
+          {% else %}<span class="badge bg-light text-muted status-badge">pending</span>{% endif %}
+        </td>
+        <td class="text-end">
+          <a href="/jobs/{{ job.job_id }}" class="btn btn-sm btn-outline-primary">
+            View <i class="bi bi-arrow-right ms-1"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

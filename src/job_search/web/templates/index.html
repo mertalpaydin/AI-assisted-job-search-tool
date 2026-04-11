@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<h4 class="mb-4 fw-semibold">Dashboard</h4>
+
+<!-- Pipeline stats -->
+<div class="row g-3 mb-4">
+  {% set cards = [
+    ("Total Found",      stats.total_jobs,              "primary",   "bi-search"),
+    ("Details Scraped",  stats.with_details,            "info",      "bi-file-text"),
+    ("Screened",         stats.screened,                "secondary", "bi-cpu"),
+    ("Selected",         stats.selected,                "success",   "bi-check-circle"),
+    ("Cover Letters",    stats.cover_letters_generated, "warning",   "bi-envelope"),
+  ] %}
+  {% for label, value, color, icon in cards %}
+  <div class="col-md-2">
+    <div class="card stat-card shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <i class="bi {{ icon }} text-{{ color }} fs-3"></i>
+        <div class="fs-2 fw-bold mt-1">{{ value }}</div>
+        <div class="text-muted small">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Application tracking -->
+<h5 class="mb-3 fw-semibold">Application Tracking</h5>
+<div class="row g-3 mb-4">
+  {% set track_cards = [
+    ("Pending",      app_counts.get("pending", stats.selected - (app_counts|sum(attribute="value") if app_counts else 0)),  "light",   "bi-hourglass"),
+    ("Applied",      app_counts.get("applied", 0),      "primary", "bi-send"),
+    ("Interviewing", app_counts.get("interviewing", 0), "info",    "bi-calendar-check"),
+    ("Offered",      app_counts.get("offered", 0),      "success", "bi-trophy"),
+    ("Rejected",     app_counts.get("rejected", 0),     "danger",  "bi-x-circle"),
+  ] %}
+  {% for label, value, color, icon in track_cards %}
+  <div class="col-md-2">
+    <div class="card stat-card border-{{ color }} shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <i class="bi {{ icon }} text-{{ color }} fs-3"></i>
+        <div class="fs-2 fw-bold mt-1">{{ value }}</div>
+        <div class="text-muted small">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="d-flex gap-2">
+  <a href="/jobs" class="btn btn-primary">
+    <i class="bi bi-list-ul me-1"></i>View Selected Jobs
+  </a>
+  <a href="/jobs?status=pending" class="btn btn-outline-secondary">
+    <i class="bi bi-hourglass me-1"></i>Pending Applications
+  </a>
+</div>
+{% endblock %}

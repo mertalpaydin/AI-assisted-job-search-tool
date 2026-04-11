@@ -186,6 +186,9 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(request_timestam
 # Data classes
 # ---------------------------------------------------------------------------
 
+APPLICATION_STATUSES = ("applied", "rejected", "interviewing", "offered")
+
+
 @dataclass
 class JobRow:
     job_id: int
@@ -206,6 +209,26 @@ class ScreeningResult:
     location_match: bool
     is_selected: bool
     reasoning: str
+
+
+@dataclass
+class SelectedJobRow:
+    job_id: int
+    title: str | None
+    company_name: str | None
+    formattedLocation: str | None
+    jobPostingUrl: str | None
+    workRemoteAllowed: int | None
+    description: str | None
+    application_status: str | None
+    applied_at: str | None
+    cv_match_score: float | None
+    german_requirement_level: str | None
+    location_match: int | None
+    screening_reasoning: str | None
+    cover_letter_text: str | None
+    generation_date: str | None
+    generation_status: int | None
 
 
 # ---------------------------------------------------------------------------
@@ -308,8 +331,22 @@ class DatabaseManager:
             if stmt:
                 conn.execute(stmt)
         conn.commit()
+        self._migrate(conn)
         conn.close()
         logger.debug("Database schema initialized: {}", self._path)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Add columns introduced after initial schema creation."""
+        migrations = [
+            "ALTER TABLE jobs ADD COLUMN application_status TEXT",
+            "ALTER TABLE jobs ADD COLUMN applied_at TIMESTAMP",
+        ]
+        for sql in migrations:
+            try:
+                conn.execute(sql)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
     # ------------------------------------------------------------------
     # Jobs
@@ -519,6 +556,99 @@ class DatabaseManager:
             "selected": selected,
             "cover_letters_generated": cover_letters,
         }
+
+    # ------------------------------------------------------------------
+    # Application tracking
+    # ------------------------------------------------------------------
+
+    def mark_application_status(self, job_id: int, status: str) -> None:
+        applied_at = "CURRENT_TIMESTAMP" if status == "applied" else None
+        if applied_at:
+            with self._cursor() as cur:
+                cur.execute(
+                    "UPDATE jobs SET application_status = ?, applied_at = CURRENT_TIMESTAMP WHERE job_id = ?",
+                    (status, job_id),
+                )
+        else:
+            with self._cursor() as cur:
+                cur.execute(
+                    "UPDATE jobs SET application_status = ? WHERE job_id = ?",
+                    (status, job_id),
+                )
+
+    def get_application_counts(self) -> dict[str, int]:
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT application_status, COUNT(*) FROM jobs
+                WHERE application_status IS NOT NULL
+                GROUP BY application_status
+            """)
+            return {row[0]: row[1] for row in cur.fetchall()}
+
+    # ------------------------------------------------------------------
+    # Selected jobs (for export and web UI)
+    # ------------------------------------------------------------------
+
+    def get_selected_jobs(self) -> list[SelectedJobRow]:
+        """Return all AI-selected jobs, ordered by CV match score descending."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT
+                    j.job_id,
+                    j.title,
+                    c.name AS company_name,
+                    j.formattedLocation,
+                    j.jobPostingUrl,
+                    j.workRemoteAllowed,
+                    j.description,
+                    j.application_status,
+                    j.applied_at,
+                    sr.cv_match_score,
+                    sr.german_requirement_level,
+                    sr.location_match,
+                    sr.screening_reasoning,
+                    cl.cover_letter_text,
+                    cl.generation_date,
+                    cl.generation_status
+                FROM jobs j
+                LEFT JOIN companies c ON j.company_id = c.id
+                LEFT JOIN screening_results sr ON j.job_id = sr.job_id
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                WHERE sr.is_selected = 1
+                ORDER BY sr.cv_match_score DESC
+            """)
+            rows = cur.fetchall()
+            return [SelectedJobRow(**dict(row)) for row in rows]
+
+    def get_selected_job(self, job_id: int) -> SelectedJobRow | None:
+        """Return a single selected job by ID."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT
+                    j.job_id,
+                    j.title,
+                    c.name AS company_name,
+                    j.formattedLocation,
+                    j.jobPostingUrl,
+                    j.workRemoteAllowed,
+                    j.description,
+                    j.application_status,
+                    j.applied_at,
+                    sr.cv_match_score,
+                    sr.german_requirement_level,
+                    sr.location_match,
+                    sr.screening_reasoning,
+                    cl.cover_letter_text,
+                    cl.generation_date,
+                    cl.generation_status
+                FROM jobs j
+                LEFT JOIN companies c ON j.company_id = c.id
+                LEFT JOIN screening_results sr ON j.job_id = sr.job_id
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                WHERE j.job_id = ?
+            """, (job_id,))
+            row = cur.fetchone()
+            return SelectedJobRow(**dict(row)) if row else None
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn:
