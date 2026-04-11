@@ -68,3 +68,13 @@ database:
 logging:
   level: "INFO"
   file: "logs/job_search.log"
+
+# Web UI (starts automatically with the pipeline, also available via: job-search web)
+web:
+  auto_start: true
+  host: "127.0.0.1"
+  port: 5000
+
+# Export (cover letters written here automatically as each one is generated)
+export:
+  output_dir: "data/export"

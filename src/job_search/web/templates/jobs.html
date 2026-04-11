@@ -79,9 +79,23 @@
           {% else %}<span class="badge bg-light text-muted status-badge">pending</span>{% endif %}
         </td>
         <td class="text-end">
-          <a href="/jobs/{{ job.job_id }}" class="btn btn-sm btn-outline-primary">
-            View <i class="bi bi-arrow-right ms-1"></i>
-          </a>
+          <div class="d-flex gap-1 justify-content-end">
+            <form method="post" action="/jobs/{{ job.job_id }}/quick-apply">
+              <input type="hidden" name="status_filter" value="{{ status_filter }}">
+              {% if job.application_status == "applied" %}
+              <button type="submit" class="btn btn-sm btn-success" title="Click to undo applied">
+                <i class="bi bi-check2 me-1"></i>Applied
+              </button>
+              {% else %}
+              <button type="submit" class="btn btn-sm btn-outline-primary" title="Mark as applied">
+                <i class="bi bi-send me-1"></i>Apply
+              </button>
+              {% endif %}
+            </form>
+            <a href="/jobs/{{ job.job_id }}" class="btn btn-sm btn-outline-secondary">
+              View <i class="bi bi-arrow-right ms-1"></i>
+            </a>
+          </div>
         </td>
       </tr>
       {% endfor %}

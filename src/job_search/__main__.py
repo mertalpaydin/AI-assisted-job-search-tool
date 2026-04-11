@@ -28,6 +28,16 @@ def run(config: str, resume: bool, log_level: str | None) -> None:
     from job_search.orchestration.coordinator import JobSearchCoordinator
 
     coordinator = JobSearchCoordinator(cfg)
+
+    if cfg.web.auto_start:
+        click.echo(f"Web UI: http://{cfg.web.host}:{cfg.web.port}/  (starts with pipeline)")
+
+    import signal
+    try:
+        signal.signal(signal.SIGTERM, lambda *_: coordinator.cleanup())
+    except (AttributeError, OSError):
+        pass  # SIGTERM not available on all Windows configurations
+
     try:
         coordinator.start(resume=resume)
     except KeyboardInterrupt:

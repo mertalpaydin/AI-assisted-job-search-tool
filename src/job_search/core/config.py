@@ -90,6 +90,16 @@ class LoggingConfig(BaseModel):
     file: str = "logs/job_search.log"
 
 
+class WebUIConfig(BaseModel):
+    auto_start: bool = True
+    host: str = "127.0.0.1"
+    port: int = 5000
+
+
+class ExportConfig(BaseModel):
+    output_dir: str = "data/export"
+
+
 class Config(BaseModel):
     search: SearchConfig
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
@@ -98,6 +108,8 @@ class Config(BaseModel):
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    web: WebUIConfig = Field(default_factory=WebUIConfig)
+    export: ExportConfig = Field(default_factory=ExportConfig)
 
 
 # ---------------------------------------------------------------------------

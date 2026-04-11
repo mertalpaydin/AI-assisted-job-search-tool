@@ -557,6 +557,52 @@ class DatabaseManager:
             "cover_letters_generated": cover_letters,
         }
 
+    def get_pipeline_stats(self) -> dict[str, int]:
+        """Detailed funnel counts at every pipeline stage, including error and pending sub-states."""
+        with self._cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM jobs")
+            total_found = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM jobs WHERE scraped = 1")
+            details_scraped = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM jobs WHERE scraped = 0")
+            details_pending = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM jobs WHERE scraped = -1")
+            details_error = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM screening_results WHERE screening_status = 1")
+            screened_ok = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM screening_results WHERE screening_status = -1")
+            screened_error = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM screening_results WHERE is_selected = 1")
+            screen_pass = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM screening_results "
+                "WHERE screening_status = 1 AND is_selected = 0"
+            )
+            screen_fail = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM cover_letters WHERE generation_status = 1")
+            cl_generated = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM screening_results sr "
+                "LEFT JOIN cover_letters cl ON sr.job_id = cl.job_id "
+                "WHERE sr.is_selected = 1 AND cl.id IS NULL"
+            )
+            cl_pending = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM cover_letters WHERE generation_status = -1")
+            cl_error = cur.fetchone()[0]
+        return {
+            "total_found": total_found,
+            "details_scraped": details_scraped,
+            "details_pending": details_pending,
+            "details_error": details_error,
+            "screened_ok": screened_ok,
+            "screened_error": screened_error,
+            "screen_pass": screen_pass,
+            "screen_fail": screen_fail,
+            "cl_generated": cl_generated,
+            "cl_pending": cl_pending,
+            "cl_error": cl_error,
+        }
+
     # ------------------------------------------------------------------
     # Application tracking
     # ------------------------------------------------------------------
