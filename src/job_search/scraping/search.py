@@ -13,11 +13,13 @@ from job_search.core.state import ShutdownCoordinator, StateManager
 from job_search.scraping.auth import make_headers
 from job_search.scraping.models import JobStub
 
-_SEARCH_URL = (
+_WORK_TYPE_CODES: dict[str, int] = {"remote": 2, "onsite": 1, "hybrid": 3}
+
+_SEARCH_URL_BASE = (
     "https://www.linkedin.com/voyager/api/voyagerJobsDashJobCards"
     "?decorationId=com.linkedin.voyager.dash.deco.jobs.search.JobSearchCardsCollection-187"
     "&count=100&q=jobSearch"
-    "&query=(origin:JOB_SEARCH_PAGE_OTHER_ENTRY,selectedFilters:(sortBy:List(DD))"
+    "&query=(origin:JOB_SEARCH_PAGE_OTHER_ENTRY,selectedFilters:(sortBy:List(DD){wt_filter})"
     ",keywords:{keyword},locationUnion:(geoId:{geo_id}),spellCorrectionEnabled:true)"
     "&start={start}"
 )
@@ -97,9 +99,14 @@ class SearchWorker:
         total_new = 0
         total_seen = 0
 
+        wt_code = _WORK_TYPE_CODES.get(location.work_type or "", None)
+        wt_filter = f",f_WT:List({wt_code})" if wt_code else ""
+
         for page in range(self._max_pages):
             start = page * 100
-            url = _SEARCH_URL.format(keyword=keyword, geo_id=location.geo_id, start=start)
+            url = _SEARCH_URL_BASE.format(
+                keyword=keyword, geo_id=location.geo_id, start=start, wt_filter=wt_filter
+            )
             resp = self._session.get(url, headers=self._headers, timeout=15)
 
             if resp.status_code != 200:

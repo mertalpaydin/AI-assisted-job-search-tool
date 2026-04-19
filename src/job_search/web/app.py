@@ -50,14 +50,32 @@ def index():
 def jobs():
     db = get_db()
     status_filter = request.args.get("status", "")
-    all_jobs = db.get_selected_jobs()
+    sort_by = request.args.get("sort", "cv_match_score")
+    sort_dir = request.args.get("dir", "desc")
+    job_list = db.get_selected_jobs(sort_by=sort_by, sort_dir=sort_dir)
     if status_filter:
         if status_filter == "pending":
-            all_jobs = [j for j in all_jobs if not j.application_status]
+            job_list = [j for j in job_list if not j.application_status]
         else:
-            all_jobs = [j for j in all_jobs if j.application_status == status_filter]
-    return render_template("jobs.html", jobs=all_jobs, status_filter=status_filter,
-                           statuses=APPLICATION_STATUSES)
+            job_list = [j for j in job_list if j.application_status == status_filter]
+    return render_template(
+        "jobs.html", jobs=job_list, status_filter=status_filter,
+        statuses=APPLICATION_STATUSES, show_all=False,
+        current_sort=sort_by, current_dir=sort_dir,
+    )
+
+
+@app.route("/jobs/all")
+def jobs_all():
+    db = get_db()
+    sort_by = request.args.get("sort", "listedAt")
+    sort_dir = request.args.get("dir", "desc")
+    job_list = db.get_all_jobs(sort_by=sort_by, sort_dir=sort_dir)
+    return render_template(
+        "jobs.html", jobs=job_list, status_filter="",
+        statuses=APPLICATION_STATUSES, show_all=True,
+        current_sort=sort_by, current_dir=sort_dir,
+    )
 
 
 @app.route("/jobs/<int:job_id>")
@@ -89,6 +107,9 @@ def quick_apply(job_id: int):
     new_status = None if job.application_status == "applied" else "applied"
     db.mark_application_status(job_id, new_status)
     status_filter = request.form.get("status_filter", "")
+    show_all = request.form.get("show_all", "")
+    if show_all:
+        return redirect(url_for("jobs_all"))
     if status_filter:
         return redirect(url_for("jobs", status=status_filter))
     return redirect(url_for("jobs"))

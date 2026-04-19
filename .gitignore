@@ -221,11 +221,18 @@ config/.env
 # Personal config files — use *.example versions as templates
 config/cv.yaml
 config/config.yaml
+config/cover_letter_draft.txt
 data/*.db
 logs/
 
 # Large data files (sample JSONs kept in git; real scraped data excluded)
 data/jobs.db
 
+# Exported data (generated at runtime, not source-controlled)
+data/export/
+
 # Local AI model files (GGUF, safetensors, etc.)
 data/models/
+
+# Personal improvement plan (contains private context)
+docs/improvement-plan.md

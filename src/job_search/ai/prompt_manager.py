@@ -112,6 +112,11 @@ class PromptManager:
         )
         return system, user
 
+    @staticmethod
+    def _escape(text: str) -> str:
+        """Escape literal { and } in user-supplied text so str.format() won't choke on them."""
+        return text.replace("{", "{{").replace("}", "}}")
+
     def format_cover_letter_prompt(
         self,
         job_title: str,
@@ -123,11 +128,11 @@ class PromptManager:
         cfg = self._prompts["cover_letter"]
         system = cfg["system_prompt"].strip()
         user = cfg["user_prompt_template"].format(
-            cv_text=self._cv_text,
-            draft_cover_letter=self._draft_cover_letter,
-            job_title=job_title or "",
-            company_name=company_name or "Unknown",
-            job_location=job_location or "Unknown",
-            job_description=job_description or "",
+            cv_text=self._escape(self._cv_text),
+            draft_cover_letter=self._escape(self._draft_cover_letter),
+            job_title=self._escape(job_title or ""),
+            company_name=self._escape(company_name or "Unknown"),
+            job_location=self._escape(job_location or "Unknown"),
+            job_description=self._escape(job_description or ""),
         )
         return system, user

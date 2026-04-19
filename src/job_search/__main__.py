@@ -1,5 +1,22 @@
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
+# Reconfigure stdout/stderr to UTF-8 so emoji and other non-ASCII characters in
+# job titles/descriptions don't cause UnicodeEncodeError on Windows (cp1252).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+# Ensure CWD is the project root so relative paths (config/, data/, logs/) work
+# regardless of how the script is launched (IntelliJ, terminal, uv run, etc.).
+_PROJECT_ROOT = Path(__file__).parents[2]  # src/job_search/__main__.py → project root
+if Path.cwd() != _PROJECT_ROOT:
+    os.chdir(_PROJECT_ROOT)
+
 import click
 
 from job_search.core.config import load_config

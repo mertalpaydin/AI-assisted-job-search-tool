@@ -163,12 +163,13 @@ class DetailsWorker:
 
         parsed = _parse_details_response(job_id, resp.json())
 
-        company_id: int | None = None
         if parsed.company:
-            company_id = self._db.upsert_company(
-                parsed.company.company_urn, parsed.company.fields
-            )
+            cf = parsed.company.fields
+            parsed.job_fields["company_name"] = cf.get("name")
+            parsed.job_fields["company_url"] = cf.get("url")
+            parsed.job_fields["company_staff_count"] = cf.get("staffCount")
+            parsed.job_fields["company_universal_name"] = cf.get("universalName")
 
-        self._db.update_job_details(job_id, parsed.job_fields, company_id=company_id)
+        self._db.update_job_details(job_id, parsed.job_fields)
         self._screening_queue.put(job_id)
         logger.debug("Details saved for job {}", job_id)

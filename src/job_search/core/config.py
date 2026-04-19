@@ -15,6 +15,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class LocationConfig(BaseModel):
     geo_id: str
     name: str
+    work_type: str | None = None  # "remote" | "onsite" | "hybrid" | None = any
 
 
 class RateLimitConfig(BaseModel):
@@ -41,7 +42,6 @@ class ScreeningModelConfig(BaseModel):
 class ScreeningCriteriaConfig(BaseModel):
     min_cv_match_score: float = 0.65
     max_german_level: str = "low"
-    preferred_locations: list[str] = Field(default_factory=list)
 
 
 class ScreeningConfig(BaseModel):
@@ -59,6 +59,7 @@ class CoverLetterConfig(BaseModel):
     model: str = "gemini-1.5-flash"
     temperature: float = 0.7
     max_tokens: int = 1000
+    use_search_grounding: bool = True  # enable Google Search so Gemini can research the company
     rate_limits: CoverLetterRateLimitConfig = Field(default_factory=CoverLetterRateLimitConfig)
 
 

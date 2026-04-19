@@ -78,7 +78,7 @@ class TestStateManager:
         db.update_job_details(3001, {"title": "Dev"})
         db.save_screening_result(
             3001,
-            ScreeningResult(0.9, "none", True, True, "Good"),
+            ScreeningResult(0.9, "none", True, "Good"),
         )
 
         sm = StateManager(db)

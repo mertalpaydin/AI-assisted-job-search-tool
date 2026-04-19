@@ -124,7 +124,8 @@ class TestCoverLetterPrompt:
         system, user = pm.format_cover_letter_prompt(None, None, None, None)
         assert "Unknown" in user
 
-    def test_description_truncated_to_3000_chars(self, pm: PromptManager) -> None:
+    def test_full_description_passed_to_gemini(self, pm: PromptManager) -> None:
+        """Cover letter prompt passes the full description — no truncation (Gemini has large context)."""
         long_desc = "y" * 5000
         _, user = pm.format_cover_letter_prompt("Dev", "Co", "loc", long_desc)
-        assert "y" * 3001 not in user
+        assert "y" * 5000 in user

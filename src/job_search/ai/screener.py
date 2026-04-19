@@ -29,7 +29,6 @@ def _apply_criteria(raw: dict, config: Config) -> ScreeningResult:
 
     cv_match = float(raw.get("cv_match_score", 0.0))
     german_level = str(raw.get("german_requirement_level", "none")).lower()
-    location_match = bool(raw.get("location_match", False))
     reasoning = str(raw.get("reasoning", ""))
 
     if german_level not in _GERMAN_LEVELS:
@@ -38,16 +37,11 @@ def _apply_criteria(raw: dict, config: Config) -> ScreeningResult:
     max_german_idx = _GERMAN_LEVELS.index(criteria.max_german_level)
     german_ok = _GERMAN_LEVELS.index(german_level) <= max_german_idx
 
-    is_selected = (
-        cv_match >= criteria.min_cv_match_score
-        and german_ok
-        and location_match
-    )
+    is_selected = cv_match >= criteria.min_cv_match_score and german_ok
 
     return ScreeningResult(
         cv_match_score=cv_match,
         german_requirement_level=german_level,
-        location_match=location_match,
         is_selected=is_selected,
         reasoning=reasoning,
     )
@@ -144,13 +138,13 @@ class ScreeningWorker:
         if result.is_selected:
             self._cover_letter_queue.put(job_id)
             logger.info(
-                "Job {} SELECTED — cv_match={:.2f}, german={}, location={}",
-                job_id, result.cv_match_score, result.german_requirement_level, result.location_match,
+                "Job {} SELECTED — cv_match={:.2f}, german={}",
+                job_id, result.cv_match_score, result.german_requirement_level,
             )
         else:
             logger.debug(
-                "Job {} rejected — cv_match={:.2f}, german={}, location={}",
-                job_id, result.cv_match_score, result.german_requirement_level, result.location_match,
+                "Job {} rejected — cv_match={:.2f}, german={}",
+                job_id, result.cv_match_score, result.german_requirement_level,
             )
 
     def run(self) -> None:
