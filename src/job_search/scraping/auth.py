@@ -12,13 +12,27 @@ from selenium.webdriver.support.ui import WebDriverWait
 def _make_driver(browser: str) -> webdriver.Remote:
     browser = browser.lower()
     if browser == "chrome":
-        return webdriver.Chrome()
+        from selenium.webdriver.chrome.options import Options as ChromeOptions
+        opts = ChromeOptions()
+        opts.add_argument("--disable-blink-features=AutomationControlled")
+        opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+        opts.add_experimental_option("useAutomationExtension", False)
+        driver = webdriver.Chrome(options=opts)
     elif browser == "edge":
-        return webdriver.Edge()
+        from selenium.webdriver.edge.options import Options as EdgeOptions
+        opts = EdgeOptions()
+        opts.add_argument("--disable-blink-features=AutomationControlled")
+        opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+        opts.add_experimental_option("useAutomationExtension", False)
+        driver = webdriver.Edge(options=opts)
     elif browser == "firefox":
-        return webdriver.Firefox()
+        driver = webdriver.Firefox()
     else:
         raise ValueError(f"Unsupported browser: {browser!r}. Choose 'chrome', 'edge', or 'firefox'.")
+
+    # Mask the webdriver flag so LinkedIn doesn't detect automation
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    return driver
 
 
 def create_session(email: str, password: str, browser: str = "edge") -> requests.Session | None:
@@ -27,29 +41,44 @@ def create_session(email: str, password: str, browser: str = "edge") -> requests
     Prompts the user to press ENTER after handling any CAPTCHA or 2FA.
     Returns None if login elements are not found within the timeout.
     """
+    _LOGGED_IN_PATHS = ("/feed", "/home", "/mynetwork", "/jobs", "/messaging", "/notifications")
+
+    def _is_logged_in() -> bool:
+        return any(p in driver.current_url for p in _LOGGED_IN_PATHS)
+
     driver = _make_driver(browser)
-    driver.get("https://www.linkedin.com/checkpoint/rm/sign-in-another-account")
+    driver.get("https://www.linkedin.com/login")
 
     try:
-        wait = WebDriverWait(driver, 10)
+        wait = WebDriverWait(driver, 20)
 
-        username_field = wait.until(EC.presence_of_element_located((By.ID, "username")))
-        username_field.send_keys(email)
+        if _is_logged_in():
+            logger.info("Already authenticated on LinkedIn ({})", driver.current_url)
+        else:
+            try:
+                username_field = wait.until(EC.presence_of_element_located((By.ID, "username")))
+                username_field.send_keys(email)
 
-        password_field = wait.until(EC.presence_of_element_located((By.ID, "password")))
-        password_field.send_keys(password)
+                password_field = wait.until(EC.presence_of_element_located((By.ID, "password")))
+                password_field.send_keys(password)
 
-        sign_in_button = wait.until(
-            EC.element_to_be_clickable(
-                (By.XPATH, '//*[@id="organic-div"]/form/div[4]/button')
-            )
-        )
-        sign_in_button.click()
+                sign_in_button = wait.until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
+                )
+                sign_in_button.click()
 
-        wait.until(EC.url_changes(driver.current_url))
+                wait.until(EC.url_changes(driver.current_url))
+                logger.info("Login submitted, now on: {}", driver.current_url)
+            except TimeoutException:
+                if _is_logged_in():
+                    logger.info("Redirected to authenticated page: {}", driver.current_url)
+                else:
+                    logger.error("Login form not found and not on authenticated page. Current URL: {}", driver.current_url)
+                    driver.quit()
+                    return None
 
-    except TimeoutException:
-        logger.error("Login element not found within timeout for {}", email)
+    except Exception as exc:
+        logger.error("Unexpected auth error: {}", exc)
         driver.quit()
         return None
 

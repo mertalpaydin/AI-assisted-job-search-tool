@@ -36,8 +36,13 @@
           </a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint in ('jobs','job_detail') %}active{% endif %}" href="/jobs">
+          <a class="nav-link {% if request.endpoint == 'jobs' %}active{% endif %}" href="/jobs">
             <i class="bi bi-list-ul me-2"></i>Selected Jobs
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'jobs_all' %}active{% endif %}" href="/jobs/all">
+            <i class="bi bi-grid me-2"></i>All Jobs
           </a>
         </li>
         <li class="nav-item mt-3">

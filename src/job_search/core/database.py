@@ -11,119 +11,64 @@ from typing import Any, Generator
 from loguru import logger
 
 # ---------------------------------------------------------------------------
-# Schema
-# Note: Column names from the LinkedIn discovery phase had '$' and '*'
-# prefixes stripped (e.g. '$recipeTypes' → 'recipeTypes').
+# Schema (new format — fresh installs)
+# Existing databases are restructured by _migrate_v2().
 # ---------------------------------------------------------------------------
 
 SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS companies (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    company_urn TEXT UNIQUE NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    followingInfo TEXT,
-    headquarter TEXT,
-    lcpTreatment INTEGER,
-    name TEXT,
-    specialities TEXT,
-    staffCount INTEGER,
-    staffCountRange TEXT,
-    universalName TEXT,
-    url TEXT,
-    viewerFollowingJobsUpdates INTEGER
-);
-
 CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id INTEGER UNIQUE NOT NULL,
     scraped INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    company_id INTEGER,
 
     search_keyword TEXT,
     search_location_id TEXT,
 
-    recipeTypes TEXT,
-    allJobHiringTeamMembersInjectionResult TEXT,
-    applyingInfo TEXT,
-    employmentStatusResolutionResult TEXT,
-    savingInfo TEXT,
-    standardizedTitleResolutionResult TEXT,
-    allowedToEdit INTEGER,
-    appeal TEXT,
-    applicantTrackingSystem TEXT,
-    applies INTEGER,
-    applyMethod TEXT,
-    benefits TEXT,
-    benefitsDataSource TEXT,
-    claimableByViewer INTEGER,
-    closedAt TEXT,
-    companyDescription TEXT,
-    companyDetails TEXT,
-    contentSource TEXT,
+    title TEXT,
+    company_name TEXT,
+    formattedLocation TEXT,
     country TEXT,
-    dashEntityUrn TEXT,
-    dashJobPostingCardUrn TEXT,
-    degreeMatches TEXT,
-    description TEXT,
-    draftApplicationInfo TEXT,
-    eligibleForLearningCourseRecsUpsell INTEGER,
-    eligibleForReferrals INTEGER,
-    eligibleForSharingProfileWithPoster INTEGER,
-    employmentStatus TEXT,
-    encryptedPricingParams TEXT,
-    entityUrn TEXT,
-    expireAt INTEGER,
+    listedAt INTEGER,
+
+    is_selected INTEGER,
+    cv_match_score REAL,
+    german_requirement_level TEXT,
+    screening_reasoning TEXT,
+
+    workRemoteAllowed INTEGER,
+    workplaceTypes TEXT,
+
     formattedEmploymentStatus TEXT,
     formattedExperienceLevel TEXT,
     formattedIndustries TEXT,
     formattedJobFunctions TEXT,
-    formattedLocation TEXT,
-    hiringDashboardViewEnabled INTEGER,
-    hiringTeamEntitlements TEXT,
-    industries TEXT,
-    inferredBenefits TEXT,
-    jobApplicationLimitReached INTEGER,
-    jobFunctions TEXT,
-    jobPosterEntitlements TEXT,
-    jobPostingId INTEGER,
-    jobPostingUrl TEXT,
-    jobRegion TEXT,
-    jobState TEXT,
-    listedAt INTEGER,
-    locationUrn TEXT,
-    locationVisibility TEXT,
-    matchType TEXT,
-    messagingStatus TEXT,
-    messagingToken TEXT,
-    new INTEGER,
-    originalListedAt INTEGER,
-    ownerViewEnabled INTEGER,
-    postalAddress TEXT,
-    poster TEXT,
-    repostedJobPosting TEXT,
-    salaryInsights TEXT,
-    skillMatches TEXT,
-    skillsDescription TEXT,
-    sourceDomain TEXT,
-    standardizedAddresses TEXT,
-    standardizedTitle TEXT,
-    talentHubJob INTEGER,
-    thirdPartySourced INTEGER,
-    title TEXT,
-    trackingPixelUrl TEXT,
-    trackingUrn TEXT,
-    trustReviewDecision TEXT,
-    trustReviewSla TEXT,
-    views INTEGER,
-    workRemoteAllowed INTEGER,
-    workplaceTypes TEXT,
-    workplaceTypesResolutionResults TEXT,
-    yearsOfExperienceMatch TEXT,
 
-    FOREIGN KEY (company_id) REFERENCES companies(id)
+    company_url TEXT,
+    company_staff_count INTEGER,
+    company_universal_name TEXT,
+
+    jobPostingUrl TEXT,
+    jobPostingId INTEGER,
+    jobState TEXT,
+    originalListedAt INTEGER,
+    expireAt INTEGER,
+    applies INTEGER,
+    views INTEGER,
+
+    applyMethod TEXT,
+    applicantTrackingSystem TEXT,
+
+    salaryInsights TEXT,
+    skillsDescription TEXT,
+    inferredBenefits TEXT,
+    benefitsDataSource TEXT,
+    companyDescription TEXT,
+    description TEXT,
+
+    application_status TEXT,
+    applied_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS screening_results (
@@ -132,7 +77,6 @@ CREATE TABLE IF NOT EXISTS screening_results (
     screening_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     cv_match_score REAL,
     german_requirement_level TEXT,
-    location_match INTEGER,
     is_selected INTEGER,
     screening_reasoning TEXT,
     screening_status INTEGER DEFAULT 0,
@@ -206,7 +150,6 @@ class JobRow:
 class ScreeningResult:
     cv_match_score: float
     german_requirement_level: str
-    location_match: bool
     is_selected: bool
     reasoning: str
 
@@ -224,7 +167,7 @@ class SelectedJobRow:
     applied_at: str | None
     cv_match_score: float | None
     german_requirement_level: str | None
-    location_match: int | None
+    is_selected: int | None
     screening_reasoning: str | None
     cover_letter_text: str | None
     generation_date: str | None
@@ -243,40 +186,28 @@ _FIELD_NAME_MAP: dict[str, str] = {
     "*employmentStatusResolutionResult": "employmentStatusResolutionResult",
     "*savingInfo": "savingInfo",
     "*standardizedTitleResolutionResult": "standardizedTitleResolutionResult",
-    "*followingInfo": "followingInfo",
 }
 
 # Valid column names for the jobs table (guards against injection via field names)
 _JOBS_COLUMNS: frozenset[str] = frozenset({
-    "scraped", "updated_at", "company_id", "search_keyword", "search_location_id",
-    "recipeTypes", "allJobHiringTeamMembersInjectionResult", "applyingInfo",
-    "employmentStatusResolutionResult", "savingInfo", "standardizedTitleResolutionResult",
-    "allowedToEdit", "appeal", "applicantTrackingSystem", "applies", "applyMethod",
-    "benefits", "benefitsDataSource", "claimableByViewer", "closedAt",
-    "companyDescription", "companyDetails", "contentSource", "country",
-    "dashEntityUrn", "dashJobPostingCardUrn", "degreeMatches", "description",
-    "draftApplicationInfo", "eligibleForLearningCourseRecsUpsell",
-    "eligibleForReferrals", "eligibleForSharingProfileWithPoster",
-    "employmentStatus", "encryptedPricingParams", "entityUrn", "expireAt",
-    "formattedEmploymentStatus", "formattedExperienceLevel", "formattedIndustries",
-    "formattedJobFunctions", "formattedLocation", "hiringDashboardViewEnabled",
-    "hiringTeamEntitlements", "industries", "inferredBenefits",
-    "jobApplicationLimitReached", "jobFunctions", "jobPosterEntitlements",
-    "jobPostingId", "jobPostingUrl", "jobRegion", "jobState", "listedAt",
-    "locationUrn", "locationVisibility", "matchType", "messagingStatus",
-    "messagingToken", "new", "originalListedAt", "ownerViewEnabled",
-    "postalAddress", "poster", "repostedJobPosting", "salaryInsights",
-    "skillMatches", "skillsDescription", "sourceDomain", "standardizedAddresses",
-    "standardizedTitle", "talentHubJob", "thirdPartySourced", "title",
-    "trackingPixelUrl", "trackingUrn", "trustReviewDecision", "trustReviewSla",
-    "views", "workRemoteAllowed", "workplaceTypes", "workplaceTypesResolutionResults",
-    "yearsOfExperienceMatch",
+    "scraped", "updated_at", "search_keyword", "search_location_id",
+    "title", "company_name", "formattedLocation", "country", "listedAt",
+    "workRemoteAllowed", "workplaceTypes",
+    "formattedEmploymentStatus", "formattedExperienceLevel",
+    "formattedIndustries", "formattedJobFunctions",
+    "company_url", "company_staff_count", "company_universal_name",
+    "jobPostingUrl", "jobPostingId", "jobState",
+    "originalListedAt", "expireAt", "applies", "views",
+    "applyMethod", "applicantTrackingSystem",
+    "salaryInsights", "skillsDescription", "inferredBenefits", "benefitsDataSource",
+    "companyDescription", "description",
+    "application_status", "applied_at",
 })
 
-_COMPANIES_COLUMNS: frozenset[str] = frozenset({
-    "followingInfo", "headquarter", "lcpTreatment", "name", "specialities",
-    "staffCount", "staffCountRange", "universalName", "url",
-    "viewerFollowingJobsUpdates", "updated_at",
+# Whitelisted fields for ORDER BY (prevents SQL injection via sort params)
+_SORTABLE_FIELDS: frozenset[str] = frozenset({
+    "title", "company_name", "formattedLocation", "cv_match_score",
+    "german_requirement_level", "listedAt", "applies",
 })
 
 
@@ -336,7 +267,12 @@ class DatabaseManager:
         logger.debug("Database schema initialized: {}", self._path)
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
-        """Add columns introduced after initial schema creation."""
+        """Run all pending migrations in order."""
+        self._migrate_v1(conn)
+        self._migrate_v2(conn)
+
+    def _migrate_v1(self, conn: sqlite3.Connection) -> None:
+        """Add columns introduced after the initial old schema."""
         migrations = [
             "ALTER TABLE jobs ADD COLUMN application_status TEXT",
             "ALTER TABLE jobs ADD COLUMN applied_at TIMESTAMP",
@@ -346,7 +282,142 @@ class DatabaseManager:
                 conn.execute(sql)
                 conn.commit()
             except sqlite3.OperationalError:
-                pass  # Column already exists
+                pass  # Column already exists or table already has new schema
+
+    def _migrate_v2(self, conn: sqlite3.Connection) -> None:
+        """
+        Full schema restructuring:
+          - Merge companies table into jobs (company_name, company_url, etc.)
+          - Denormalize screening results into jobs (is_selected, cv_match_score, etc.)
+          - Drop location_match from screening_results
+          - Purge cover letter error rows
+          - Strip 'urn:li:fs_country:' prefix from country field
+
+        Guard: checks for company_name column. Idempotent.
+        """
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name='company_name'"
+        )
+        if cur.fetchone()[0] > 0:
+            return  # Already on new schema
+
+        logger.info("Running database migration v2 — restructuring schema...")
+
+        # Foreign key enforcement must be OFF during table restructuring.
+        # SQLite requires a commit before changing this pragma.
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.commit()
+
+        # Clean up any partial state from a previously failed migration attempt
+        conn.execute("DROP TABLE IF EXISTS jobs_new")
+        conn.commit()
+
+        conn.execute("""
+            CREATE TABLE jobs_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER UNIQUE NOT NULL,
+                scraped INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                search_keyword TEXT,
+                search_location_id TEXT,
+                title TEXT,
+                company_name TEXT,
+                formattedLocation TEXT,
+                country TEXT,
+                listedAt INTEGER,
+                is_selected INTEGER,
+                cv_match_score REAL,
+                german_requirement_level TEXT,
+                screening_reasoning TEXT,
+                workRemoteAllowed INTEGER,
+                workplaceTypes TEXT,
+                formattedEmploymentStatus TEXT,
+                formattedExperienceLevel TEXT,
+                formattedIndustries TEXT,
+                formattedJobFunctions TEXT,
+                company_url TEXT,
+                company_staff_count INTEGER,
+                company_universal_name TEXT,
+                jobPostingUrl TEXT,
+                jobPostingId INTEGER,
+                jobState TEXT,
+                originalListedAt INTEGER,
+                expireAt INTEGER,
+                applies INTEGER,
+                views INTEGER,
+                applyMethod TEXT,
+                applicantTrackingSystem TEXT,
+                salaryInsights TEXT,
+                skillsDescription TEXT,
+                inferredBenefits TEXT,
+                benefitsDataSource TEXT,
+                companyDescription TEXT,
+                description TEXT,
+                application_status TEXT,
+                applied_at TIMESTAMP
+            )
+        """)
+
+        conn.execute("""
+            INSERT INTO jobs_new (
+                job_id, scraped, created_at, updated_at,
+                search_keyword, search_location_id,
+                title, company_name, formattedLocation, country, listedAt,
+                is_selected, cv_match_score, german_requirement_level, screening_reasoning,
+                workRemoteAllowed, workplaceTypes,
+                formattedEmploymentStatus, formattedExperienceLevel,
+                formattedIndustries, formattedJobFunctions,
+                company_url, company_staff_count, company_universal_name,
+                jobPostingUrl, jobPostingId, jobState,
+                originalListedAt, expireAt, applies, views,
+                applyMethod, applicantTrackingSystem,
+                salaryInsights, skillsDescription, inferredBenefits, benefitsDataSource,
+                companyDescription, description,
+                application_status, applied_at
+            )
+            SELECT
+                j.job_id, j.scraped, j.created_at, j.updated_at,
+                j.search_keyword, j.search_location_id,
+                j.title, c.name, j.formattedLocation,
+                REPLACE(COALESCE(j.country, ''), 'urn:li:fs_country:', ''),
+                j.listedAt,
+                sr.is_selected, sr.cv_match_score, sr.german_requirement_level, sr.screening_reasoning,
+                j.workRemoteAllowed, j.workplaceTypes,
+                j.formattedEmploymentStatus, j.formattedExperienceLevel,
+                j.formattedIndustries, j.formattedJobFunctions,
+                c.url, c.staffCount, c.universalName,
+                j.jobPostingUrl, j.jobPostingId, j.jobState,
+                j.originalListedAt, j.expireAt, j.applies, j.views,
+                j.applyMethod, j.applicantTrackingSystem,
+                j.salaryInsights, j.skillsDescription, j.inferredBenefits, j.benefitsDataSource,
+                j.companyDescription, j.description,
+                j.application_status, j.applied_at
+            FROM jobs j
+            LEFT JOIN companies c ON j.company_id = c.id
+            LEFT JOIN screening_results sr ON j.job_id = sr.job_id
+        """)
+
+        conn.execute("DROP TABLE IF EXISTS jobs")
+        conn.execute("DROP TABLE IF EXISTS companies")
+        conn.execute("ALTER TABLE jobs_new RENAME TO jobs")
+
+        # Drop location_match (SQLite >= 3.35 only — silently skip if unsupported)
+        try:
+            conn.execute("ALTER TABLE screening_results DROP COLUMN location_match")
+        except sqlite3.OperationalError:
+            pass
+
+        # Purge failed cover letter attempts
+        conn.execute("DELETE FROM cover_letters WHERE generation_status = -1")
+
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_scraped ON jobs(scraped)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_job_id ON jobs(job_id)")
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.commit()
+        logger.info("Database migration v2 complete")
 
     # ------------------------------------------------------------------
     # Jobs
@@ -364,12 +435,15 @@ class DatabaseManager:
                 (job_id, keyword, location_id),
             )
 
-    def update_job_details(self, job_id: int, fields: dict[str, Any], company_id: int | None = None) -> None:
+    def update_job_details(self, job_id: int, fields: dict[str, Any]) -> None:
         """Update job row with scraped details. Unknown field names are silently skipped."""
         sanitized = {_sanitize_field_name(k): _serialize(v) for k, v in fields.items()}
         valid = {k: v for k, v in sanitized.items() if k in _JOBS_COLUMNS}
-        if company_id is not None:
-            valid["company_id"] = company_id
+
+        # Strip LinkedIn URN prefix from country field
+        if "country" in valid and valid["country"]:
+            valid["country"] = str(valid["country"]).replace("urn:li:fs_country:", "")
+
         valid["scraped"] = 1
         valid["updated_at"] = "CURRENT_TIMESTAMP"
 
@@ -408,49 +482,25 @@ class DatabaseManager:
     def get_jobs_pending_cover_letter(self) -> list[int]:
         with self._cursor() as cur:
             cur.execute("""
-                SELECT sr.job_id FROM screening_results sr
-                LEFT JOIN cover_letters cl ON sr.job_id = cl.job_id
-                WHERE sr.is_selected = 1 AND cl.id IS NULL
+                SELECT j.job_id FROM jobs j
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
+                WHERE j.is_selected = 1 AND cl.id IS NULL
             """)
             return [row[0] for row in cur.fetchall()]
 
     def get_job_details(self, job_id: int) -> JobRow | None:
         with self._cursor() as cur:
             cur.execute("""
-                SELECT j.job_id, j.title, j.description, j.formattedLocation,
-                       j.workRemoteAllowed, j.formattedExperienceLevel, j.jobPostingUrl,
-                       c.name as company_name, j.scraped
-                FROM jobs j
-                LEFT JOIN companies c ON j.company_id = c.id
-                WHERE j.job_id = ?
+                SELECT job_id, title, description, formattedLocation,
+                       workRemoteAllowed, formattedExperienceLevel, jobPostingUrl,
+                       company_name, scraped
+                FROM jobs
+                WHERE job_id = ?
             """, (job_id,))
             row = cur.fetchone()
             if row is None:
                 return None
             return JobRow(**dict(row))
-
-    # ------------------------------------------------------------------
-    # Companies
-    # ------------------------------------------------------------------
-
-    def upsert_company(self, company_urn: str, fields: dict[str, Any]) -> int:
-        """Insert or update company, returns the company row id."""
-        sanitized = {_sanitize_field_name(k): _serialize(v) for k, v in fields.items()}
-        valid = {k: v for k, v in sanitized.items() if k in _COMPANIES_COLUMNS}
-
-        with self._cursor() as cur:
-            cur.execute(
-                "INSERT OR IGNORE INTO companies (company_urn) VALUES (?)", (company_urn,)
-            )
-            if valid:
-                set_clause = ", ".join(f"{col} = ?" for col in valid)
-                set_clause += ", updated_at = CURRENT_TIMESTAMP"
-                cur.execute(
-                    f"UPDATE companies SET {set_clause} WHERE company_urn = ?",
-                    [*valid.values(), company_urn],
-                )
-            cur.execute("SELECT id FROM companies WHERE company_urn = ?", (company_urn,))
-            return cur.fetchone()[0]
 
     # ------------------------------------------------------------------
     # Screening
@@ -460,13 +510,12 @@ class DatabaseManager:
         with self._cursor() as cur:
             cur.execute("""
                 INSERT INTO screening_results
-                    (job_id, cv_match_score, german_requirement_level, location_match,
+                    (job_id, cv_match_score, german_requirement_level,
                      is_selected, screening_reasoning, screening_status)
-                VALUES (?, ?, ?, ?, ?, ?, 1)
+                VALUES (?, ?, ?, ?, ?, 1)
                 ON CONFLICT(job_id) DO UPDATE SET
                     cv_match_score = excluded.cv_match_score,
                     german_requirement_level = excluded.german_requirement_level,
-                    location_match = excluded.location_match,
                     is_selected = excluded.is_selected,
                     screening_reasoning = excluded.screening_reasoning,
                     screening_status = 1,
@@ -475,9 +524,24 @@ class DatabaseManager:
                 job_id,
                 result.cv_match_score,
                 result.german_requirement_level,
-                int(result.location_match),
                 int(result.is_selected),
                 result.reasoning,
+            ))
+            # Denormalize into jobs for easy single-table queries
+            cur.execute("""
+                UPDATE jobs SET
+                    is_selected = ?,
+                    cv_match_score = ?,
+                    german_requirement_level = ?,
+                    screening_reasoning = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE job_id = ?
+            """, (
+                int(result.is_selected),
+                result.cv_match_score,
+                result.german_requirement_level,
+                result.reasoning,
+                job_id,
             ))
 
     def mark_screening_error(self, job_id: int, error: str) -> None:
@@ -516,6 +580,12 @@ class DatabaseManager:
                 VALUES (?, -1, ?, ?)
             """, (job_id, error, retry_count))
 
+    def purge_cover_letter_errors(self) -> int:
+        """Delete all failed cover letter rows. Returns the number of rows deleted."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM cover_letters WHERE generation_status = -1")
+            return cur.rowcount
+
     # ------------------------------------------------------------------
     # API usage
     # ------------------------------------------------------------------
@@ -545,7 +615,7 @@ class DatabaseManager:
             with_details = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM screening_results WHERE screening_status = 1")
             screened = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM screening_results WHERE is_selected = 1")
+            cur.execute("SELECT COUNT(*) FROM jobs WHERE is_selected = 1")
             selected = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM cover_letters WHERE generation_status = 1")
             cover_letters = cur.fetchone()[0]
@@ -572,20 +642,19 @@ class DatabaseManager:
             screened_ok = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM screening_results WHERE screening_status = -1")
             screened_error = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM screening_results WHERE is_selected = 1")
+            cur.execute("SELECT COUNT(*) FROM jobs WHERE is_selected = 1")
             screen_pass = cur.fetchone()[0]
             cur.execute(
-                "SELECT COUNT(*) FROM screening_results "
-                "WHERE screening_status = 1 AND is_selected = 0"
+                "SELECT COUNT(*) FROM jobs WHERE is_selected = 0 AND cv_match_score IS NOT NULL"
             )
             screen_fail = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM cover_letters WHERE generation_status = 1")
             cl_generated = cur.fetchone()[0]
-            cur.execute(
-                "SELECT COUNT(*) FROM screening_results sr "
-                "LEFT JOIN cover_letters cl ON sr.job_id = cl.job_id "
-                "WHERE sr.is_selected = 1 AND cl.id IS NULL"
-            )
+            cur.execute("""
+                SELECT COUNT(*) FROM jobs j
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
+                WHERE j.is_selected = 1 AND cl.id IS NULL
+            """)
             cl_pending = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM cover_letters WHERE generation_status = -1")
             cl_error = cur.fetchone()[0]
@@ -607,9 +676,8 @@ class DatabaseManager:
     # Application tracking
     # ------------------------------------------------------------------
 
-    def mark_application_status(self, job_id: int, status: str) -> None:
-        applied_at = "CURRENT_TIMESTAMP" if status == "applied" else None
-        if applied_at:
+    def mark_application_status(self, job_id: int, status: str | None) -> None:
+        if status == "applied":
             with self._cursor() as cur:
                 cur.execute(
                     "UPDATE jobs SET application_status = ?, applied_at = CURRENT_TIMESTAMP WHERE job_id = ?",
@@ -632,69 +700,74 @@ class DatabaseManager:
             return {row[0]: row[1] for row in cur.fetchall()}
 
     # ------------------------------------------------------------------
-    # Selected jobs (for export and web UI)
+    # Selected jobs and all jobs (for export and web UI)
     # ------------------------------------------------------------------
 
-    def get_selected_jobs(self) -> list[SelectedJobRow]:
-        """Return all AI-selected jobs, ordered by CV match score descending."""
+    def get_selected_jobs(
+        self,
+        sort_by: str = "cv_match_score",
+        sort_dir: str = "desc",
+    ) -> list[SelectedJobRow]:
+        """Return all AI-selected jobs ordered by the given column."""
+        sort_col = sort_by if sort_by in _SORTABLE_FIELDS else "cv_match_score"
+        sort_order = "ASC" if sort_dir.upper() == "ASC" else "DESC"
         with self._cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT
-                    j.job_id,
-                    j.title,
-                    c.name AS company_name,
-                    j.formattedLocation,
-                    j.jobPostingUrl,
-                    j.workRemoteAllowed,
-                    j.description,
-                    j.application_status,
-                    j.applied_at,
-                    sr.cv_match_score,
-                    sr.german_requirement_level,
-                    sr.location_match,
-                    sr.screening_reasoning,
-                    cl.cover_letter_text,
-                    cl.generation_date,
-                    cl.generation_status
+                    j.job_id, j.title, j.company_name, j.formattedLocation,
+                    j.jobPostingUrl, j.workRemoteAllowed, j.description,
+                    j.application_status, j.applied_at,
+                    j.cv_match_score, j.german_requirement_level, j.is_selected,
+                    j.screening_reasoning,
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status
                 FROM jobs j
-                LEFT JOIN companies c ON j.company_id = c.id
-                LEFT JOIN screening_results sr ON j.job_id = sr.job_id
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
-                WHERE sr.is_selected = 1
-                ORDER BY sr.cv_match_score DESC
+                WHERE j.is_selected = 1
+                ORDER BY j.{sort_col} {sort_order}
             """)
-            rows = cur.fetchall()
-            return [SelectedJobRow(**dict(row)) for row in rows]
+            return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]
 
     def get_selected_job(self, job_id: int) -> SelectedJobRow | None:
         """Return a single selected job by ID."""
         with self._cursor() as cur:
             cur.execute("""
                 SELECT
-                    j.job_id,
-                    j.title,
-                    c.name AS company_name,
-                    j.formattedLocation,
-                    j.jobPostingUrl,
-                    j.workRemoteAllowed,
-                    j.description,
-                    j.application_status,
-                    j.applied_at,
-                    sr.cv_match_score,
-                    sr.german_requirement_level,
-                    sr.location_match,
-                    sr.screening_reasoning,
-                    cl.cover_letter_text,
-                    cl.generation_date,
-                    cl.generation_status
+                    j.job_id, j.title, j.company_name, j.formattedLocation,
+                    j.jobPostingUrl, j.workRemoteAllowed, j.description,
+                    j.application_status, j.applied_at,
+                    j.cv_match_score, j.german_requirement_level, j.is_selected,
+                    j.screening_reasoning,
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status
                 FROM jobs j
-                LEFT JOIN companies c ON j.company_id = c.id
-                LEFT JOIN screening_results sr ON j.job_id = sr.job_id
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
             """, (job_id,))
             row = cur.fetchone()
             return SelectedJobRow(**dict(row)) if row else None
+
+    def get_all_jobs(
+        self,
+        sort_by: str = "listedAt",
+        sort_dir: str = "desc",
+    ) -> list[SelectedJobRow]:
+        """Return all scraped jobs (selected or not), ordered by the given column."""
+        sort_col = sort_by if sort_by in _SORTABLE_FIELDS else "listedAt"
+        sort_order = "ASC" if sort_dir.upper() == "ASC" else "DESC"
+        with self._cursor() as cur:
+            cur.execute(f"""
+                SELECT
+                    j.job_id, j.title, j.company_name, j.formattedLocation,
+                    j.jobPostingUrl, j.workRemoteAllowed, j.description,
+                    j.application_status, j.applied_at,
+                    j.cv_match_score, j.german_requirement_level, j.is_selected,
+                    j.screening_reasoning,
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status
+                FROM jobs j
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                WHERE j.scraped = 1
+                ORDER BY j.{sort_col} {sort_order} NULLS LAST
+            """)
+            return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn:

@@ -1,13 +1,26 @@
 {% extends "base.html" %}
-{% block title %}Selected Jobs{% endblock %}
+{% block title %}{{ "All Jobs" if show_all else "Selected Jobs" }}{% endblock %}
+
+{% macro sort_link(field, label) %}
+  {% set next_dir = "asc" if (current_sort == field and current_dir == "desc") else "desc" %}
+  {% set base = "/jobs/all" if show_all else "/jobs" %}
+  {% set filter_param = ("&status=" ~ status_filter) if status_filter else "" %}
+  <a href="{{ base }}?sort={{ field }}&dir={{ next_dir }}{{ filter_param }}"
+     class="text-decoration-none {% if current_sort == field %}fw-semibold text-dark{% else %}text-secondary{% endif %}">
+    {{ label }}
+    {% if current_sort == field %}
+      <i class="bi bi-caret-{{ 'up' if current_dir == 'asc' else 'down' }}-fill ms-1" style="font-size:0.7rem"></i>
+    {% endif %}
+  </a>
+{% endmacro %}
 
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4">
   <h4 class="mb-0 fw-semibold">
-    Selected Jobs
+    {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
     <span class="badge bg-secondary ms-2">{{ jobs|length }}</span>
   </h4>
-  {% if status_filter %}
+  {% if not show_all and status_filter %}
   <a href="/jobs" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear filter
   </a>
@@ -15,16 +28,19 @@
 </div>
 
 {% if not jobs %}
-<div class="alert alert-info">No jobs found for this filter.</div>
+<div class="alert alert-info">No jobs found{% if status_filter %} for this filter{% endif %}.</div>
 {% else %}
 <div class="table-responsive">
   <table class="table table-hover align-middle bg-white shadow-sm rounded">
     <thead class="table-light">
       <tr>
-        <th>Job</th>
-        <th>Location</th>
-        <th class="text-center">Match</th>
-        <th class="text-center">German</th>
+        <th>{{ sort_link("title", "Job") }}</th>
+        <th>{{ sort_link("formattedLocation", "Location") }}</th>
+        <th class="text-center">{{ sort_link("cv_match_score", "Match") }}</th>
+        <th class="text-center">{{ sort_link("german_requirement_level", "German") }}</th>
+        {% if show_all %}
+        <th class="text-center">Selected</th>
+        {% endif %}
         <th class="text-center">Cover Letter</th>
         <th class="text-center">Status</th>
         <th></th>
@@ -63,6 +79,17 @@
           {% elif gl == "high" %}<span class="badge bg-danger small">high</span>
           {% else %}<span class="badge bg-light text-muted small">{{ gl }}</span>{% endif %}
         </td>
+        {% if show_all %}
+        <td class="text-center">
+          {% if job.is_selected == 1 %}
+          <i class="bi bi-check-circle-fill text-success"></i>
+          {% elif job.is_selected == 0 %}
+          <i class="bi bi-x-circle text-danger"></i>
+          {% else %}
+          <i class="bi bi-hourglass text-muted"></i>
+          {% endif %}
+        </td>
+        {% endif %}
         <td class="text-center">
           {% if job.cover_letter_text %}
           <i class="bi bi-check-circle-fill text-success"></i>
@@ -80,8 +107,10 @@
         </td>
         <td class="text-end">
           <div class="d-flex gap-1 justify-content-end">
+            {% if job.is_selected == 1 or not show_all %}
             <form method="post" action="/jobs/{{ job.job_id }}/quick-apply">
               <input type="hidden" name="status_filter" value="{{ status_filter }}">
+              {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
               {% if job.application_status == "applied" %}
               <button type="submit" class="btn btn-sm btn-success" title="Click to undo applied">
                 <i class="bi bi-check2 me-1"></i>Applied
@@ -92,6 +121,7 @@
               </button>
               {% endif %}
             </form>
+            {% endif %}
             <a href="/jobs/{{ job.job_id }}" class="btn btn-sm btn-outline-secondary">
               View <i class="bi bi-arrow-right ms-1"></i>
             </a>

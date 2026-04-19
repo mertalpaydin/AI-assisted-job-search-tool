@@ -79,6 +79,11 @@ class CoverLetterWorker:
 
         def _sync_call() -> str:
             client = genai.Client(api_key=api_key)
+            tools = (
+                [genai_types.Tool(google_search=genai_types.GoogleSearch())]
+                if self._cl_cfg.use_search_grounding
+                else None
+            )
             response = client.models.generate_content(
                 model=self._cl_cfg.model,
                 contents=user_prompt,
@@ -87,6 +92,7 @@ class CoverLetterWorker:
                     temperature=self._cl_cfg.temperature,
                     max_output_tokens=self._cl_cfg.max_tokens,
                     thinking_config=genai_types.ThinkingConfig(thinking_level="low"),
+                    tools=tools,
                 ),
             )
             return response.text
@@ -99,18 +105,18 @@ class CoverLetterWorker:
             logger.warning("Job {} not found — skipping cover letter", job_id)
             return
 
-        system, user = self._prompts.format_cover_letter_prompt(
-            job_title=job.title or "",
-            company_name=job.company_name,
-            job_location=job.formattedLocation,
-            job_description=job.description,
-        )
-
         cl_cfg = self._cl_cfg
         max_retries = cl_cfg.rate_limits.max_retries
         retry_delay = cl_cfg.rate_limits.retry_delay
 
         try:
+            system, user = self._prompts.format_cover_letter_prompt(
+                job_title=job.title or "",
+                company_name=job.company_name,
+                job_location=job.formattedLocation,
+                job_description=job.description,
+            )
+
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(max_retries),
                 wait=wait_exponential(multiplier=2, min=retry_delay, max=retry_delay * 8),

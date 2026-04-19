@@ -69,7 +69,8 @@ MINIMAL_PROMPTS_YAML = textwrap.dedent("""\
     cover_letter:
       system_prompt: "You are a cover letter writer."
       user_prompt_template: |
-        Summary: {cv_summary}
+        CV: {cv_text}
+        Draft: {draft_cover_letter}
         Company: {company_name}
         Position: {job_title}
         Location: {job_location}
