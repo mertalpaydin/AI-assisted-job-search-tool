@@ -95,6 +95,16 @@ class CoverLetterWorker:
                     tools=tools,
                 ),
             )
+            # Detect token-limit truncation specifically.
+            # Only MAX_TOKENS means the output was cut off; other finish reasons
+            # (STOP, SAFETY, grounding-related states) should not be treated as errors.
+            if response.candidates:
+                finish = response.candidates[0].finish_reason
+                if finish is not None and finish.name == "MAX_TOKENS":
+                    raise _TemporaryError(
+                        f"Cover letter truncated (finish_reason=MAX_TOKENS). "
+                        f"Increase cover_letter.max_tokens in config.yaml."
+                    )
             return response.text
 
         return await loop.run_in_executor(None, _sync_call)

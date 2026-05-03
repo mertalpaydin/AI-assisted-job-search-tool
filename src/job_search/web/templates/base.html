@@ -45,29 +45,31 @@
             <i class="bi bi-grid me-2"></i>All Jobs
           </a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'search_stats' %}active{% endif %}" href="/stats">
+            <i class="bi bi-bar-chart-line me-2"></i>Search Stats
+          </a>
+        </li>
         <li class="nav-item mt-3">
           <span class="nav-link text-secondary" style="font-size:0.7rem;text-transform:uppercase;letter-spacing:.1em">Filter by status</span>
         </li>
+        {% set status_list = [
+          ("pending",      "bi-hourglass",       "Pending"),
+          ("applied",      "bi-send",            "Applied"),
+          ("interviewing", "bi-calendar-check",  "Interviewing"),
+          ("offered",      "bi-trophy",          "Offered"),
+          ("rejected",     "bi-x-circle",        "Rejected"),
+          ("skipped",      "bi-slash-circle",    "Skipped"),
+        ] %}
+        {% set list_base = "/jobs/all" if request.endpoint == "jobs_all" else "/jobs" %}
+        {% for val, icon, label in status_list %}
         <li class="nav-item">
-          <a class="nav-link small {% if request.args.get('status') == 'pending' %}active{% endif %}"
-             href="/jobs?status=pending"><i class="bi bi-hourglass me-2"></i>Pending</a>
+          <a class="nav-link small {% if request.args.get('status') == val %}active{% endif %}"
+             href="{{ list_base }}?status={{ val }}">
+            <i class="bi {{ icon }} me-2"></i>{{ label }}
+          </a>
         </li>
-        <li class="nav-item">
-          <a class="nav-link small {% if request.args.get('status') == 'applied' %}active{% endif %}"
-             href="/jobs?status=applied"><i class="bi bi-send me-2"></i>Applied</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link small {% if request.args.get('status') == 'interviewing' %}active{% endif %}"
-             href="/jobs?status=interviewing"><i class="bi bi-calendar-check me-2"></i>Interviewing</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link small {% if request.args.get('status') == 'offered' %}active{% endif %}"
-             href="/jobs?status=offered"><i class="bi bi-trophy me-2"></i>Offered</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link small {% if request.args.get('status') == 'rejected' %}active{% endif %}"
-             href="/jobs?status=rejected"><i class="bi bi-x-circle me-2"></i>Rejected</a>
-        </li>
+        {% endfor %}
       </ul>
     </nav>
 

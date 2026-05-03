@@ -88,7 +88,7 @@ class PromptManager:
         cv = self._cv.get("cv", {})
         info = cv.get("personal_info", {})
         summary = cv.get("summary", "").strip()
-        skills = ", ".join(cv.get("skills", {}).get("technical", [])[:5])
+        skills = ", ".join(cv.get("skills", {}).get("technical", []))
         return f"{info.get('name', '')} — {summary}\nKey skills: {skills}"
 
     def format_screening_prompt(
@@ -108,7 +108,7 @@ class PromptManager:
             company_name=company_name or "Unknown",
             job_location=job_location or "Unknown",
             remote_allowed="Yes" if remote_allowed else "No",
-            job_description=(job_description or "")[:3000],
+            job_description=(job_description or ""),
         )
         return system, user
 

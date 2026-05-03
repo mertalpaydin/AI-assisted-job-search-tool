@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Search Stats{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h4 class="mb-0 fw-semibold">Search Stats</h4>
+  <span class="text-muted small">Per keyword + location breakdown</span>
+</div>
+
+{% if not combos %}
+<div class="alert alert-secondary">No search data yet. Run the pipeline first.</div>
+{% else %}
+
+<!-- Insights -->
+{% set best_rate = combos | selectattr("selection_rate_pct") | sort(attribute="selection_rate_pct", reverse=True) | first %}
+{% set most_selected = combos | sort(attribute="selected", reverse=True) | first %}
+{% set most_found = combos | sort(attribute="total_found", reverse=True) | first %}
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card border-success shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-2">
+          <i class="bi bi-trophy-fill text-success fs-4 me-2"></i>
+          <span class="fw-semibold">Highest Selection Rate</span>
+        </div>
+        {% if best_rate %}
+        <div class="fs-5 fw-bold">{{ best_rate.selection_rate_pct | int }}%</div>
+        <div class="text-muted small">{{ best_rate.search_keyword }}</div>
+        <div class="text-muted small">{{ best_rate.search_location_id }}</div>
+        <div class="text-muted small mt-1">{{ best_rate.selected }} selected / {{ best_rate.screened }} screened</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-primary shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-2">
+          <i class="bi bi-check2-circle text-primary fs-4 me-2"></i>
+          <span class="fw-semibold">Most Jobs Selected</span>
+        </div>
+        {% if most_selected %}
+        <div class="fs-5 fw-bold">{{ most_selected.selected }}</div>
+        <div class="text-muted small">{{ most_selected.search_keyword }}</div>
+        <div class="text-muted small">{{ most_selected.search_location_id }}</div>
+        {% if most_selected.selection_rate_pct %}
+        <div class="text-muted small mt-1">{{ most_selected.selection_rate_pct | int }}% selection rate</div>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-info shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-2">
+          <i class="bi bi-search text-info fs-4 me-2"></i>
+          <span class="fw-semibold">Most Results Found</span>
+        </div>
+        {% if most_found %}
+        <div class="fs-5 fw-bold">{{ most_found.total_found }}</div>
+        <div class="text-muted small">{{ most_found.search_keyword }}</div>
+        <div class="text-muted small">{{ most_found.search_location_id }}</div>
+        {% if most_found.selection_rate_pct %}
+        <div class="text-muted small mt-1">{{ most_found.selection_rate_pct | int }}% selection rate</div>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Suggestions -->
+{% set low_rate_combos = combos | selectattr("selection_rate_pct") | selectattr("total_found", "gt", 10) | selectattr("selection_rate_pct", "lt", 5) | list %}
+{% set no_results_combos = combos | selectattr("total_found", "lt", 5) | list %}
+{% if low_rate_combos or no_results_combos %}
+<div class="alert alert-warning d-flex gap-2 mb-4">
+  <i class="bi bi-lightbulb-fill fs-5 flex-shrink-0 mt-1"></i>
+  <div>
+    <strong>Suggestions</strong>
+    <ul class="mb-0 mt-1 small">
+      {% for c in low_rate_combos %}
+      <li><strong>{{ c.search_keyword }} / {{ c.search_location_id }}</strong> has a very low selection rate ({{ c.selection_rate_pct | int }}%). Consider refining this keyword or dropping it.</li>
+      {% endfor %}
+      {% for c in no_results_combos %}
+      <li><strong>{{ c.search_keyword }} / {{ c.search_location_id }}</strong> returned very few results ({{ c.total_found }}). Try a broader keyword or a different location.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+<!-- Main table -->
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover table-sm mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th class="ps-3">Keyword</th>
+          <th>Location</th>
+          <th class="text-end">Found</th>
+          <th class="text-end">Scraped</th>
+          <th class="text-end">Screened</th>
+          <th class="text-end">Selected</th>
+          <th class="text-end">Select %</th>
+          <th class="text-end pe-3">Avg Match</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in combos %}
+        {% set rate = c.selection_rate_pct %}
+        <tr>
+          <td class="ps-3 fw-semibold">{{ c.search_keyword or "—" }}</td>
+          <td class="text-muted small">{{ c.search_location_id or "—" }}</td>
+          <td class="text-end">{{ c.total_found }}</td>
+          <td class="text-end">{{ c.with_details }}</td>
+          <td class="text-end">{{ c.screened }}</td>
+          <td class="text-end fw-semibold">{{ c.selected }}</td>
+          <td class="text-end">
+            {% if rate is not none %}
+              {% if rate >= 20 %}
+                <span class="badge bg-success">{{ rate | int }}%</span>
+              {% elif rate >= 10 %}
+                <span class="badge bg-warning text-dark">{{ rate | int }}%</span>
+              {% else %}
+                <span class="badge bg-danger">{{ rate | int }}%</span>
+              {% endif %}
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end pe-3">
+            {% if c.avg_match_pct is not none %}
+              {{ c.avg_match_pct | int }}%
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="mt-3 text-muted small">
+  <strong>Select %</strong> = selected / screened. <span class="badge bg-success">≥20%</span> good &nbsp;
+  <span class="badge bg-warning text-dark">10–19%</span> moderate &nbsp;
+  <span class="badge bg-danger">&lt;10%</span> low relevance.
+</div>
+{% endif %}
+{% endblock %}

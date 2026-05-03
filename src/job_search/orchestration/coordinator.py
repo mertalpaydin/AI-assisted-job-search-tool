@@ -12,10 +12,14 @@ from job_search.core.database import DatabaseManager
 from job_search.core.state import PipelineQueues, ShutdownCoordinator, StateManager
 from job_search.ai.cover_letter import CoverLetterWorker
 from job_search.ai.prompt_manager import PromptManager
-from job_search.ai.screener import ScreeningWorker
+from job_search.ai.screener import GeminiScreeningWorker, ScreeningWorker
+from job_search.utils.api_rotation import GeminiAPIRotator
 from job_search.scraping.auth import create_session, make_headers
 from job_search.scraping.details import DetailsWorker
 from job_search.scraping.search import SearchWorker
+
+
+ALL_STAGES = ("search", "details", "screen", "cover-letter")
 
 
 class JobSearchCoordinator:
@@ -26,12 +30,16 @@ class JobSearchCoordinator:
     Pipeline:
         SearchWorker(s) → details_queue
         DetailsWorker(s) → screening_queue
-        ScreeningWorker  → cover_letter_queue
+        ScreeningWorker(s) → cover_letter_queue
         CoverLetterWorker(s) (async)
+
+    Use `stages` to run a subset of the pipeline, e.g. stages={"screen", "cover-letter"}
+    to process jobs already in the database without re-scraping.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, stages: set[str] | None = None) -> None:
         self._config = config
+        self._stages = set(stages) if stages else set(ALL_STAGES)
         self._secrets = load_secrets()
         self._db = DatabaseManager(config.database.path)
         self._shutdown = ShutdownCoordinator()
@@ -49,13 +57,14 @@ class JobSearchCoordinator:
     # ------------------------------------------------------------------
 
     def start(self, resume: bool = True) -> None:
-        logger.info("=== AI Job Search Tool starting ===")
+        active = sorted(self._stages)
+        logger.info("=== AI Job Search Tool starting (stages: {}) ===", ", ".join(active))
 
         if resume:
             queues = PipelineQueues(
-                details_pending=self._details_queue,
-                screening_pending=self._screening_queue,
-                cover_letter_pending=self._cover_letter_queue,
+                details_pending=self._details_queue if "details" in self._stages else None,
+                screening_pending=self._screening_queue if "screen" in self._stages else None,
+                cover_letter_pending=self._cover_letter_queue if "cover-letter" in self._stages else None,
             )
             self._state.resume(queues)
 
@@ -97,61 +106,96 @@ class JobSearchCoordinator:
 
     def _start_workers(self) -> None:
         cfg = self._config
+        stages = self._stages
 
         # --- Web UI (daemon thread, optional) ---
         if cfg.web.auto_start:
             self._start_web_ui()
 
-        # --- Auth ---
-        logger.info("Authenticating with LinkedIn…")
-        session = create_session(
-            email=self._secrets.linkedin_username,
-            password=self._secrets.linkedin_password,
-        )
-        if session is None:
-            raise RuntimeError("LinkedIn authentication failed")
-
-        # --- Prompt manager (shared) ---
+        # --- Prompt manager (shared by screening and cover letter workers) ---
         prompt_manager = PromptManager()
 
-        # --- Search workers ---
-        for i in range(cfg.concurrency.max_search_workers):
-            worker = SearchWorker(
-                config=cfg,
-                session=session,
-                db=self._db,
-                state=self._state,
-                shutdown=self._shutdown,
-                details_queue=self._details_queue,
+        # --- LinkedIn auth (only needed for scraping stages) ---
+        session = None
+        if stages & {"search", "details"}:
+            logger.info("Authenticating with LinkedIn…")
+            session = create_session(
+                email=self._secrets.linkedin_username,
+                password=self._secrets.linkedin_password,
             )
-            self._spawn(f"search-{i}", worker.run)
+            if session is None:
+                raise RuntimeError("LinkedIn authentication failed")
+
+        # --- Search workers ---
+        if "search" in stages:
+            for i in range(cfg.concurrency.max_search_workers):
+                worker = SearchWorker(
+                    config=cfg,
+                    session=session,
+                    db=self._db,
+                    state=self._state,
+                    shutdown=self._shutdown,
+                    details_queue=self._details_queue,
+                )
+                self._spawn(f"search-{i}", worker.run)
 
         # --- Details workers ---
-        for i in range(cfg.concurrency.max_details_workers):
-            worker = DetailsWorker(
+        if "details" in stages:
+            for i in range(cfg.concurrency.max_details_workers):
+                worker = DetailsWorker(
+                    config=cfg,
+                    session=session,
+                    db=self._db,
+                    shutdown=self._shutdown,
+                    details_queue=self._details_queue,
+                    screening_queue=self._screening_queue,
+                )
+                self._spawn(f"details-{i}", worker.run)
+
+        # --- Screening workers (Gemini API or local GGUF) ---
+        n_screening = 0
+        screening_backend = cfg.screening.backend
+        api_keys = self._secrets.gemini_api_keys
+
+        if "screen" in stages and screening_backend == "gemini":
+            if not api_keys:
+                raise RuntimeError(
+                    "screening.backend is 'gemini' but no Gemini API keys are configured. "
+                    "Set GEMINI_API_KEY_1 (and optionally _2/_3) in config/.env"
+                )
+            screening_rotator = GeminiAPIRotator(
+                api_keys,
+                requests_per_minute=cfg.screening.gemini.requests_per_minute,
+            )
+            n_screening = cfg.concurrency.max_screening_workers
+            for i in range(n_screening):
+                worker = GeminiScreeningWorker(
+                    config=cfg,
+                    db=self._db,
+                    shutdown=self._shutdown,
+                    screening_queue=self._screening_queue,
+                    cover_letter_queue=self._cover_letter_queue,
+                    prompt_manager=prompt_manager,
+                    rotator=screening_rotator,
+                    worker_id=i,
+                )
+                self._spawn(f"screening-gemini-{i}", worker.run)
+        elif "screen" in stages:
+            n_screening = 1
+            screener = ScreeningWorker(
                 config=cfg,
-                session=session,
                 db=self._db,
                 shutdown=self._shutdown,
-                details_queue=self._details_queue,
                 screening_queue=self._screening_queue,
+                cover_letter_queue=self._cover_letter_queue,
+                prompt_manager=prompt_manager,
             )
-            self._spawn(f"details-{i}", worker.run)
-
-        # --- Screening worker (single — GPU bound) ---
-        screener = ScreeningWorker(
-            config=cfg,
-            db=self._db,
-            shutdown=self._shutdown,
-            screening_queue=self._screening_queue,
-            cover_letter_queue=self._cover_letter_queue,
-            prompt_manager=prompt_manager,
-        )
-        self._spawn("screening", screener.run)
+            self._spawn("screening-local", screener.run)
 
         # --- Cover letter worker (runs its own asyncio loop) ---
-        api_keys = self._secrets.gemini_api_keys
-        if not api_keys:
+        if "cover-letter" not in stages:
+            pass
+        elif not api_keys:
             logger.warning("No Gemini API keys configured — cover letter generation disabled")
         else:
             cl_worker = CoverLetterWorker(
@@ -166,10 +210,12 @@ class JobSearchCoordinator:
             self._spawn("cover-letter", cl_worker.run)
 
         logger.info(
-            "Workers started: {} search, {} details, 1 screening, {} cover-letter",
+            "Workers started: {} search, {} details, {} screening ({}), {} cover-letter",
             cfg.concurrency.max_search_workers,
             cfg.concurrency.max_details_workers,
-            1 if api_keys else 0,
+            n_screening,
+            screening_backend,
+            len(api_keys) if api_keys else 0,
         )
 
     def _spawn(self, name: str, target) -> None:
@@ -184,11 +230,27 @@ class JobSearchCoordinator:
     def _monitor_loop(self) -> None:
         cfg = self._config.execution
         check_interval = cfg.shutdown_conditions.check_interval_seconds
-        no_new_jobs_limit = cfg.shutdown_conditions.no_new_jobs_minutes
         max_runtime = cfg.max_runtime_hours * 3600
         start_time = time.monotonic()
 
-        logger.info("Monitor loop running (check every {}s)", check_interval)
+        # When search is not active there are no new jobs being discovered,
+        # so use a short idle timeout to shut down promptly after queues drain.
+        if "search" in self._stages:
+            idle_limit_minutes = cfg.shutdown_conditions.no_new_jobs_minutes
+        else:
+            idle_limit_minutes = 2
+
+        # Only watch queues that belong to active stages
+        watched_queues: list[queue.Queue] = []
+        if "details" in self._stages or "search" in self._stages:
+            watched_queues.append(self._details_queue)
+        if "screen" in self._stages:
+            watched_queues.append(self._screening_queue)
+        if "cover-letter" in self._stages:
+            watched_queues.append(self._cover_letter_queue)
+
+        logger.info("Monitor loop running (check every {}s, idle limit {}min)",
+                    check_interval, idle_limit_minutes)
 
         while not self._shutdown.should_shutdown():
             self._shutdown.wait(timeout=check_interval)
@@ -207,15 +269,11 @@ class JobSearchCoordinator:
                 self._shutdown.request_shutdown()
                 break
 
-            # Shutdown condition 2: no new jobs for N minutes AND all queues empty
-            queues_empty = (
-                self._details_queue.empty()
-                and self._screening_queue.empty()
-                and self._cover_letter_queue.empty()
-            )
-            if no_new_minutes >= no_new_jobs_limit and queues_empty:
+            # Shutdown condition 2: no new jobs for N minutes AND active queues empty
+            queues_empty = all(q.empty() for q in watched_queues)
+            if no_new_minutes >= idle_limit_minutes and queues_empty:
                 logger.info(
-                    "No new jobs for {:.1f} min and all queues empty — shutting down",
+                    "No new jobs for {:.1f} min and active queues empty — shutting down",
                     no_new_minutes,
                 )
                 self._shutdown.request_shutdown()

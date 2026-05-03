@@ -112,7 +112,7 @@ class SearchWorker:
             if resp.status_code != 200:
                 logger.warning(
                     "Search HTTP {} for '{}' @ {} (page {}): {}",
-                    resp.status_code, keyword, location.name, page, resp.text[:200],
+                    resp.status_code, keyword, location.name, page, resp.text,
                 )
                 break
 

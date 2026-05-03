@@ -100,7 +100,7 @@
         <i class="bi bi-file-text me-2"></i>Job Description
       </div>
       <div class="card-body">
-        <div class="small" style="white-space: pre-wrap; max-height: 400px; overflow-y: auto;">{{ job.description }}</div>
+        <div class="small" style="white-space: pre-wrap;">{{ job.description }}</div>
       </div>
     </div>
     {% endif %}
@@ -120,6 +120,7 @@
           {% elif st == "interviewing" %}<span class="badge bg-info text-dark">interviewing</span>
           {% elif st == "offered" %}<span class="badge bg-success">offered</span>
           {% elif st == "rejected" %}<span class="badge bg-danger">rejected</span>
+          {% elif st == "skipped" %}<span class="badge bg-dark">skipped</span>
           {% else %}<span class="badge bg-light text-muted">pending</span>{% endif %}
           {% if job.applied_at %}
           <span class="ms-2 text-muted">· {{ job.applied_at[:10] }}</span>
@@ -146,6 +147,11 @@
             {% if job.application_status != "rejected" %}
             <button name="status" value="rejected" class="btn btn-outline-danger btn-sm">
               <i class="bi bi-x-circle me-1"></i>Mark Rejected
+            </button>
+            {% endif %}
+            {% if job.application_status != "skipped" %}
+            <button name="status" value="skipped" class="btn btn-outline-dark btn-sm">
+              <i class="bi bi-slash-circle me-1"></i>Skip (not applying)
             </button>
             {% endif %}
             {% if job.application_status %}

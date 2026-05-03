@@ -44,8 +44,17 @@ class ScreeningCriteriaConfig(BaseModel):
     max_german_level: str = "low"
 
 
+class GeminiScreeningConfig(BaseModel):
+    model: str = "gemini-3.1-flash-lite-preview"  # verify exact ID at ai.google.dev/gemini-api/docs/models
+    temperature: float = 0.1
+    max_tokens: int = 512
+    requests_per_minute: int = 15         # per API key
+
+
 class ScreeningConfig(BaseModel):
+    backend: str = "local"                # "local" | "gemini"
     model: ScreeningModelConfig = Field(default_factory=ScreeningModelConfig)
+    gemini: GeminiScreeningConfig = Field(default_factory=GeminiScreeningConfig)
     criteria: ScreeningCriteriaConfig = Field(default_factory=ScreeningCriteriaConfig)
 
 
@@ -58,7 +67,7 @@ class CoverLetterRateLimitConfig(BaseModel):
 class CoverLetterConfig(BaseModel):
     model: str = "gemini-1.5-flash"
     temperature: float = 0.7
-    max_tokens: int = 1000
+    max_tokens: int = 5000
     use_search_grounding: bool = True  # enable Google Search so Gemini can research the company
     rate_limits: CoverLetterRateLimitConfig = Field(default_factory=CoverLetterRateLimitConfig)
 
@@ -66,7 +75,7 @@ class CoverLetterConfig(BaseModel):
 class ConcurrencyConfig(BaseModel):
     max_search_workers: int = 2
     max_details_workers: int = 3
-    max_screening_workers: int = 1
+    max_screening_workers: int = 3
     max_cover_letter_workers: int = 3
 
 

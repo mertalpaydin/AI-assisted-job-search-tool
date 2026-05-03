@@ -5,12 +5,15 @@ import queue
 import re
 from pathlib import Path
 
+from google import genai
+from google.genai import types as genai_types
 from loguru import logger
 
 from job_search.core.config import Config
 from job_search.core.database import DatabaseManager, ScreeningResult
 from job_search.core.state import ShutdownCoordinator
 from job_search.ai.prompt_manager import PromptManager
+from job_search.utils.api_rotation import GeminiAPIRotator
 
 _GERMAN_LEVELS = ("none", "low", "medium", "high")
 
@@ -19,7 +22,7 @@ def _parse_screening_json(text: str) -> dict:
     """Extract the first JSON object from model output."""
     match = re.search(r"\{.*?\}", text, re.DOTALL)
     if not match:
-        raise ValueError(f"No JSON found in model output: {text[:200]}")
+        raise ValueError(f"No JSON found in model output: {text}")
     return json.loads(match.group())
 
 
@@ -166,3 +169,123 @@ class ScreeningWorker:
                 self._screening_queue.task_done()
 
         logger.info("Screening worker stopped")
+
+
+class GeminiScreeningWorker:
+    """
+    Screens jobs using the Gemini API instead of a local GGUF model.
+
+    Designed to run as one of N concurrent threads. Each instance shares a
+    single GeminiAPIRotator for fair round-robin key rotation and rate limiting.
+
+    NOTE: GenerateContentConfig intentionally omits thinking_config — fast,
+    deterministic JSON output is needed, not extended reasoning.
+    """
+
+    def __init__(
+        self,
+        config: Config,
+        db: DatabaseManager,
+        shutdown: ShutdownCoordinator,
+        screening_queue: queue.Queue,
+        cover_letter_queue: queue.Queue,
+        prompt_manager: PromptManager,
+        rotator: GeminiAPIRotator,
+        worker_id: int = 0,
+    ) -> None:
+        self._config = config
+        self._db = db
+        self._shutdown = shutdown
+        self._screening_queue = screening_queue
+        self._cover_letter_queue = cover_letter_queue
+        self._prompts = prompt_manager
+        self._rotator = rotator
+        self._worker_id = worker_id
+
+    def _infer(self, system_prompt: str, user_prompt: str) -> str:
+        """Blocking Gemini API call with rotator-based key selection."""
+        gemini_cfg = self._config.screening.gemini
+        key_idx, api_key = self._rotator.get_next_available_key()
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=gemini_cfg.model,
+                contents=user_prompt,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=gemini_cfg.temperature,
+                    max_output_tokens=gemini_cfg.max_tokens,
+                    # NO thinking_config — intentional
+                ),
+            )
+            self._rotator.record_success(key_idx)
+            self._db.log_api_usage(key_idx, "screening", success=True)
+            return response.text
+        except Exception as exc:
+            self._rotator.record_error(key_idx, type(exc).__name__)
+            self._db.log_api_usage(
+                key_idx, "screening", success=False, error_type=type(exc).__name__
+            )
+            raise
+
+    def _screen_job(self, job_id: int) -> None:
+        job = self._db.get_job_details(job_id)
+        if job is None:
+            logger.warning("Job {} not found in DB — skipping screening", job_id)
+            return
+
+        system, user = self._prompts.format_screening_prompt(
+            job_title=job.title or "",
+            company_name=job.company_name,
+            job_location=job.formattedLocation,
+            remote_allowed=bool(job.workRemoteAllowed),
+            job_description=job.description,
+        )
+
+        raw_output = self._infer(system, user)
+
+        try:
+            raw = _parse_screening_json(raw_output)
+            result = _apply_criteria(raw, self._config)
+        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            logger.warning("Screening parse error for job {}: {}", job_id, exc)
+            self._db.mark_screening_error(job_id, str(exc))
+            return
+
+        self._db.save_screening_result(job_id, result)
+
+        if result.is_selected:
+            self._cover_letter_queue.put(job_id)
+            logger.info(
+                "Job {} SELECTED (gemini-worker-{}) — cv_match={:.2f}, german={}",
+                job_id, self._worker_id, result.cv_match_score,
+                result.german_requirement_level,
+            )
+        else:
+            logger.debug(
+                "Job {} rejected (gemini-worker-{}) — cv_match={:.2f}, german={}",
+                job_id, self._worker_id, result.cv_match_score,
+                result.german_requirement_level,
+            )
+
+    def run(self) -> None:
+        logger.info("Gemini screening worker-{} started", self._worker_id)
+
+        while not self._shutdown.should_shutdown():
+            try:
+                job_id: int = self._screening_queue.get(timeout=5)
+            except queue.Empty:
+                continue
+
+            try:
+                self._screen_job(job_id)
+            except Exception as exc:
+                logger.error(
+                    "Unhandled Gemini screening error for job {} (worker-{}): {}",
+                    job_id, self._worker_id, exc,
+                )
+                self._db.mark_screening_error(job_id, str(exc))
+            finally:
+                self._screening_queue.task_done()
+
+        logger.info("Gemini screening worker-{} stopped", self._worker_id)

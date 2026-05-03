@@ -81,11 +81,7 @@ def _format_job_file(job: SelectedJobRow) -> str:
         lines.append("JOB DESCRIPTION (first 1000 chars)")
         lines.append(_DIVIDER)
         lines.append("")
-        lines.append(job.description[:1000].strip())
-        if len(job.description) > 1000:
-            lines.append("... [truncated]")
-        lines.append("")
-
+        lines.append(job.description.strip())
     return "\n".join(lines)
 
 

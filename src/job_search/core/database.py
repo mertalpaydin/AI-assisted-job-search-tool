@@ -130,7 +130,7 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(request_timestam
 # Data classes
 # ---------------------------------------------------------------------------
 
-APPLICATION_STATUSES = ("applied", "rejected", "interviewing", "offered")
+APPLICATION_STATUSES = ("applied", "rejected", "interviewing", "offered", "skipped")
 
 
 @dataclass
@@ -586,6 +586,26 @@ class DatabaseManager:
             cur.execute("DELETE FROM cover_letters WHERE generation_status = -1")
             return cur.rowcount
 
+    def reset_screening_errors(self) -> int:
+        """
+        Delete failed screening rows so those jobs are re-queued on next --resume.
+        Returns the number of rows deleted.
+        """
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM screening_results WHERE screening_status = -1")
+            return cur.rowcount
+
+    def reset_detail_errors(self) -> int:
+        """
+        Reset jobs that failed detail scraping (scraped = -1) back to pending (scraped = 0)
+        so they are re-queued on next --resume. Returns the number of rows updated.
+        """
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET scraped = 0, updated_at = CURRENT_TIMESTAMP WHERE scraped = -1"
+            )
+            return cur.rowcount
+
     # ------------------------------------------------------------------
     # API usage
     # ------------------------------------------------------------------
@@ -671,6 +691,38 @@ class DatabaseManager:
             "cl_pending": cl_pending,
             "cl_error": cl_error,
         }
+
+    def get_search_combo_stats(self) -> list[dict]:
+        """
+        Per keyword+location breakdown: found, with details, screened, selected,
+        selection rate %, and avg CV match score.
+        """
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT
+                    search_keyword,
+                    search_location_id,
+                    COUNT(*) AS total_found,
+                    SUM(CASE WHEN scraped = 1 THEN 1 ELSE 0 END) AS with_details,
+                    SUM(CASE WHEN cv_match_score IS NOT NULL THEN 1 ELSE 0 END) AS screened,
+                    SUM(CASE WHEN is_selected = 1 THEN 1 ELSE 0 END) AS selected,
+                    ROUND(
+                        AVG(CASE WHEN cv_match_score IS NOT NULL THEN cv_match_score * 100 END)
+                    ) AS avg_match_pct,
+                    CASE
+                        WHEN SUM(CASE WHEN cv_match_score IS NOT NULL THEN 1 ELSE 0 END) > 0
+                        THEN ROUND(
+                            100.0 * SUM(CASE WHEN is_selected = 1 THEN 1 ELSE 0 END) /
+                            SUM(CASE WHEN cv_match_score IS NOT NULL THEN 1 ELSE 0 END)
+                        )
+                        ELSE NULL
+                    END AS selection_rate_pct
+                FROM jobs
+                GROUP BY search_keyword, search_location_id
+                ORDER BY selected DESC, total_found DESC
+            """)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     # ------------------------------------------------------------------
     # Application tracking
