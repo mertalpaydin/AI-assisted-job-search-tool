@@ -62,6 +62,9 @@
         {% if show_all %}
         <th class="text-center">Selected</th>
         {% endif %}
+        {% if cl_mode == "user_approval" %}
+        <th class="text-center">Approve CL</th>
+        {% endif %}
         <th class="text-center">Cover Letter</th>
         <th class="text-center">Status</th>
         <th></th>
@@ -108,6 +111,32 @@
           <i class="bi bi-x-circle text-danger"></i>
           {% else %}
           <i class="bi bi-hourglass text-muted"></i>
+          {% endif %}
+        </td>
+        {% endif %}
+        {% if cl_mode == "user_approval" %}
+        <td class="text-center">
+          {% if job.cover_letter_text %}
+            <span class="badge bg-success small">Done</span>
+          {% elif job.user_cl_approved == 1 %}
+            <span class="badge bg-success small">Approved</span>
+            <form method="post" action="/jobs/{{ job.job_id }}/cl-reset" class="d-inline ms-1">
+              <input type="hidden" name="status_filter" value="{{ status_filter }}">
+              {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+              <button type="submit" class="btn btn-link p-0 text-muted" title="Undo approval" style="font-size:0.75rem">
+                <i class="bi bi-x-circle"></i>
+              </button>
+            </form>
+          {% elif job.user_cl_approved == 0 %}
+            <span class="badge bg-secondary small">Skipped</span>
+          {% elif job.is_selected == 1 %}
+            <form method="post" action="/jobs/{{ job.job_id }}/cl-approve">
+              <input type="hidden" name="status_filter" value="{{ status_filter }}">
+              {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+              <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2" style="font-size:0.75rem">Approve</button>
+            </form>
+          {% else %}
+            <span class="text-muted" style="font-size:0.75rem">—</span>
           {% endif %}
         </td>
         {% endif %}

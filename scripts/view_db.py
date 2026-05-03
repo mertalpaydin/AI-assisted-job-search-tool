@@ -48,7 +48,7 @@ def main() -> None:
 
     cfg = load_config(args.config)
     db = DatabaseManager(cfg.database.path)
-    app = init_app(db)
+    app = init_app(db, config=cfg)
 
     url = f"http://{args.host}:{args.port}/"
     print(f"Web UI → {url}  (Ctrl+C to stop)")

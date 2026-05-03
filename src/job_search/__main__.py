@@ -234,7 +234,7 @@ def web(config: str, host: str, port: int, debug: bool) -> None:
 
     cfg = load_config(config)
     db = DatabaseManager(cfg.database.path)
-    flask_app = init_app(db)
+    flask_app = init_app(db, config=cfg)
     click.echo(f"Web UI running at http://{host}:{port}/")
     flask_app.run(host=host, port=port, debug=debug)
 

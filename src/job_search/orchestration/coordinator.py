@@ -66,7 +66,7 @@ class JobSearchCoordinator:
                 screening_pending=self._screening_queue if "screen" in self._stages else None,
                 cover_letter_pending=self._cover_letter_queue if "cover-letter" in self._stages else None,
             )
-            self._state.resume(queues)
+            self._state.resume(queues, cl_mode=self._config.cover_letter.mode)
 
         self._start_workers()
         self._monitor_loop()
@@ -88,7 +88,7 @@ class JobSearchCoordinator:
     def _start_web_ui(self) -> None:
         from job_search.web.app import init_app
 
-        flask_app = init_app(self._db)
+        flask_app = init_app(self._db, config=self._config)
         host = self._config.web.host
         port = self._config.web.port
 
