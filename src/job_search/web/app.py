@@ -10,7 +10,7 @@ from pathlib import Path
 
 from flask import Flask, abort, redirect, render_template, request, url_for
 
-from job_search.core.config import load_config
+from job_search.core.config import Config, load_config
 from job_search.core.database import APPLICATION_STATUSES, DatabaseManager
 
 # Flask finds templates relative to this file's directory
@@ -18,6 +18,7 @@ app = Flask(__name__, template_folder="templates")
 app.secret_key = "local-job-search-ui"
 
 _db: DatabaseManager | None = None
+_cl_mode: str = "auto"
 
 
 def get_db() -> DatabaseManager:
@@ -26,9 +27,15 @@ def get_db() -> DatabaseManager:
     return _db
 
 
-def init_app(db: DatabaseManager) -> Flask:
-    global _db
+def get_cl_mode() -> str:
+    return _cl_mode
+
+
+def init_app(db: DatabaseManager, config: Config | None = None) -> Flask:
+    global _db, _cl_mode
     _db = db
+    if config is not None:
+        _cl_mode = config.cover_letter.mode
     return app
 
 
@@ -42,8 +49,13 @@ def index():
     stats = db.get_stats()
     pipeline_stats = db.get_pipeline_stats()
     app_counts = db.get_application_counts()
-    return render_template("index.html", stats=stats, pipeline_stats=pipeline_stats,
-                           app_counts=app_counts, statuses=APPLICATION_STATUSES)
+    cl_mode = get_cl_mode()
+    pending_approval = len(db.get_jobs_pending_cl_approval()) if cl_mode == "user_approval" else 0
+    return render_template(
+        "index.html", stats=stats, pipeline_stats=pipeline_stats,
+        app_counts=app_counts, statuses=APPLICATION_STATUSES,
+        cl_mode=cl_mode, pending_approval=pending_approval,
+    )
 
 
 @app.route("/jobs")
@@ -62,6 +74,7 @@ def jobs():
         "jobs.html", jobs=job_list, status_filter=status_filter,
         statuses=APPLICATION_STATUSES, show_all=False,
         current_sort=sort_by, current_dir=sort_dir,
+        cl_mode=get_cl_mode(),
     )
 
 
@@ -81,6 +94,7 @@ def jobs_all():
         "jobs.html", jobs=job_list, status_filter=status_filter,
         statuses=APPLICATION_STATUSES, show_all=True,
         current_sort=sort_by, current_dir=sort_dir,
+        cl_mode=get_cl_mode(),
     )
 
 
@@ -90,7 +104,8 @@ def job_detail(job_id: int):
     job = db.get_selected_job(job_id)
     if job is None:
         abort(404)
-    return render_template("job_detail.html", job=job, statuses=APPLICATION_STATUSES)
+    return render_template("job_detail.html", job=job, statuses=APPLICATION_STATUSES,
+                           cl_mode=get_cl_mode())
 
 
 @app.route("/jobs/<int:job_id>/status", methods=["POST"])
@@ -132,6 +147,43 @@ def quick_skip(job_id: int):
     new_status = None if job.application_status == "skipped" else "skipped"
     db.mark_application_status(job_id, new_status)
     return _redirect_to_list(request.form)
+
+
+@app.route("/jobs/<int:job_id>/cl-approve", methods=["POST"])
+def cl_approve(job_id: int):
+    """Mark job as approved for cover letter generation."""
+    db = get_db()
+    if db.get_selected_job(job_id) is None:
+        abort(404)
+    db.set_cl_approval(job_id, 1)
+    return _redirect_back(request.form, job_id)
+
+
+@app.route("/jobs/<int:job_id>/cl-reject", methods=["POST"])
+def cl_reject(job_id: int):
+    """Mark job as rejected for cover letter generation (user won't apply)."""
+    db = get_db()
+    if db.get_selected_job(job_id) is None:
+        abort(404)
+    db.set_cl_approval(job_id, 0)
+    return _redirect_back(request.form, job_id)
+
+
+@app.route("/jobs/<int:job_id>/cl-reset", methods=["POST"])
+def cl_reset(job_id: int):
+    """Clear the user CL approval decision."""
+    db = get_db()
+    if db.get_selected_job(job_id) is None:
+        abort(404)
+    db.set_cl_approval(job_id, None)
+    return _redirect_back(request.form, job_id)
+
+
+def _redirect_back(form, job_id: int):
+    """Redirect to job detail or job list depending on the 'source' form field."""
+    if form.get("source") == "detail":
+        return redirect(url_for("job_detail", job_id=job_id))
+    return _redirect_to_list(form)
 
 
 def _redirect_to_list(form) -> "Response":

@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     description TEXT,
 
     application_status TEXT,
-    applied_at TIMESTAMP
+    applied_at TIMESTAMP,
+    user_cl_approved INTEGER DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS screening_results (
@@ -172,6 +173,7 @@ class SelectedJobRow:
     cover_letter_text: str | None
     generation_date: str | None
     generation_status: int | None
+    user_cl_approved: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +272,7 @@ class DatabaseManager:
         """Run all pending migrations in order."""
         self._migrate_v1(conn)
         self._migrate_v2(conn)
+        self._migrate_v3(conn)
 
     def _migrate_v1(self, conn: sqlite3.Connection) -> None:
         """Add columns introduced after the initial old schema."""
@@ -419,6 +422,17 @@ class DatabaseManager:
         conn.commit()
         logger.info("Database migration v2 complete")
 
+    def _migrate_v3(self, conn: sqlite3.Connection) -> None:
+        """Add user_cl_approved column for manual/approval-mode CL control."""
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name='user_cl_approved'"
+        )
+        if cur.fetchone()[0]:
+            return  # already migrated
+        conn.execute("ALTER TABLE jobs ADD COLUMN user_cl_approved INTEGER DEFAULT NULL")
+        conn.commit()
+        logger.info("DB migration v3: added user_cl_approved column")
+
     # ------------------------------------------------------------------
     # Jobs
     # ------------------------------------------------------------------
@@ -479,13 +493,23 @@ class DatabaseManager:
             """)
             return [row[0] for row in cur.fetchall()]
 
-    def get_jobs_pending_cover_letter(self) -> list[int]:
-        with self._cursor() as cur:
-            cur.execute("""
+    def get_jobs_pending_cover_letter(self, mode: str = "auto") -> list[int]:
+        if mode == "user_approval":
+            # Only jobs the user has explicitly approved (any job, regardless of screening)
+            sql = """
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE j.is_selected = 1 AND cl.id IS NULL
-            """)
+                WHERE j.user_cl_approved = 1 AND cl.id IS NULL
+            """
+        else:
+            # Auto: AI-selected jobs OR any job the user manually approved (override)
+            sql = """
+                SELECT j.job_id FROM jobs j
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
+                WHERE (j.is_selected = 1 OR j.user_cl_approved = 1) AND cl.id IS NULL
+            """
+        with self._cursor() as cur:
+            cur.execute(sql)
             return [row[0] for row in cur.fetchall()]
 
     def get_job_details(self, job_id: int) -> JobRow | None:
@@ -742,6 +766,35 @@ class DatabaseManager:
                     (status, job_id),
                 )
 
+    def set_cl_approval(self, job_id: int, approved: int | None) -> None:
+        """Set user_cl_approved: 1=approved for CL, 0=rejected by user, None=clear."""
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET user_cl_approved = ? WHERE job_id = ?",
+                (approved, job_id),
+            )
+
+    def get_jobs_pending_cl_approval(self) -> list[SelectedJobRow]:
+        """Jobs screened-and-selected with no approval decision yet (for user_approval mode)."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT
+                    j.job_id, j.title, j.company_name, j.formattedLocation,
+                    j.jobPostingUrl, j.workRemoteAllowed, j.description,
+                    j.application_status, j.applied_at,
+                    j.cv_match_score, j.german_requirement_level, j.is_selected,
+                    j.screening_reasoning,
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    j.user_cl_approved
+                FROM jobs j
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                WHERE j.is_selected = 1
+                  AND j.user_cl_approved IS NULL
+                  AND cl.id IS NULL
+                ORDER BY j.cv_match_score DESC NULLS LAST
+            """)
+            return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]
+
     def get_application_counts(self) -> dict[str, int]:
         with self._cursor() as cur:
             cur.execute("""
@@ -771,7 +824,8 @@ class DatabaseManager:
                     j.application_status, j.applied_at,
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
-                    cl.cover_letter_text, cl.generation_date, cl.generation_status
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    j.user_cl_approved
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.is_selected = 1
@@ -780,7 +834,7 @@ class DatabaseManager:
             return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]
 
     def get_selected_job(self, job_id: int) -> SelectedJobRow | None:
-        """Return a single selected job by ID."""
+        """Return a single job by ID (selected or not)."""
         with self._cursor() as cur:
             cur.execute("""
                 SELECT
@@ -789,7 +843,8 @@ class DatabaseManager:
                     j.application_status, j.applied_at,
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
-                    cl.cover_letter_text, cl.generation_date, cl.generation_status
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    j.user_cl_approved
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -813,7 +868,8 @@ class DatabaseManager:
                     j.application_status, j.applied_at,
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
-                    cl.cover_letter_text, cl.generation_date, cl.generation_status
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    j.user_cl_approved
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.scraped = 1

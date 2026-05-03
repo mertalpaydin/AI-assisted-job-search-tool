@@ -139,10 +139,12 @@ class ScreeningWorker:
         self._db.save_screening_result(job_id, result)
 
         if result.is_selected:
-            self._cover_letter_queue.put(job_id)
+            if self._config.cover_letter.mode == "auto":
+                self._cover_letter_queue.put(job_id)
             logger.info(
-                "Job {} SELECTED — cv_match={:.2f}, german={}",
+                "Job {} SELECTED — cv_match={:.2f}, german={} (cl_mode={})",
                 job_id, result.cv_match_score, result.german_requirement_level,
+                self._config.cover_letter.mode,
             )
         else:
             logger.debug(
@@ -255,11 +257,12 @@ class GeminiScreeningWorker:
         self._db.save_screening_result(job_id, result)
 
         if result.is_selected:
-            self._cover_letter_queue.put(job_id)
+            if self._config.cover_letter.mode == "auto":
+                self._cover_letter_queue.put(job_id)
             logger.info(
-                "Job {} SELECTED (gemini-worker-{}) — cv_match={:.2f}, german={}",
+                "Job {} SELECTED (gemini-worker-{}) — cv_match={:.2f}, german={} (cl_mode={})",
                 job_id, self._worker_id, result.cv_match_score,
-                result.german_requirement_level,
+                result.german_requirement_level, self._config.cover_letter.mode,
             )
         else:
             logger.debug(

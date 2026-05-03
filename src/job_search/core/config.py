@@ -65,6 +65,7 @@ class CoverLetterRateLimitConfig(BaseModel):
 
 
 class CoverLetterConfig(BaseModel):
+    mode: str = "auto"   # "auto" | "user_approval"
     model: str = "gemini-1.5-flash"
     temperature: float = 0.7
     max_tokens: int = 5000

@@ -53,7 +53,7 @@ class StateManager:
         with self._lock:
             return (time.monotonic() - self._last_new_job_time) / 60.0
 
-    def resume(self, queues: PipelineQueues) -> None:
+    def resume(self, queues: PipelineQueues, cl_mode: str = "auto") -> None:
         """
         Populate queues from the database for jobs that were interrupted
         mid-processing in a previous run.
@@ -62,7 +62,7 @@ class StateManager:
 
         pending_details = self._db.get_jobs_pending_details()
         pending_screening = self._db.get_jobs_pending_screening()
-        pending_cover_letters = self._db.get_jobs_pending_cover_letter()
+        pending_cover_letters = self._db.get_jobs_pending_cover_letter(mode=cl_mode)
 
         if queues.details_pending is not None:
             for job_id in pending_details:
