@@ -15,16 +15,37 @@
 {% endmacro %}
 
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-4">
+{% set base_url = "/jobs/all" if show_all else "/jobs" %}
+<div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="mb-0 fw-semibold">
     {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
     <span class="badge bg-secondary ms-2">{{ jobs|length }}</span>
   </h4>
-  {% if not show_all and status_filter %}
-  <a href="/jobs" class="btn btn-sm btn-outline-secondary">
+  {% if status_filter %}
+  <a href="{{ base_url }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear filter
   </a>
   {% endif %}
+</div>
+
+<!-- Filter bar -->
+<div class="d-flex flex-wrap gap-2 mb-3">
+  {% set filters = [
+    ("",             "All",          "secondary"),
+    ("pending",      "Pending",      "secondary"),
+    ("applied",      "Applied",      "primary"),
+    ("interviewing", "Interviewing", "info"),
+    ("offered",      "Offered",      "success"),
+    ("rejected",     "Rejected",     "danger"),
+    ("skipped",      "Skipped",      "dark"),
+  ] %}
+  {% for val, label, color in filters %}
+  {% set active = (status_filter == val) %}
+  <a href="{{ base_url }}{% if val %}?status={{ val }}{% endif %}"
+     class="btn btn-sm {{ 'btn-' ~ color if active else 'btn-outline-' ~ color }}{{ ' text-dark' if color in ('info', 'warning') else '' }}">
+    {{ label }}
+  </a>
+  {% endfor %}
 </div>
 
 {% if not jobs %}
@@ -103,6 +124,7 @@
           {% elif st == "interviewing" %}<span class="badge bg-info text-dark status-badge">interviewing</span>
           {% elif st == "offered" %}<span class="badge bg-success status-badge">offered</span>
           {% elif st == "rejected" %}<span class="badge bg-danger status-badge">rejected</span>
+          {% elif st == "skipped" %}<span class="badge bg-dark status-badge">skipped</span>
           {% else %}<span class="badge bg-light text-muted status-badge">pending</span>{% endif %}
         </td>
         <td class="text-end">
@@ -118,6 +140,19 @@
               {% else %}
               <button type="submit" class="btn btn-sm btn-outline-primary" title="Mark as applied">
                 <i class="bi bi-send me-1"></i>Apply
+              </button>
+              {% endif %}
+            </form>
+            <form method="post" action="/jobs/{{ job.job_id }}/quick-skip">
+              <input type="hidden" name="status_filter" value="{{ status_filter }}">
+              {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+              {% if job.application_status == "skipped" %}
+              <button type="submit" class="btn btn-sm btn-dark" title="Click to undo skip">
+                <i class="bi bi-slash-circle me-1"></i>Skipped
+              </button>
+              {% else %}
+              <button type="submit" class="btn btn-sm btn-outline-dark" title="Mark as skipped">
+                <i class="bi bi-slash-circle me-1"></i>Skip
               </button>
               {% endif %}
             </form>

@@ -68,11 +68,17 @@ def jobs():
 @app.route("/jobs/all")
 def jobs_all():
     db = get_db()
+    status_filter = request.args.get("status", "")
     sort_by = request.args.get("sort", "listedAt")
     sort_dir = request.args.get("dir", "desc")
     job_list = db.get_all_jobs(sort_by=sort_by, sort_dir=sort_dir)
+    if status_filter:
+        if status_filter == "pending":
+            job_list = [j for j in job_list if not j.application_status]
+        else:
+            job_list = [j for j in job_list if j.application_status == status_filter]
     return render_template(
-        "jobs.html", jobs=job_list, status_filter="",
+        "jobs.html", jobs=job_list, status_filter=status_filter,
         statuses=APPLICATION_STATUSES, show_all=True,
         current_sort=sort_by, current_dir=sort_dir,
     )
@@ -97,6 +103,13 @@ def update_status(job_id: int):
     return redirect(url_for("job_detail", job_id=job_id))
 
 
+@app.route("/stats")
+def search_stats():
+    db = get_db()
+    combos = db.get_search_combo_stats()
+    return render_template("stats.html", combos=combos)
+
+
 @app.route("/jobs/<int:job_id>/quick-apply", methods=["POST"])
 def quick_apply(job_id: int):
     """Toggle applied status inline from the job list."""
@@ -106,10 +119,26 @@ def quick_apply(job_id: int):
         abort(404)
     new_status = None if job.application_status == "applied" else "applied"
     db.mark_application_status(job_id, new_status)
-    status_filter = request.form.get("status_filter", "")
-    show_all = request.form.get("show_all", "")
+    return _redirect_to_list(request.form)
+
+
+@app.route("/jobs/<int:job_id>/quick-skip", methods=["POST"])
+def quick_skip(job_id: int):
+    """Toggle skipped status inline from the job list."""
+    db = get_db()
+    job = db.get_selected_job(job_id)
+    if job is None:
+        abort(404)
+    new_status = None if job.application_status == "skipped" else "skipped"
+    db.mark_application_status(job_id, new_status)
+    return _redirect_to_list(request.form)
+
+
+def _redirect_to_list(form) -> "Response":
+    status_filter = form.get("status_filter", "")
+    show_all = form.get("show_all", "")
     if show_all:
-        return redirect(url_for("jobs_all"))
+        return redirect(url_for("jobs_all", status=status_filter) if status_filter else url_for("jobs_all"))
     if status_filter:
         return redirect(url_for("jobs", status=status_filter))
     return redirect(url_for("jobs"))

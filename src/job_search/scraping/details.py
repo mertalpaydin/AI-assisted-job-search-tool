@@ -158,7 +158,7 @@ class DetailsWorker:
 
         if resp.status_code != 200:
             raise RuntimeError(
-                f"HTTP {resp.status_code} for job {job_id}: {resp.text[:200]}"
+                f"HTTP {resp.status_code} for job {job_id}: {resp.text}"
             )
 
         parsed = _parse_details_response(job_id, resp.json())

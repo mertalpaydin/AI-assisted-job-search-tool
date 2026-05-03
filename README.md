@@ -5,7 +5,7 @@ Automates LinkedIn job discovery, AI screening against your CV, cover letter gen
 ## Features
 
 - **Automated job scraping** — LinkedIn search + full details extraction with pagination (up to 500 results per keyword/location)
-- **AI screening** — local GGUF model (via llama-cpp-python) scores each job against your CV and filters by German language requirement and location
+- **AI screening** — Gemini API (default, multi-worker) or local GGUF model (via llama-cpp-python) scores each job against your CV and filters by German language requirement and location; backend is configurable per run
 - **Cover letter generation** — Gemini API with multi-key rotation and exponential backoff retries
 - **Concurrent pipeline** — parallel search, details, screening, and cover letter workers with graceful shutdown and resume
 - **Export** — self-contained text files (job info + cover letter) and a CSV index ready for applications
@@ -36,10 +36,12 @@ Automates LinkedIn job discovery, AI screening against your CV, cover letter gen
 uv sync
 ```
 
-> **GPU support for the screening model (required for reasonable speed):**
+> **Note:** `llama-cpp-python` with GPU support is only needed when using the local GGUF screening backend (`screening.backend: "local"`). For the default Gemini backend, `uv sync` is sufficient.
+>
+> **GPU support for the local screening model (optional):**
 > ```bash
 > uv pip install llama-cpp-python \
->   --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+>   --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu128 \
 >   --force-reinstall --no-cache-dir
 > ```
 
@@ -71,7 +73,9 @@ cp config/cv.yaml.example     config/cv.yaml
 
 > Both files are gitignored and will never be committed.
 
-### 4. Place your GGUF model
+### 4. Place your GGUF model *(local backend only — skip if using Gemini)*
+
+> **Skip this step** if `screening.backend` in `config/config.yaml` is set to `"gemini"` (the default).
 
 Download a GGUF model and place it in `data/models/`. The default path configured is:
 
@@ -80,6 +84,40 @@ data/models/gemma-4-E4B-it-UD-Q4_K_XL.gguf
 ```
 
 Update `screening.model.path` in `config/config.yaml` if you use a different filename.
+
+### 5. Choose a screening backend
+
+Set `screening.backend` in `config/config.yaml`:
+
+| Value | Requires | Workers | Notes |
+|-------|----------|---------|-------|
+| `"gemini"` (default) | Gemini API keys in `.env` | Multiple (configurable) | Fast API calls; no GPU needed |
+| `"local"` | GGUF model file + llama-cpp-python with CUDA | 1 (GPU-bound) | Fully offline |
+
+**Gemini backend** (default):
+```yaml
+screening:
+  backend: "gemini"
+  gemini:
+    model: "gemini-3.1-flash-lite-preview"    # verify at ai.google.dev/gemini-api/docs/models
+    temperature: 0.1
+    max_tokens: 512
+    requests_per_minute: 15           # per API key
+
+concurrency:
+  max_screening_workers: 3            # set to number of API keys or higher
+```
+
+**Local GGUF backend**:
+```yaml
+screening:
+  backend: "local"
+  model:
+    path: "data/models/your-model.gguf"
+
+concurrency:
+  max_screening_workers: 1            # GPU-bound; keep at 1
+```
 
 ---
 
@@ -101,11 +139,59 @@ uv run job-search run --resume
 
 Picks up from where it left off — pending jobs are restored from the database.
 
+### Run individual stages
+
+Use `-s` / `--stages` to run only part of the pipeline. Pending jobs from previous runs are loaded from the database automatically.
+
+```bash
+# Screen pending jobs (no LinkedIn login needed)
+uv run job-search run -s screen
+
+# Generate cover letters for already-selected jobs
+uv run job-search run -s cover-letter
+
+# Screen and cover letter together
+uv run job-search run -s screen -s cover-letter
+
+# Scrape only, no AI
+uv run job-search run -s search -s details
+```
+
+Omitting `-s` runs all four stages (default).
+
+### Clear pipeline errors and retry
+
+```bash
+# Reset all error types (detail errors, screening errors, cover letter errors)
+uv run job-search reset-errors
+
+# Reset only screening errors
+uv run job-search reset-errors --stage screening
+
+# Reset only detail-scraping errors
+uv run job-search reset-errors --stage details
+```
+
+Or use the standalone script (no CLI setup needed):
+
+```bash
+python scripts/cleanup_errors.py
+python scripts/cleanup_errors.py --stage screening
+```
+
+After clearing, run `uv run job-search run --resume` to retry.
+
 ### All CLI commands
 
 ```bash
-# Run pipeline
+# Run pipeline (all stages)
 uv run job-search run [--config config/config.yaml] [--resume] [--log-level DEBUG]
+
+# Run specific stages only
+uv run job-search run -s screen -s cover-letter
+
+# Clear pipeline errors and retry
+uv run job-search reset-errors [--stage details|screening|cover-letter]
 
 # Export cover letters to data/export/
 uv run job-search export
@@ -136,10 +222,19 @@ uv run job-search web
 
 Open `http://127.0.0.1:5000/` in your browser:
 
+> **Quick DB viewer** — browse results without starting the pipeline:
+> ```bash
+> python scripts/view_db.py                # opens browser automatically
+> python scripts/view_db.py --port 8080
+> python scripts/view_db.py --no-browser
+> ```
+
 | Page | What you see |
 |------|-------------|
 | Dashboard | Pipeline stats, application tracking counts |
 | Selected Jobs | Table with match score, German req, cover letter status |
+| All Jobs | Every scraped job regardless of screening outcome |
+| Search Stats | Per keyword + location: found / screened / selected counts, selection rate %, avg match score |
 | Job Detail | Full cover letter with copy button, LinkedIn apply link, status update buttons |
 
 ### Export format
@@ -178,13 +273,17 @@ uv run pytest tests/ -v
 │   ├── models/                 # Place GGUF model files here (gitignored)
 │   ├── export/                 # Cover letter export output (gitignored)
 │   └── samples/                # Phase 0 discovery outputs and sample API responses
+├── docs/
+│   └── project-summary.md      # CV-ready one-page project summary
 ├── scripts/
+│   ├── view_db.py              # Standalone web UI — browse DB without running the pipeline
+│   ├── export_db.py            # Export all DB tables to CSV
 │   └── phase0_discovery/       # LinkedIn API discovery scripts (reference)
 ├── src/
 │   └── job_search/
 │       ├── core/               # Config (Pydantic), database (SQLite), state management
 │       ├── scraping/           # LinkedIn auth (Selenium), search + details workers
-│       ├── ai/                 # GGUF screener, Gemini cover letter generator, prompt manager
+│       ├── ai/                 # Gemini screener + local GGUF screener, cover letter generator, prompt manager
 │       ├── export/             # Cover letter export to files + CSV
 │       ├── web/                # Flask dashboard (templates + routes)
 │       ├── orchestration/      # Pipeline coordinator — wires all workers together

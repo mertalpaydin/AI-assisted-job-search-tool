@@ -37,14 +37,29 @@ def main() -> None:
 @click.option("--config", default="config/config.yaml", show_default=True, help="Path to config file")
 @click.option("--resume/--no-resume", default=True, show_default=True, help="Resume from last checkpoint")
 @click.option("--log-level", default=None, help="Override log level (DEBUG, INFO, WARNING, ERROR)")
-def run(config: str, resume: bool, log_level: str | None) -> None:
-    """Run the full job search pipeline."""
+@click.option(
+    "--stages", "-s", multiple=True,
+    type=click.Choice(["search", "details", "screen", "cover-letter"]),
+    help="Stages to run (default: all). Repeat for multiple: -s screen -s cover-letter",
+)
+def run(config: str, resume: bool, log_level: str | None, stages: tuple[str, ...]) -> None:
+    """Run the full job search pipeline, or a subset of stages.
+
+    \b
+    Examples:
+      uv run job-search run                          # all stages
+      uv run job-search run -s screen                # screen pending jobs only
+      uv run job-search run -s cover-letter          # generate cover letters only
+      uv run job-search run -s screen -s cover-letter
+      uv run job-search run -s search -s details     # scrape only (no AI)
+    """
     cfg = load_config(config)
     setup_logging(level=log_level or cfg.logging.level, log_file=cfg.logging.file)
 
-    from job_search.orchestration.coordinator import JobSearchCoordinator
+    from job_search.orchestration.coordinator import ALL_STAGES, JobSearchCoordinator
 
-    coordinator = JobSearchCoordinator(cfg)
+    active_stages = set(stages) if stages else set(ALL_STAGES)
+    coordinator = JobSearchCoordinator(cfg, stages=active_stages)
 
     if cfg.web.auto_start:
         click.echo(f"Web UI: http://{cfg.web.host}:{cfg.web.port}/  (starts with pipeline)")
@@ -61,6 +76,46 @@ def run(config: str, resume: bool, log_level: str | None) -> None:
         pass
     finally:
         coordinator.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# reset-errors — clear pipeline error rows so jobs are retried on next run
+# ---------------------------------------------------------------------------
+
+@main.command("reset-errors")
+@click.option("--config", default="config/config.yaml", show_default=True)
+@click.option(
+    "--stage", "stages", multiple=True,
+    type=click.Choice(["details", "screening", "cover-letter"]),
+    help="Which error type to reset (default: all). Repeat for multiple.",
+)
+def reset_errors(config: str, stages: tuple[str, ...]) -> None:
+    """Clear pipeline error rows so affected jobs are retried on the next run.
+
+    \b
+    --stage details      Reset jobs stuck with detail-scraping errors (scraped = -1)
+    --stage screening    Delete screening error rows so jobs are re-screened
+    --stage cover-letter Delete failed cover letter rows
+    """
+    from job_search.core.database import DatabaseManager
+
+    cfg = load_config(config)
+    db = DatabaseManager(cfg.database.path)
+    targets = set(stages) if stages else {"details", "screening", "cover-letter"}
+
+    try:
+        if "details" in targets:
+            n = db.reset_detail_errors()
+            click.echo(f"Details:      {n} job(s) reset to pending")
+        if "screening" in targets:
+            n = db.reset_screening_errors()
+            click.echo(f"Screening:    {n} error row(s) deleted")
+        if "cover-letter" in targets:
+            n = db.purge_cover_letter_errors()
+            click.echo(f"Cover letter: {n} error row(s) deleted")
+        click.echo("Done — run with --resume to retry.")
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
