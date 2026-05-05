@@ -267,7 +267,10 @@ def runner_start():
 def runner_stop():
     global _runner_coordinator
     if _runner_coordinator is not None:
-        _runner_coordinator.cleanup()
+        # Only signal shutdown — do NOT join threads here.
+        # The background run_pipeline() thread owns cleanup() and will call it
+        # when workers finish. Joining in a request handler would block the browser.
+        _runner_coordinator._shutdown.request_shutdown()
     return redirect(url_for("runner_dashboard"))
 
 
