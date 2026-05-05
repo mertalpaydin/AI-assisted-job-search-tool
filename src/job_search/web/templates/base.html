@@ -36,6 +36,11 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'runner_dashboard' %}active{% endif %}" href="/runner">
+            <i class="bi bi-play-circle me-2"></i>Runner
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'jobs' %}active{% endif %}" href="/jobs">
             <i class="bi bi-list-ul me-2"></i>Selected Jobs
           </a>

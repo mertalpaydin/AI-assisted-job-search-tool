@@ -14,6 +14,12 @@ from job_search.core.state import ShutdownCoordinator
 from job_search.scraping.auth import make_headers
 from job_search.scraping.models import CompanyData, ParsedJobDetails
 
+class _JobNotFoundError(Exception):
+    def __init__(self, job_id: int) -> None:
+        super().__init__(f"Job {job_id} returned 404 — deleted from DB")
+        self.job_id = job_id
+
+
 _DETAILS_URL = (
     "https://www.linkedin.com/voyager/api/jobs/jobPostings/{job_id}"
     "?decorationId=com.linkedin.voyager.deco.jobs.web.shared.WebFullJobPosting-65"
@@ -136,6 +142,9 @@ class DetailsWorker:
             try:
                 self._fetch_and_save(job_id)
                 self._error_count = 0
+            except _JobNotFoundError:
+                logger.debug("Job {} no longer exists on LinkedIn — removing from DB", job_id)
+                self._db.delete_job(job_id)
             except Exception as exc:
                 logger.warning("Details error for job {}: {}", job_id, exc)
                 self._error_count += 1
@@ -156,6 +165,8 @@ class DetailsWorker:
         url = _DETAILS_URL.format(job_id=job_id)
         resp = self._session.get(url, headers=self._headers, timeout=15)
 
+        if resp.status_code == 404:
+            raise _JobNotFoundError(job_id)
         if resp.status_code != 200:
             raise RuntimeError(
                 f"HTTP {resp.status_code} for job {job_id}: {resp.text}"

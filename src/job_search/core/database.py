@@ -479,6 +479,10 @@ class DatabaseManager:
                 (job_id,),
             )
 
+    def delete_job(self, job_id: int) -> None:
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+
     def get_jobs_pending_details(self) -> list[int]:
         with self._cursor() as cur:
             cur.execute("SELECT job_id FROM jobs WHERE scraped = 0")
