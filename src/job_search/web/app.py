@@ -6,9 +6,11 @@ Run with:  job-search web
 """
 from __future__ import annotations
 
+import os
+import threading
 from pathlib import Path
 
-from flask import Flask, abort, redirect, render_template, request, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 
 from job_search.core.config import Config, load_config
 from job_search.core.database import APPLICATION_STATUSES, DatabaseManager
@@ -18,7 +20,12 @@ app = Flask(__name__, template_folder="templates")
 app.secret_key = "local-job-search-ui"
 
 _db: DatabaseManager | None = None
+_config: Config | None = None
 _cl_mode: str = "auto"
+
+# Runner state
+_runner_thread: threading.Thread | None = None
+_runner_coordinator = None
 
 
 def get_db() -> DatabaseManager:
@@ -32,8 +39,9 @@ def get_cl_mode() -> str:
 
 
 def init_app(db: DatabaseManager, config: Config | None = None) -> Flask:
-    global _db, _cl_mode
+    global _db, _cl_mode, _config
     _db = db
+    _config = config
     if config is not None:
         _cl_mode = config.cover_letter.mode
     return app
@@ -194,3 +202,115 @@ def _redirect_to_list(form) -> "Response":
     if status_filter:
         return redirect(url_for("jobs", status=status_filter))
     return redirect(url_for("jobs"))
+
+
+# ---------------------------------------------------------------------------
+# Runner UI Routes
+# ---------------------------------------------------------------------------
+
+@app.route("/runner")
+def runner_dashboard():
+    global _runner_thread, _runner_coordinator
+    is_running = _runner_thread is not None and _runner_thread.is_alive()
+    
+    active_stages = []
+    if is_running and _runner_coordinator is not None:
+        active_stages = list(_runner_coordinator._stages)
+    else:
+        _runner_thread = None
+        _runner_coordinator = None
+        active_stages = ["search", "details", "screen", "cover-letter"]
+
+    return render_template(
+        "runner.html",
+        is_running=is_running,
+        active_stages=active_stages,
+    )
+
+
+@app.route("/runner/start", methods=["POST"])
+def runner_start():
+    global _runner_thread, _runner_coordinator, _config
+
+    if _runner_thread is not None and _runner_thread.is_alive():
+        return redirect(url_for("runner_dashboard"))
+
+    if _config is None:
+        abort(500, "Configuration not loaded")
+
+    # Parse stages
+    stages = request.form.getlist("stages")
+    if not stages:
+        from job_search.orchestration.coordinator import ALL_STAGES
+        stages = list(ALL_STAGES)
+        
+    resume = request.form.get("resume") == "on"
+
+    from job_search.orchestration.coordinator import JobSearchCoordinator
+    _runner_coordinator = JobSearchCoordinator(_config, stages=set(stages))
+
+    def run_pipeline():
+        from job_search.utils.logging import setup_logging
+        setup_logging(level=_config.logging.level, log_file=_config.logging.file)
+        try:
+            _runner_coordinator.start(resume=resume)
+        finally:
+            _runner_coordinator.cleanup()
+
+    _runner_thread = threading.Thread(target=run_pipeline, name="runner-ui-thread", daemon=True)
+    _runner_thread.start()
+
+    return redirect(url_for("runner_dashboard"))
+
+
+@app.route("/runner/stop", methods=["POST"])
+def runner_stop():
+    global _runner_coordinator
+    if _runner_coordinator is not None:
+        _runner_coordinator.cleanup()
+    return redirect(url_for("runner_dashboard"))
+
+
+@app.route("/runner/status")
+def runner_status():
+    global _runner_thread
+    is_running = _runner_thread is not None and _runner_thread.is_alive()
+    return jsonify({"is_running": is_running})
+
+
+@app.route("/runner/logs")
+def runner_logs():
+    global _config
+    if _config is None or not _config.logging.file:
+        return jsonify({"logs": "Log file not configured."})
+
+    log_path = Path(_config.logging.file)
+    if not log_path.exists():
+        return jsonify({"logs": "Log file not found."})
+
+    # Read the last N lines. Since log files can be large, we'll read from the end.
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            filesize = f.tell()
+            block_size = 8192
+            
+            # Go back one block at a time
+            lines = []
+            pos = max(0, filesize - block_size)
+            f.seek(pos, os.SEEK_SET)
+            
+            data = f.read().decode("utf-8", errors="replace")
+            lines = data.splitlines()
+            
+            # If the file is larger than our block, keep looking backwards to get up to 200 lines
+            while len(lines) < 200 and pos > 0:
+                pos = max(0, pos - block_size)
+                f.seek(pos, os.SEEK_SET)
+                data = f.read(block_size).decode("utf-8", errors="replace")
+                lines = (data + lines[0]).splitlines() + lines[1:]
+
+            last_lines = lines[-200:]
+            return jsonify({"logs": "\n".join(last_lines)})
+    except Exception as e:
+        return jsonify({"logs": f"Error reading logs: {e}"})
