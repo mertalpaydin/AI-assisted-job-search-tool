@@ -227,6 +227,8 @@ logs/
 
 # Large data files (sample JSONs kept in git; real scraped data excluded)
 data/jobs.db
+data/jobs.db-shm
+data/jobs.db-wal
 
 # Exported data (generated at runtime, not source-controlled)
 data/export/

@@ -136,7 +136,7 @@
     const autoScrollBtn = document.getElementById('autoScrollBtn');
     let autoScroll = true;
     let isRunning = {{ 'true' if is_running else 'false' }};
-    
+
     function toggleAutoScroll() {
         autoScroll = !autoScroll;
         if (autoScroll) {
@@ -148,13 +148,13 @@
             autoScrollBtn.classList.replace('btn-outline-secondary', 'btn-secondary');
         }
     }
-    
+
     function scrollToBottom() {
         if (autoScroll) {
             logViewer.scrollTop = logViewer.scrollHeight;
         }
     }
-    
+
     function fetchLogs() {
         fetch('/runner/logs')
             .then(response => response.json())
@@ -167,33 +167,34 @@
             });
     }
 
+    // Always poll status — this handles the "stopping" window where the thread
+    // is still alive but shutdown was signalled, and ensures the UI recovers
+    // even if the page was loaded mid-shutdown.
+    function pollStatus() {
+        fetch('/runner/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.is_running !== isRunning) {
+                    window.location.reload();
+                }
+            })
+            .catch(() => {}); // ignore transient network errors
+    }
+
     // Fetch immediately
     fetchLogs();
-    
-    // Set up polling
-    const pollInterval = isRunning ? 1000 : 5000; // Poll faster if running
-    setInterval(() => {
-        fetchLogs();
-        if (isRunning) {
-            // Also poll the status endpoint to see if it stopped
-            fetch('/runner/status')
-                .then(response => response.json())
-                .then(data => {
-                    if (!data.is_running) {
-                        window.location.reload();
-                    }
-                });
-        }
-    }, pollInterval);
+
+    // Poll logs every second when running, every 5s when stopped
+    setInterval(fetchLogs, isRunning ? 1000 : 5000);
+
+    // Always poll status every 2 seconds so the UI reacts to any state change
+    setInterval(pollStatus, 2000);
 
     // If user scrolls up, disable auto-scroll
     logViewer.addEventListener('scroll', () => {
         const isAtBottom = logViewer.scrollHeight - logViewer.scrollTop <= logViewer.clientHeight + 10;
         if (!isAtBottom && autoScroll) {
-            toggleAutoScroll(); // Turn it off
-        } else if (isAtBottom && !autoScroll) {
-            // Optional: could turn it back on if they scroll to the very bottom
-            // toggleAutoScroll();
+            toggleAutoScroll();
         }
     });
 </script>

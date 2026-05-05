@@ -51,6 +51,7 @@ class JobSearchCoordinator:
         self._cover_letter_queue: queue.Queue = queue.Queue()
 
         self._threads: list[threading.Thread] = []
+        self._cleaned_up = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -72,8 +73,9 @@ class JobSearchCoordinator:
         self._monitor_loop()
 
     def cleanup(self) -> None:
-        if self._shutdown.should_shutdown():
-            return  # Idempotent — prevents double-cleanup from SIGTERM + KeyboardInterrupt
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
         self._shutdown.request_shutdown()
         for t in self._threads:
             t.join(timeout=10)
@@ -283,12 +285,18 @@ class JobSearchCoordinator:
         self._drain_queues(timeout=60)
 
     def _drain_queues(self, timeout: float) -> None:
-        """Give workers up to `timeout` seconds to finish current items."""
+        """Give workers up to `timeout` seconds to finish in-flight items.
+
+        queue.Queue.join() has no built-in timeout, so we run each join in a
+        daemon thread and wait on it with a deadline. Items still in the queue
+        when workers stop will never call task_done(), so a plain join() would
+        block forever — this prevents that.
+        """
         deadline = time.monotonic() + timeout
         for q in (self._details_queue, self._screening_queue, self._cover_letter_queue):
             remaining = deadline - time.monotonic()
-            if remaining > 0:
-                try:
-                    q.join()  # blocks until all task_done() called
-                except Exception:
-                    pass
+            if remaining <= 0:
+                break
+            t = threading.Thread(target=q.join, daemon=True)
+            t.start()
+            t.join(timeout=remaining)

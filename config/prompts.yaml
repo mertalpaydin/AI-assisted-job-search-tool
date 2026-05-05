@@ -14,6 +14,9 @@ screening:
     Tend to accept all AI, ML & Data Science positions unless they have very specific requirements the candidate lacks.
     Try to eliminate software engineering positions unless they clearly specifies relation with AI, ML & Data Science.
 
+    Location rule: Only select jobs that are in the candidate's preferred location or explicitly allow remote work.
+    Reject any on-site/hybrid job whose location is outside the candidate's stated location preference.
+
     Respond ONLY with valid JSON, no additional text.
 
   user_prompt_template: |

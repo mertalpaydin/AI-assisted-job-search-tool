@@ -38,10 +38,12 @@ def _make_driver(browser: str) -> webdriver.Remote:
 def create_session(email: str, password: str, browser: str = "edge") -> requests.Session | None:
     """
     Automate LinkedIn login via Selenium and return an authenticated requests.Session.
-    Prompts the user to press ENTER after handling any CAPTCHA or 2FA.
-    Returns None if login elements are not found within the timeout.
+    Waits up to 60 seconds for LinkedIn to reach an authenticated page after submitting
+    credentials (to allow for any redirect delays). Returns None on failure so the
+    caller can shut down gracefully.
     """
     _LOGGED_IN_PATHS = ("/feed", "/home", "/mynetwork", "/jobs", "/messaging", "/notifications")
+    _AUTH_TIMEOUT = 60  # seconds to wait for post-login redirect
 
     def _is_logged_in() -> bool:
         return any(p in driver.current_url for p in _LOGGED_IN_PATHS)
@@ -77,12 +79,24 @@ def create_session(email: str, password: str, browser: str = "edge") -> requests
                     driver.quit()
                     return None
 
+        # Wait for a confirmed authenticated URL (handles slow redirects, 2FA, etc.)
+        try:
+            WebDriverWait(driver, _AUTH_TIMEOUT).until(lambda d: _is_logged_in())
+            logger.info("LinkedIn authentication confirmed ({})", driver.current_url)
+        except TimeoutException:
+            logger.error(
+                "LinkedIn login did not reach an authenticated page within {}s. "
+                "Current URL: {}. Check credentials or whether CAPTCHA/2FA is blocking login.",
+                _AUTH_TIMEOUT,
+                driver.current_url,
+            )
+            driver.quit()
+            return None
+
     except Exception as exc:
         logger.error("Unexpected auth error: {}", exc)
         driver.quit()
         return None
-
-    input(f'Press ENTER after successful login for "{email}": ')
 
     # Navigate to jobs page so LinkedIn sets all session cookies
     driver.get(

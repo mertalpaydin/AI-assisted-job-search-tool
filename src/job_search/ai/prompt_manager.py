@@ -73,6 +73,8 @@ class PromptManager:
         prefs = cv.get("preferences", {})
         if prefs.get("desired_roles"):
             lines.append(f"\nDesired Roles: {', '.join(prefs['desired_roles'])}")
+        if prefs.get("location_preference"):
+            lines.append(f"Location Preference: {prefs['location_preference']}")
         if prefs.get("german_requirement"):
             lines.append(f"German Requirement Preference: {prefs['german_requirement']}")
 
