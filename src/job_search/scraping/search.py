@@ -30,14 +30,25 @@ _JOB_CARD_TYPE = "com.linkedin.voyager.dash.jobs.JobPostingCard"
 
 
 def _parse_search_response(data: dict) -> list[JobStub]:
+    included = data.get("included", [])
+    type_counts: dict[str, int] = {}
+    for item in included:
+        t = item.get("$type", "<missing>")
+        type_counts[t] = type_counts.get(t, 0) + 1
+    logger.debug(
+        "Response included {} total items — type breakdown: {}",
+        len(included),
+        ", ".join(f"{t}={n}" for t, n in sorted(type_counts.items())),
+    )
+
     stubs: list[JobStub] = []
-    for item in data.get("included", []):
+    skipped_no_urn = 0
+    for item in included:
         if item.get("$type") != _JOB_CARD_TYPE:
-            continue
-        if "referenceId" not in item:
             continue
         urn: str = item.get("jobPostingUrn", "")
         if not urn:
+            skipped_no_urn += 1
             continue
         job_id = int(urn.split(":")[-1])
         title: str | None = item.get("jobPostingTitle")
@@ -45,6 +56,13 @@ def _parse_search_response(data: dict) -> list[JobStub]:
             x.get("type") == "PROMOTED" for x in item.get("footerItems", [])
         )
         stubs.append(JobStub(job_id=job_id, title=title, sponsored=sponsored))
+
+    logger.debug(
+        "Parsed {} job stubs from {} JobPostingCard items (skipped: {} no-urn)",
+        len(stubs),
+        type_counts.get(_JOB_CARD_TYPE, 0),
+        skipped_no_urn,
+    )
     return stubs
 
 
@@ -79,27 +97,48 @@ class SearchWorker:
             for loc in config.search.locations
         ]
         self._pairs: cycle = cycle(pairs)
+        self._cycle_size = len(pairs)
         self._max_pages = config.search.max_pages
 
     def run(self) -> None:
         logger.info("Search worker started")
-        delay = self._config.search.rate_limits.delay_between_requests
+        rate_limits = self._config.search.rate_limits
+        delay = rate_limits.delay_between_requests
+        idle_delay = rate_limits.idle_cycle_delay
+
+        cycle_pos = 0
+        cycle_new = 0
 
         while not self._shutdown.should_shutdown():
             keyword, location = next(self._pairs)
             try:
-                self._search_once(keyword, location)
+                new_jobs = self._search_once(keyword, location)
+                cycle_new += new_jobs
             except Exception as exc:
                 logger.warning("Search error for '{}' / {}: {}", keyword, location.name, exc)
+
+            cycle_pos += 1
+            if cycle_pos >= self._cycle_size:
+                if cycle_new == 0:
+                    logger.debug(
+                        "Full cycle complete — no new jobs found, cooling down for {}s",
+                        idle_delay,
+                    )
+                    if self._shutdown.wait(timeout=idle_delay):
+                        break
+                cycle_pos = 0
+                cycle_new = 0
+                continue
 
             if self._shutdown.wait(timeout=delay):
                 break
 
         logger.info("Search worker stopped")
 
-    def _search_once(self, keyword: str, location: LocationConfig) -> None:
+    def _search_once(self, keyword: str, location: LocationConfig) -> int:
         total_new = 0
         total_seen = 0
+        consecutive_empty = 0
 
         wt_code = _WORK_TYPE_CODES.get(location.work_type or "", None)
         wt_filter = f"&f_WT={wt_code}" if wt_code else ""
@@ -135,8 +174,11 @@ class SearchWorker:
             total_seen += len(stubs)
 
             if new_in_page == 0:
-                # All jobs on this page already known — no point going deeper
-                break
+                consecutive_empty += 1
+                if consecutive_empty >= 3:
+                    break
+            else:
+                consecutive_empty = 0
 
             # Respect rate limits between pages
             if page < self._max_pages - 1 and not self._shutdown.should_shutdown():
@@ -148,3 +190,4 @@ class SearchWorker:
             keyword, location.name, total_new, total_seen,
             min(self._max_pages, (total_seen // 100) + 1),
         )
+        return total_new
