@@ -128,6 +128,13 @@ class DetailsWorker:
         self._screening_queue = screening_queue
         self._max_errors = 10
         self._error_count = 0
+        # Geo IDs configured as remote-only — jobs from these geos that come
+        # back non-remote are discarded before reaching the screening queue.
+        self._remote_geo_ids: frozenset[str] = frozenset(
+            loc.geo_id
+            for loc in config.search.locations
+            if loc.work_type == "remote"
+        )
 
     def run(self) -> None:
         logger.info("Details worker started")
@@ -182,5 +189,17 @@ class DetailsWorker:
             parsed.job_fields["company_universal_name"] = cf.get("universalName")
 
         self._db.update_job_details(job_id, parsed.job_fields)
+
+        # If this job came from a remote-only geo search but LinkedIn says it's
+        # not remote, the API filter didn't apply correctly — discard it.
+        if self._remote_geo_ids:
+            geo_id, work_remote = self._db.get_job_remote_info(job_id)
+            if geo_id in self._remote_geo_ids and not work_remote:
+                logger.debug(
+                    "Job {} is not remote despite remote-geo search — discarding", job_id
+                )
+                self._db.delete_job(job_id)
+                return
+
         self._screening_queue.put(job_id)
         logger.debug("Details saved for job {}", job_id)

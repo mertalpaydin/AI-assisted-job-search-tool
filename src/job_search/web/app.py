@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
@@ -18,6 +19,18 @@ from job_search.core.database import APPLICATION_STATUSES, DatabaseManager
 # Flask finds templates relative to this file's directory
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "local-job-search-ui"
+
+
+@app.template_filter("short_date")
+def short_date_filter(value: str | None) -> str:
+    """Format a datetime string (e.g. '2026-05-05 12:34:56') as '5 May'."""
+    if not value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(str(value).split(".")[0])
+        return f"{dt.day} {dt.strftime('%b')}"
+    except (ValueError, TypeError):
+        return str(value)[:10]
 
 _db: DatabaseManager | None = None
 _config: Config | None = None
