@@ -15,13 +15,15 @@ from job_search.scraping.models import JobStub
 
 _WORK_TYPE_CODES: dict[str, int] = {"remote": 2, "onsite": 1, "hybrid": 3}
 
+# f_WT is a top-level URL parameter — putting it inside selectedFilters was
+# not being respected by LinkedIn's API, causing non-remote jobs to slip through.
 _SEARCH_URL_BASE = (
     "https://www.linkedin.com/voyager/api/voyagerJobsDashJobCards"
     "?decorationId=com.linkedin.voyager.dash.deco.jobs.search.JobSearchCardsCollection-187"
     "&count=100&q=jobSearch"
-    "&query=(origin:JOB_SEARCH_PAGE_OTHER_ENTRY,selectedFilters:(sortBy:List(DD){wt_filter})"
+    "&query=(origin:JOB_SEARCH_PAGE_OTHER_ENTRY,selectedFilters:(sortBy:List(DD))"
     ",keywords:{keyword},locationUnion:(geoId:{geo_id}),spellCorrectionEnabled:true)"
-    "&start={start}"
+    "&start={start}{wt_filter}"
 )
 
 _JOB_CARD_TYPE = "com.linkedin.voyager.dash.jobs.JobPostingCard"
@@ -100,7 +102,7 @@ class SearchWorker:
         total_seen = 0
 
         wt_code = _WORK_TYPE_CODES.get(location.work_type or "", None)
-        wt_filter = f",f_WT:List({wt_code})" if wt_code else ""
+        wt_filter = f"&f_WT={wt_code}" if wt_code else ""
 
         for page in range(self._max_pages):
             start = page * 100

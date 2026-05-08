@@ -67,6 +67,7 @@
         {% endif %}
         <th class="text-center">Cover Letter</th>
         <th class="text-center">Status</th>
+        <th class="text-center">{{ sort_link("created_at", "Scraped") }}</th>
         <th></th>
       </tr>
     </thead>
@@ -155,6 +156,9 @@
           {% elif st == "rejected" %}<span class="badge bg-danger status-badge">rejected</span>
           {% elif st == "skipped" %}<span class="badge bg-dark status-badge">skipped</span>
           {% else %}<span class="badge bg-light text-muted status-badge">pending</span>{% endif %}
+        </td>
+        <td class="text-center">
+          <span class="small text-muted">{{ job.created_at | short_date }}</span>
         </td>
         <td class="text-end">
           <div class="d-flex gap-1 justify-content-end">

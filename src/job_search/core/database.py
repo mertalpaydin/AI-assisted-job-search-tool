@@ -174,6 +174,7 @@ class SelectedJobRow:
     generation_date: str | None
     generation_status: int | None
     user_cl_approved: int | None = None
+    created_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +210,7 @@ _JOBS_COLUMNS: frozenset[str] = frozenset({
 # Whitelisted fields for ORDER BY (prevents SQL injection via sort params)
 _SORTABLE_FIELDS: frozenset[str] = frozenset({
     "title", "company_name", "formattedLocation", "cv_match_score",
-    "german_requirement_level", "listedAt", "applies",
+    "german_requirement_level", "listedAt", "applies", "created_at",
 })
 
 
@@ -481,6 +482,9 @@ class DatabaseManager:
 
     def delete_job(self, job_id: int) -> None:
         with self._cursor() as cur:
+            cur.execute("DELETE FROM cover_letters WHERE job_id = ?", (job_id,))
+            cur.execute("DELETE FROM screening_results WHERE job_id = ?", (job_id,))
+            cur.execute("DELETE FROM processing_state WHERE job_id = ?", (job_id,))
             cur.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
 
     def get_jobs_pending_details(self) -> list[int]:
@@ -515,6 +519,18 @@ class DatabaseManager:
         with self._cursor() as cur:
             cur.execute(sql)
             return [row[0] for row in cur.fetchall()]
+
+    def get_job_remote_info(self, job_id: int) -> tuple[str | None, int | None]:
+        """Return (search_location_id, workRemoteAllowed) for a job."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT search_location_id, workRemoteAllowed FROM jobs WHERE job_id = ?",
+                (job_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None, None
+            return row["search_location_id"], row["workRemoteAllowed"]
 
     def get_job_details(self, job_id: int) -> JobRow | None:
         with self._cursor() as cur:
@@ -789,7 +805,7 @@ class DatabaseManager:
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
-                    j.user_cl_approved
+                    j.user_cl_approved, j.created_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.is_selected = 1
@@ -829,7 +845,7 @@ class DatabaseManager:
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
-                    j.user_cl_approved
+                    j.user_cl_approved, j.created_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.is_selected = 1
@@ -848,7 +864,7 @@ class DatabaseManager:
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
-                    j.user_cl_approved
+                    j.user_cl_approved, j.created_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -873,7 +889,7 @@ class DatabaseManager:
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
-                    j.user_cl_approved
+                    j.user_cl_approved, j.created_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.scraped = 1
