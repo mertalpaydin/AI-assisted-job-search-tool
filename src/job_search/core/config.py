@@ -22,6 +22,7 @@ class RateLimitConfig(BaseModel):
     requests_per_minute: int = 30
     delay_between_requests: float = 2.0
     max_retries: int = 3
+    idle_cycle_delay: float = 60.0  # seconds to wait after a full cycle with 0 new jobs
 
 
 class SearchConfig(BaseModel):
