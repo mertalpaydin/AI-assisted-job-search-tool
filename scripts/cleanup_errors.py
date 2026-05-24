@@ -59,16 +59,16 @@ def main() -> None:
 
     try:
         if "details" in stages:
-            n = db.reset_detail_errors()
-            print(f"Details:      {n} job(s) reset to pending (scraped -1 → 0)")
+            ids = db.reset_detail_errors()
+            print(f"Details:      {len(ids)} job(s) reset to pending (scraped -1 -> 0)")
 
         if "screening" in stages:
-            n = db.reset_screening_errors()
-            print(f"Screening:    {n} error row(s) deleted from screening_results")
+            ids = db.reset_screening_errors()
+            print(f"Screening:    {len(ids)} error row(s) deleted from screening_results")
 
         if "cover-letter" in stages:
-            n = db.purge_cover_letter_errors()
-            print(f"Cover letter: {n} error row(s) deleted from cover_letters")
+            ids = db.purge_cover_letter_errors()
+            print(f"Cover letter: {len(ids)} error row(s) deleted from cover_letters")
 
         print("\nDone. Run with --resume to retry the cleared jobs:")
         print("  uv run job-search run --resume")

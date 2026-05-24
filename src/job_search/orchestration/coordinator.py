@@ -234,13 +234,15 @@ class JobSearchCoordinator:
         check_interval = cfg.shutdown_conditions.check_interval_seconds
         max_runtime = cfg.max_runtime_hours * 3600
         start_time = time.monotonic()
+        retry_interval = cfg.retry_errors_interval_minutes * 60
+        last_retry = time.monotonic() if retry_interval > 0 else None
 
         # When search is not active there are no new jobs being discovered,
         # so use a short idle timeout to shut down promptly after queues drain.
         if "search" in self._stages:
             idle_limit_minutes = cfg.shutdown_conditions.no_new_jobs_minutes
         else:
-            idle_limit_minutes = 2
+            idle_limit_minutes = 15
 
         # Only watch queues that belong to active stages
         watched_queues: list[queue.Queue] = []
@@ -251,8 +253,14 @@ class JobSearchCoordinator:
         if "cover-letter" in self._stages:
             watched_queues.append(self._cover_letter_queue)
 
-        logger.info("Monitor loop running (check every {}s, idle limit {}min)",
-                    check_interval, idle_limit_minutes)
+        if retry_interval > 0:
+            logger.info(
+                "Monitor loop running (check every {}s, idle limit {}min, error retry every {}min)",
+                check_interval, idle_limit_minutes, cfg.retry_errors_interval_minutes,
+            )
+        else:
+            logger.info("Monitor loop running (check every {}s, idle limit {}min)",
+                        check_interval, idle_limit_minutes)
 
         while not self._shutdown.should_shutdown():
             self._shutdown.wait(timeout=check_interval)
@@ -264,6 +272,11 @@ class JobSearchCoordinator:
             no_new_minutes = self._state.minutes_since_last_new_job()
 
             self._state.log_stats()
+
+            # Auto-retry errored jobs
+            if last_retry is not None and (time.monotonic() - last_retry) >= retry_interval:
+                self._retry_errors()
+                last_retry = time.monotonic()
 
             # Shutdown condition 1: max runtime
             if elapsed >= max_runtime:
@@ -283,6 +296,39 @@ class JobSearchCoordinator:
 
         logger.info("Monitor loop exiting — waiting for workers to finish…")
         self._drain_queues(timeout=60)
+
+    def _retry_errors(self) -> None:
+        """Reset errored jobs and push them back onto the live queues."""
+        stages = self._stages
+
+        if "details" in stages:
+            job_ids = self._db.reset_detail_errors()
+            for jid in job_ids:
+                self._details_queue.put(jid)
+            if job_ids:
+                logger.info("Auto-retry: requeued {} detail-error job(s)", len(job_ids))
+
+        if "screen" in stages:
+            job_ids = self._db.reset_screening_errors()
+            for jid in job_ids:
+                self._screening_queue.put(jid)
+            if job_ids:
+                logger.info("Auto-retry: requeued {} screening-error job(s)", len(job_ids))
+
+        if "cover-letter" in stages:
+            cleared = self._db.purge_cover_letter_errors()
+            if cleared:
+                # Re-queue only jobs still eligible under current CL mode
+                eligible = set(self._db.get_jobs_pending_cover_letter(
+                    mode=self._config.cover_letter.mode
+                ))
+                to_retry = [jid for jid in cleared if jid in eligible]
+                for jid in to_retry:
+                    self._cover_letter_queue.put(jid)
+                logger.info(
+                    "Auto-retry: requeued {}/{} cover-letter-error job(s)",
+                    len(to_retry), len(cleared),
+                )
 
     def _drain_queues(self, timeout: float) -> None:
         """Give workers up to `timeout` seconds to finish in-flight items.

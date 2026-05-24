@@ -656,11 +656,14 @@ class DatabaseManager:
                 VALUES (?, -1, ?, ?)
             """, (job_id, error, retry_count))
 
-    def purge_cover_letter_errors(self) -> int:
-        """Delete all failed cover letter rows. Returns the number of rows deleted."""
+    def purge_cover_letter_errors(self) -> list[int]:
+        """Delete all failed cover letter rows. Returns the job_ids that were cleared."""
         with self._cursor() as cur:
-            cur.execute("DELETE FROM cover_letters WHERE generation_status = -1")
-            return cur.rowcount
+            cur.execute("SELECT job_id FROM cover_letters WHERE generation_status = -1")
+            job_ids = [row[0] for row in cur.fetchall()]
+            if job_ids:
+                cur.execute("DELETE FROM cover_letters WHERE generation_status = -1")
+            return job_ids
 
     def purge_cover_letter_nulls(self) -> int:
         """Delete 'success' rows with empty text (stuck from empty-response bug)."""
@@ -671,25 +674,31 @@ class DatabaseManager:
             )
             return cur.rowcount
 
-    def reset_screening_errors(self) -> int:
+    def reset_screening_errors(self) -> list[int]:
         """
-        Delete failed screening rows so those jobs are re-queued on next --resume.
-        Returns the number of rows deleted.
+        Delete failed screening rows so those jobs are re-queued.
+        Returns the job_ids that were cleared.
         """
         with self._cursor() as cur:
-            cur.execute("DELETE FROM screening_results WHERE screening_status = -1")
-            return cur.rowcount
+            cur.execute("SELECT job_id FROM screening_results WHERE screening_status = -1")
+            job_ids = [row[0] for row in cur.fetchall()]
+            if job_ids:
+                cur.execute("DELETE FROM screening_results WHERE screening_status = -1")
+            return job_ids
 
-    def reset_detail_errors(self) -> int:
+    def reset_detail_errors(self) -> list[int]:
         """
         Reset jobs that failed detail scraping (scraped = -1) back to pending (scraped = 0)
-        so they are re-queued on next --resume. Returns the number of rows updated.
+        so they are re-queued. Returns the job_ids that were reset.
         """
         with self._cursor() as cur:
-            cur.execute(
-                "UPDATE jobs SET scraped = 0, updated_at = CURRENT_TIMESTAMP WHERE scraped = -1"
-            )
-            return cur.rowcount
+            cur.execute("SELECT job_id FROM jobs WHERE scraped = -1")
+            job_ids = [row[0] for row in cur.fetchall()]
+            if job_ids:
+                cur.execute(
+                    "UPDATE jobs SET scraped = 0, updated_at = CURRENT_TIMESTAMP WHERE scraped = -1"
+                )
+            return job_ids
 
     # ------------------------------------------------------------------
     # API usage
