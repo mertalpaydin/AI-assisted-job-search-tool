@@ -96,6 +96,7 @@ class ExecutionConfig(BaseModel):
     shutdown_conditions: ShutdownConditionsConfig = Field(default_factory=ShutdownConditionsConfig)
     pickup_on_restart: bool = True
     checkpoint_interval_minutes: int = 5
+    retry_errors_interval_minutes: int = 1  # 0 = disabled; retries errored jobs automatically
 
 
 class DatabaseConfig(BaseModel):

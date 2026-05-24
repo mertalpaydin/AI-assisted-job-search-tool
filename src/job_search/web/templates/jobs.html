@@ -40,6 +40,15 @@
   <button id="hide-remote-toggle" class="btn btn-outline-secondary btn-sm">
     <i class="bi bi-wifi-off me-1"></i>Hide remote
   </button>
+  <button id="cl-toggle" class="btn btn-outline-primary btn-sm">
+    <i class="bi bi-file-earmark-check me-1"></i>CL ready
+  </button>
+  <div class="d-flex align-items-center gap-1">
+    <label class="text-muted small mb-0">Scraped from</label>
+    <input type="date" id="scraped-from" class="form-control form-control-sm" style="width:140px">
+    <label class="text-muted small mb-0">to</label>
+    <input type="date" id="scraped-to" class="form-control form-control-sm" style="width:140px">
+  </div>
 </div>
 
 <!-- Filter bar -->
@@ -88,7 +97,9 @@
     <tbody>
       {% for job in jobs %}
       <tr data-search="{{ job.job_id }} {{ (job.title or '') | lower }} {{ (job.company_name or '') | lower }}"
-          data-remote="{{ '1' if job.workRemoteAllowed else '0' }}">
+          data-remote="{{ '1' if job.workRemoteAllowed else '0' }}"
+          data-cl="{{ '1' if job.cover_letter_text else '0' }}"
+          data-scraped="{{ (job.created_at or '')[:10] }}">
         <td>
           <div class="fw-semibold">{{ job.title or "N/A" }}</div>
           <div class="text-muted small">{{ job.company_name or "Unknown" }}</div>
@@ -223,21 +234,33 @@
   const searchInput      = document.getElementById('job-search');
   const remoteToggle     = document.getElementById('remote-toggle');
   const hideRemoteToggle = document.getElementById('hide-remote-toggle');
+  const clToggle         = document.getElementById('cl-toggle');
+  const scrapedFrom      = document.getElementById('scraped-from');
+  const scrapedTo        = document.getElementById('scraped-to');
   const countBadge       = document.getElementById('job-count');
+
   // remoteFilter: 0 = all, 1 = remote only, -1 = hide remote
   let remoteFilter = 0;
+  let clReady = false;
 
   function applyFilters() {
-    const q = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    const q       = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    const dateFrom = scrapedFrom ? scrapedFrom.value : '';
+    const dateTo   = scrapedTo   ? scrapedTo.value   : '';
     const rows = document.querySelectorAll('tbody tr');
     let visible = 0;
     rows.forEach(row => {
       const matchSearch = !q || row.dataset.search.includes(q);
-      const isRemote = row.dataset.remote === '1';
+      const isRemote    = row.dataset.remote === '1';
+      const hasCl       = row.dataset.cl === '1';
+      const scraped     = row.dataset.scraped || '';
       const matchRemote = remoteFilter === 0
         || (remoteFilter === 1 && isRemote)
         || (remoteFilter === -1 && !isRemote);
-      const show = matchSearch && matchRemote;
+      const matchCl     = !clReady || hasCl;
+      const matchFrom   = !dateFrom || scraped >= dateFrom;
+      const matchTo     = !dateTo   || scraped <= dateTo;
+      const show = matchSearch && matchRemote && matchCl && matchFrom && matchTo;
       row.style.display = show ? '' : 'none';
       if (show) visible++;
     });
@@ -253,8 +276,18 @@
     applyFilters();
   }
 
-  if (searchInput) searchInput.addEventListener('input', applyFilters);
-  if (remoteToggle) remoteToggle.addEventListener('click', () => setRemoteFilter(remoteFilter === 1 ? 0 : 1));
+  function toggleCl() {
+    clReady = !clReady;
+    clToggle.classList.toggle('btn-primary', clReady);
+    clToggle.classList.toggle('btn-outline-primary', !clReady);
+    applyFilters();
+  }
+
+  if (searchInput)      searchInput.addEventListener('input', applyFilters);
+  if (remoteToggle)     remoteToggle.addEventListener('click', () => setRemoteFilter(remoteFilter === 1 ? 0 : 1));
   if (hideRemoteToggle) hideRemoteToggle.addEventListener('click', () => setRemoteFilter(remoteFilter === -1 ? 0 : -1));
+  if (clToggle)         clToggle.addEventListener('click', toggleCl);
+  if (scrapedFrom)      scrapedFrom.addEventListener('change', applyFilters);
+  if (scrapedTo)        scrapedTo.addEventListener('change', applyFilters);
 </script>
 {% endblock %}
