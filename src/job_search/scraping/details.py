@@ -14,6 +14,12 @@ from job_search.core.state import ShutdownCoordinator
 from job_search.scraping.auth import make_headers
 from job_search.scraping.models import CompanyData, ParsedJobDetails
 
+class _JobNotFoundError(Exception):
+    def __init__(self, job_id: int) -> None:
+        super().__init__(f"Job {job_id} returned 404 — deleted from DB")
+        self.job_id = job_id
+
+
 _DETAILS_URL = (
     "https://www.linkedin.com/voyager/api/jobs/jobPostings/{job_id}"
     "?decorationId=com.linkedin.voyager.deco.jobs.web.shared.WebFullJobPosting-65"
@@ -122,6 +128,13 @@ class DetailsWorker:
         self._screening_queue = screening_queue
         self._max_errors = 10
         self._error_count = 0
+        # Geo IDs configured as remote-only — jobs from these geos that come
+        # back non-remote are discarded before reaching the screening queue.
+        self._remote_geo_ids: frozenset[str] = frozenset(
+            loc.geo_id
+            for loc in config.search.locations
+            if loc.work_type == "remote"
+        )
 
     def run(self) -> None:
         logger.info("Details worker started")
@@ -136,6 +149,9 @@ class DetailsWorker:
             try:
                 self._fetch_and_save(job_id)
                 self._error_count = 0
+            except _JobNotFoundError:
+                logger.debug("Job {} no longer exists on LinkedIn — removing from DB", job_id)
+                self._db.delete_job(job_id)
             except Exception as exc:
                 logger.warning("Details error for job {}: {}", job_id, exc)
                 self._error_count += 1
@@ -156,6 +172,8 @@ class DetailsWorker:
         url = _DETAILS_URL.format(job_id=job_id)
         resp = self._session.get(url, headers=self._headers, timeout=15)
 
+        if resp.status_code == 404:
+            raise _JobNotFoundError(job_id)
         if resp.status_code != 200:
             raise RuntimeError(
                 f"HTTP {resp.status_code} for job {job_id}: {resp.text}"
@@ -171,5 +189,17 @@ class DetailsWorker:
             parsed.job_fields["company_universal_name"] = cf.get("universalName")
 
         self._db.update_job_details(job_id, parsed.job_fields)
+
+        # If this job came from a remote-only geo search but LinkedIn says it's
+        # not remote, the API filter didn't apply correctly — discard it.
+        if self._remote_geo_ids:
+            geo_id, work_remote = self._db.get_job_remote_info(job_id)
+            if geo_id in self._remote_geo_ids and not work_remote:
+                logger.debug(
+                    "Job {} is not remote despite remote-geo search — discarding", job_id
+                )
+                self._db.delete_job(job_id)
+                return
+
         self._screening_queue.put(job_id)
         logger.debug("Details saved for job {}", job_id)

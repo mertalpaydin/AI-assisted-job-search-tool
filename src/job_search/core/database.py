@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     description TEXT,
 
     application_status TEXT,
-    applied_at TIMESTAMP
+    applied_at TIMESTAMP,
+    user_cl_approved INTEGER DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS screening_results (
@@ -172,6 +173,8 @@ class SelectedJobRow:
     cover_letter_text: str | None
     generation_date: str | None
     generation_status: int | None
+    user_cl_approved: int | None = None
+    created_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +210,7 @@ _JOBS_COLUMNS: frozenset[str] = frozenset({
 # Whitelisted fields for ORDER BY (prevents SQL injection via sort params)
 _SORTABLE_FIELDS: frozenset[str] = frozenset({
     "title", "company_name", "formattedLocation", "cv_match_score",
-    "german_requirement_level", "listedAt", "applies",
+    "german_requirement_level", "listedAt", "applies", "created_at",
 })
 
 
@@ -270,6 +273,7 @@ class DatabaseManager:
         """Run all pending migrations in order."""
         self._migrate_v1(conn)
         self._migrate_v2(conn)
+        self._migrate_v3(conn)
 
     def _migrate_v1(self, conn: sqlite3.Connection) -> None:
         """Add columns introduced after the initial old schema."""
@@ -419,6 +423,17 @@ class DatabaseManager:
         conn.commit()
         logger.info("Database migration v2 complete")
 
+    def _migrate_v3(self, conn: sqlite3.Connection) -> None:
+        """Add user_cl_approved column for manual/approval-mode CL control."""
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name='user_cl_approved'"
+        )
+        if cur.fetchone()[0]:
+            return  # already migrated
+        conn.execute("ALTER TABLE jobs ADD COLUMN user_cl_approved INTEGER DEFAULT NULL")
+        conn.commit()
+        logger.info("DB migration v3: added user_cl_approved column")
+
     # ------------------------------------------------------------------
     # Jobs
     # ------------------------------------------------------------------
@@ -427,6 +442,29 @@ class DatabaseManager:
         with self._cursor() as cur:
             cur.execute("SELECT 1 FROM jobs WHERE job_id = ?", (job_id,))
             return cur.fetchone() is not None
+
+    def get_job_status(self, job_id: int) -> dict | None:
+        """Return a minimal status dict for import UI feedback, or None if not found."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT scraped, is_selected FROM jobs WHERE job_id = ?",
+                (job_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        scraped, is_selected = row["scraped"], row["is_selected"]
+        if scraped == -1:
+            label, badge = "fetch error", "danger"
+        elif scraped == 0:
+            label, badge = "pending details", "secondary"
+        elif is_selected is None:
+            label, badge = "pending screening", "secondary"
+        elif is_selected == 1:
+            label, badge = "selected", "success"
+        else:
+            label, badge = "rejected", "warning"
+        return {"job_id": job_id, "label": label, "badge": badge, "selected": is_selected == 1}
 
     def insert_job(self, job_id: int, keyword: str, location_id: str) -> None:
         with self._cursor() as cur:
@@ -465,6 +503,13 @@ class DatabaseManager:
                 (job_id,),
             )
 
+    def delete_job(self, job_id: int) -> None:
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM cover_letters WHERE job_id = ?", (job_id,))
+            cur.execute("DELETE FROM screening_results WHERE job_id = ?", (job_id,))
+            cur.execute("DELETE FROM processing_state WHERE job_id = ?", (job_id,))
+            cur.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+
     def get_jobs_pending_details(self) -> list[int]:
         with self._cursor() as cur:
             cur.execute("SELECT job_id FROM jobs WHERE scraped = 0")
@@ -479,14 +524,40 @@ class DatabaseManager:
             """)
             return [row[0] for row in cur.fetchall()]
 
-    def get_jobs_pending_cover_letter(self) -> list[int]:
-        with self._cursor() as cur:
-            cur.execute("""
+    def get_jobs_pending_cover_letter(self, mode: str = "auto") -> list[int]:
+        # A job needs a CL generated if:
+        #   - no cover_letter row at all (cl.id IS NULL), OR
+        #   - a "success" row exists but text is empty/null (stuck from a prior empty-response bug)
+        # Error rows (generation_status = -1) are intentionally excluded — use
+        # purge_cover_letter_errors() to reset those before re-queuing.
+        stuck_or_missing = "(cl.id IS NULL OR (cl.generation_status = 1 AND (cl.cover_letter_text IS NULL OR cl.cover_letter_text = '')))"
+        if mode == "user_approval":
+            sql = f"""
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE j.is_selected = 1 AND cl.id IS NULL
-            """)
+                WHERE j.user_cl_approved = 1 AND {stuck_or_missing}
+            """
+        else:
+            sql = f"""
+                SELECT j.job_id FROM jobs j
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
+                WHERE (j.is_selected = 1 OR j.user_cl_approved = 1) AND {stuck_or_missing}
+            """
+        with self._cursor() as cur:
+            cur.execute(sql)
             return [row[0] for row in cur.fetchall()]
+
+    def get_job_remote_info(self, job_id: int) -> tuple[str | None, int | None]:
+        """Return (search_location_id, workRemoteAllowed) for a job."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT search_location_id, workRemoteAllowed FROM jobs WHERE job_id = ?",
+                (job_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None, None
+            return row["search_location_id"], row["workRemoteAllowed"]
 
     def get_job_details(self, job_id: int) -> JobRow | None:
         with self._cursor() as cur:
@@ -566,6 +637,9 @@ class DatabaseManager:
         api_key_index: int,
     ) -> None:
         with self._cursor() as cur:
+            # Remove any prior attempt rows (error or stuck null-text rows) so
+            # there is always at most one cover_letter row per job.
+            cur.execute("DELETE FROM cover_letters WHERE job_id = ?", (job_id,))
             cur.execute("""
                 INSERT INTO cover_letters
                     (job_id, cover_letter_text, gemini_model_used, api_key_index, generation_status)
@@ -574,37 +648,57 @@ class DatabaseManager:
 
     def mark_cover_letter_error(self, job_id: int, error: str, retry_count: int = 0) -> None:
         with self._cursor() as cur:
+            # Replace any existing row to avoid accumulating duplicate error rows.
+            cur.execute("DELETE FROM cover_letters WHERE job_id = ?", (job_id,))
             cur.execute("""
                 INSERT INTO cover_letters
                     (job_id, generation_status, error_message, retry_count)
                 VALUES (?, -1, ?, ?)
             """, (job_id, error, retry_count))
 
-    def purge_cover_letter_errors(self) -> int:
-        """Delete all failed cover letter rows. Returns the number of rows deleted."""
+    def purge_cover_letter_errors(self) -> list[int]:
+        """Delete all failed cover letter rows. Returns the job_ids that were cleared."""
         with self._cursor() as cur:
-            cur.execute("DELETE FROM cover_letters WHERE generation_status = -1")
-            return cur.rowcount
+            cur.execute("SELECT job_id FROM cover_letters WHERE generation_status = -1")
+            job_ids = [row[0] for row in cur.fetchall()]
+            if job_ids:
+                cur.execute("DELETE FROM cover_letters WHERE generation_status = -1")
+            return job_ids
 
-    def reset_screening_errors(self) -> int:
-        """
-        Delete failed screening rows so those jobs are re-queued on next --resume.
-        Returns the number of rows deleted.
-        """
-        with self._cursor() as cur:
-            cur.execute("DELETE FROM screening_results WHERE screening_status = -1")
-            return cur.rowcount
-
-    def reset_detail_errors(self) -> int:
-        """
-        Reset jobs that failed detail scraping (scraped = -1) back to pending (scraped = 0)
-        so they are re-queued on next --resume. Returns the number of rows updated.
-        """
+    def purge_cover_letter_nulls(self) -> int:
+        """Delete 'success' rows with empty text (stuck from empty-response bug)."""
         with self._cursor() as cur:
             cur.execute(
-                "UPDATE jobs SET scraped = 0, updated_at = CURRENT_TIMESTAMP WHERE scraped = -1"
+                "DELETE FROM cover_letters WHERE generation_status = 1 "
+                "AND (cover_letter_text IS NULL OR cover_letter_text = '')"
             )
             return cur.rowcount
+
+    def reset_screening_errors(self) -> list[int]:
+        """
+        Delete failed screening rows so those jobs are re-queued.
+        Returns the job_ids that were cleared.
+        """
+        with self._cursor() as cur:
+            cur.execute("SELECT job_id FROM screening_results WHERE screening_status = -1")
+            job_ids = [row[0] for row in cur.fetchall()]
+            if job_ids:
+                cur.execute("DELETE FROM screening_results WHERE screening_status = -1")
+            return job_ids
+
+    def reset_detail_errors(self) -> list[int]:
+        """
+        Reset jobs that failed detail scraping (scraped = -1) back to pending (scraped = 0)
+        so they are re-queued. Returns the job_ids that were reset.
+        """
+        with self._cursor() as cur:
+            cur.execute("SELECT job_id FROM jobs WHERE scraped = -1")
+            job_ids = [row[0] for row in cur.fetchall()]
+            if job_ids:
+                cur.execute(
+                    "UPDATE jobs SET scraped = 0, updated_at = CURRENT_TIMESTAMP WHERE scraped = -1"
+                )
+            return job_ids
 
     # ------------------------------------------------------------------
     # API usage
@@ -742,6 +836,35 @@ class DatabaseManager:
                     (status, job_id),
                 )
 
+    def set_cl_approval(self, job_id: int, approved: int | None) -> None:
+        """Set user_cl_approved: 1=approved for CL, 0=rejected by user, None=clear."""
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET user_cl_approved = ? WHERE job_id = ?",
+                (approved, job_id),
+            )
+
+    def get_jobs_pending_cl_approval(self) -> list[SelectedJobRow]:
+        """Jobs screened-and-selected with no approval decision yet (for user_approval mode)."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT
+                    j.job_id, j.title, j.company_name, j.formattedLocation,
+                    j.jobPostingUrl, j.workRemoteAllowed, j.description,
+                    j.application_status, j.applied_at,
+                    j.cv_match_score, j.german_requirement_level, j.is_selected,
+                    j.screening_reasoning,
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    j.user_cl_approved, j.created_at
+                FROM jobs j
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                WHERE j.is_selected = 1
+                  AND j.user_cl_approved IS NULL
+                  AND cl.id IS NULL
+                ORDER BY j.cv_match_score DESC NULLS LAST
+            """)
+            return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]
+
     def get_application_counts(self) -> dict[str, int]:
         with self._cursor() as cur:
             cur.execute("""
@@ -771,7 +894,8 @@ class DatabaseManager:
                     j.application_status, j.applied_at,
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
-                    cl.cover_letter_text, cl.generation_date, cl.generation_status
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    j.user_cl_approved, j.created_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.is_selected = 1
@@ -780,7 +904,7 @@ class DatabaseManager:
             return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]
 
     def get_selected_job(self, job_id: int) -> SelectedJobRow | None:
-        """Return a single selected job by ID."""
+        """Return a single job by ID (selected or not)."""
         with self._cursor() as cur:
             cur.execute("""
                 SELECT
@@ -789,7 +913,8 @@ class DatabaseManager:
                     j.application_status, j.applied_at,
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
-                    cl.cover_letter_text, cl.generation_date, cl.generation_status
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    j.user_cl_approved, j.created_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -813,7 +938,8 @@ class DatabaseManager:
                     j.application_status, j.applied_at,
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
-                    cl.cover_letter_text, cl.generation_date, cl.generation_status
+                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    j.user_cl_approved, j.created_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.scraped = 1
