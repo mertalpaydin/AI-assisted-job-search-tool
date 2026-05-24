@@ -153,6 +153,11 @@ class CoverLetterWorker:
             self._db.mark_cover_letter_error(job_id, str(exc), retry_count=max_retries)
             return
 
+        if not text or not text.strip():
+            logger.error("Cover letter for job {} returned empty text — marking as error", job_id)
+            self._db.mark_cover_letter_error(job_id, "Empty response from API", retry_count=max_retries)
+            return
+
         self._db.save_cover_letter(job_id, text, cl_cfg.model, key_idx)
         logger.info("Cover letter generated for job {} ({})", job_id, job.title)
 

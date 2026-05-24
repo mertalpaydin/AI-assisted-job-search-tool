@@ -19,13 +19,27 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="mb-0 fw-semibold">
     {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
-    <span class="badge bg-secondary ms-2">{{ jobs|length }}</span>
+    <span class="badge bg-secondary ms-2" id="job-count">{{ jobs|length }}</span>
   </h4>
   {% if status_filter %}
   <a href="{{ base_url }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear filter
   </a>
   {% endif %}
+</div>
+
+<div class="d-flex align-items-center gap-3 mb-3">
+  <div class="input-group" style="max-width:360px">
+    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+    <input type="search" id="job-search" class="form-control border-start-0"
+           placeholder="Search by ID, title or company…" autocomplete="off">
+  </div>
+  <button id="remote-toggle" class="btn btn-outline-success btn-sm">
+    <i class="bi bi-wifi me-1"></i>Remote only
+  </button>
+  <button id="hide-remote-toggle" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-wifi-off me-1"></i>Hide remote
+  </button>
 </div>
 
 <!-- Filter bar -->
@@ -73,7 +87,8 @@
     </thead>
     <tbody>
       {% for job in jobs %}
-      <tr>
+      <tr data-search="{{ job.job_id }} {{ (job.title or '') | lower }} {{ (job.company_name or '') | lower }}"
+          data-remote="{{ '1' if job.workRemoteAllowed else '0' }}">
         <td>
           <div class="fw-semibold">{{ job.title or "N/A" }}</div>
           <div class="text-muted small">{{ job.company_name or "Unknown" }}</div>
@@ -201,4 +216,45 @@
   </table>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const searchInput      = document.getElementById('job-search');
+  const remoteToggle     = document.getElementById('remote-toggle');
+  const hideRemoteToggle = document.getElementById('hide-remote-toggle');
+  const countBadge       = document.getElementById('job-count');
+  // remoteFilter: 0 = all, 1 = remote only, -1 = hide remote
+  let remoteFilter = 0;
+
+  function applyFilters() {
+    const q = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    const rows = document.querySelectorAll('tbody tr');
+    let visible = 0;
+    rows.forEach(row => {
+      const matchSearch = !q || row.dataset.search.includes(q);
+      const isRemote = row.dataset.remote === '1';
+      const matchRemote = remoteFilter === 0
+        || (remoteFilter === 1 && isRemote)
+        || (remoteFilter === -1 && !isRemote);
+      const show = matchSearch && matchRemote;
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (countBadge) countBadge.textContent = visible;
+  }
+
+  function setRemoteFilter(val) {
+    remoteFilter = val;
+    remoteToggle.classList.toggle('btn-success', val === 1);
+    remoteToggle.classList.toggle('btn-outline-success', val !== 1);
+    hideRemoteToggle.classList.toggle('btn-secondary', val === -1);
+    hideRemoteToggle.classList.toggle('btn-outline-secondary', val !== -1);
+    applyFilters();
+  }
+
+  if (searchInput) searchInput.addEventListener('input', applyFilters);
+  if (remoteToggle) remoteToggle.addEventListener('click', () => setRemoteFilter(remoteFilter === 1 ? 0 : 1));
+  if (hideRemoteToggle) hideRemoteToggle.addEventListener('click', () => setRemoteFilter(remoteFilter === -1 ? 0 : -1));
+</script>
 {% endblock %}

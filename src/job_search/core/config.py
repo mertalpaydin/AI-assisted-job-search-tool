@@ -25,11 +25,16 @@ class RateLimitConfig(BaseModel):
     idle_cycle_delay: float = 60.0  # seconds to wait after a full cycle with 0 new jobs
 
 
+class TitleFilterConfig(BaseModel):
+    require_any: list[str] = []  # at least one must match (word-boundary, case-insensitive); empty = disabled
+
+
 class SearchConfig(BaseModel):
     keywords: list[str]
     locations: list[LocationConfig]
     rate_limits: RateLimitConfig = Field(default_factory=RateLimitConfig)
     max_pages: int = 5  # pages of 100 results each, per keyword+location
+    title_filter: TitleFilterConfig = Field(default_factory=TitleFilterConfig)
 
 
 class ScreeningModelConfig(BaseModel):

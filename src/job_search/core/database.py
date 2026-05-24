@@ -443,6 +443,29 @@ class DatabaseManager:
             cur.execute("SELECT 1 FROM jobs WHERE job_id = ?", (job_id,))
             return cur.fetchone() is not None
 
+    def get_job_status(self, job_id: int) -> dict | None:
+        """Return a minimal status dict for import UI feedback, or None if not found."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT scraped, is_selected FROM jobs WHERE job_id = ?",
+                (job_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        scraped, is_selected = row["scraped"], row["is_selected"]
+        if scraped == -1:
+            label, badge = "fetch error", "danger"
+        elif scraped == 0:
+            label, badge = "pending details", "secondary"
+        elif is_selected is None:
+            label, badge = "pending screening", "secondary"
+        elif is_selected == 1:
+            label, badge = "selected", "success"
+        else:
+            label, badge = "rejected", "warning"
+        return {"job_id": job_id, "label": label, "badge": badge, "selected": is_selected == 1}
+
     def insert_job(self, job_id: int, keyword: str, location_id: str) -> None:
         with self._cursor() as cur:
             cur.execute(
@@ -502,19 +525,23 @@ class DatabaseManager:
             return [row[0] for row in cur.fetchall()]
 
     def get_jobs_pending_cover_letter(self, mode: str = "auto") -> list[int]:
+        # A job needs a CL generated if:
+        #   - no cover_letter row at all (cl.id IS NULL), OR
+        #   - a "success" row exists but text is empty/null (stuck from a prior empty-response bug)
+        # Error rows (generation_status = -1) are intentionally excluded — use
+        # purge_cover_letter_errors() to reset those before re-queuing.
+        stuck_or_missing = "(cl.id IS NULL OR (cl.generation_status = 1 AND (cl.cover_letter_text IS NULL OR cl.cover_letter_text = '')))"
         if mode == "user_approval":
-            # Only jobs the user has explicitly approved (any job, regardless of screening)
-            sql = """
+            sql = f"""
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE j.user_cl_approved = 1 AND cl.id IS NULL
+                WHERE j.user_cl_approved = 1 AND {stuck_or_missing}
             """
         else:
-            # Auto: AI-selected jobs OR any job the user manually approved (override)
-            sql = """
+            sql = f"""
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE (j.is_selected = 1 OR j.user_cl_approved = 1) AND cl.id IS NULL
+                WHERE (j.is_selected = 1 OR j.user_cl_approved = 1) AND {stuck_or_missing}
             """
         with self._cursor() as cur:
             cur.execute(sql)
@@ -610,6 +637,9 @@ class DatabaseManager:
         api_key_index: int,
     ) -> None:
         with self._cursor() as cur:
+            # Remove any prior attempt rows (error or stuck null-text rows) so
+            # there is always at most one cover_letter row per job.
+            cur.execute("DELETE FROM cover_letters WHERE job_id = ?", (job_id,))
             cur.execute("""
                 INSERT INTO cover_letters
                     (job_id, cover_letter_text, gemini_model_used, api_key_index, generation_status)
@@ -618,6 +648,8 @@ class DatabaseManager:
 
     def mark_cover_letter_error(self, job_id: int, error: str, retry_count: int = 0) -> None:
         with self._cursor() as cur:
+            # Replace any existing row to avoid accumulating duplicate error rows.
+            cur.execute("DELETE FROM cover_letters WHERE job_id = ?", (job_id,))
             cur.execute("""
                 INSERT INTO cover_letters
                     (job_id, generation_status, error_message, retry_count)
@@ -628,6 +660,15 @@ class DatabaseManager:
         """Delete all failed cover letter rows. Returns the number of rows deleted."""
         with self._cursor() as cur:
             cur.execute("DELETE FROM cover_letters WHERE generation_status = -1")
+            return cur.rowcount
+
+    def purge_cover_letter_nulls(self) -> int:
+        """Delete 'success' rows with empty text (stuck from empty-response bug)."""
+        with self._cursor() as cur:
+            cur.execute(
+                "DELETE FROM cover_letters WHERE generation_status = 1 "
+                "AND (cover_letter_text IS NULL OR cover_letter_text = '')"
+            )
             return cur.rowcount
 
     def reset_screening_errors(self) -> int:
