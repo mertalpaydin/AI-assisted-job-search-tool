@@ -17,7 +17,9 @@ screening:
     Try to eliminate software engineering positions unless they clearly specifies relation with AI, ML & Data Science.
 
     Location rule: Only select jobs that are in the candidate's preferred location or explicitly allow remote work.
-    Reject any on-site/hybrid job whose location is outside the candidate's stated location preference.
+    Reject any on-site/hybrid job whose location is outside the candidate's stated location preference. Some companies
+    add an additional location info, which conflicts with the listed location info, to job title or description 
+    (i.e relocation Bangkok is required). Eliminate those jobs if they do not match with candidates preferred locations.
 
     Respond ONLY with valid JSON, no additional text.
 
@@ -62,8 +64,8 @@ cover_letter:
     (iii) Skill & Qualification Match: Use 3-4 points to link my specific experience, projects and background to the job's core requirements. Highlight any 'preferred' or 'nice-to-have' items listed in the job posting if my background satisfies them.
     (iv) Why do I want to work there?: Prove that I researched them. Extract information from the provided job ad and your resarch of the company to answer: What is their mission? What problem are they trying to solve? What is unique about them? Mention these factors and state why I find them appealing.
     (v) Conclusion: A concise wrap-up expressing enthusiasm for an interview.
-    7. Don't use section headers.
-    8. Try not to use bullet points as much as possible.
+    7. Don't use section headers. Do not to use bullet points as much as possible.
+    8. Do not use markdown format bold or italic formatting.
     7. You may draft optional sentences to directly address job requirements not explicitly stated in my CV (e.g., standard software like Excel), but you must clearly mark them with brackets like [Review: Insert experience with X here] so I can exclude or modify them.
     8. Stick to the provided CV as the absolute ground truth for my core qualifications. Do not hallucinate or invent major projects, roles, or degrees.
 

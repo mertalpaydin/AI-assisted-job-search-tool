@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import queue
+import re
 import time
 from itertools import cycle
 
 import requests
 from loguru import logger
 
-from job_search.core.config import Config, LocationConfig
+from job_search.core.config import Config, LocationConfig, TitleFilterConfig
 from job_search.core.database import DatabaseManager
 from job_search.core.state import ShutdownCoordinator, StateManager
 from job_search.scraping.auth import make_headers
@@ -27,6 +28,24 @@ _SEARCH_URL_BASE = (
 )
 
 _JOB_CARD_TYPE = "com.linkedin.voyager.dash.jobs.JobPostingCard"
+
+
+def _title_passes_filter(title: str, cfg: TitleFilterConfig) -> bool:
+    """Return True if the title contains at least one required keyword.
+
+    Uses a negative lookbehind on [a-z] so the keyword must start at a
+    word boundary (space, punctuation, or start of string), while still
+    matching plural/compound forms like 'engineers' or 'IT-Consultants'.
+    Short terms like 'ai' and 'ml' are safely guarded: 'email' and 'html'
+    don't match because their preceding character IS [a-z].
+    """
+    if not cfg.require_any:
+        return True  # filter disabled
+    t = title.lower()
+    return any(
+        re.search(r"(?<![a-z])" + re.escape(kw.lower()), t)
+        for kw in cfg.require_any
+    )
 
 
 def _parse_search_response(data: dict) -> list[JobStub]:
@@ -162,8 +181,12 @@ class SearchWorker:
                 break  # No more results
 
             new_in_page = 0
+            title_filter = self._config.search.title_filter
             for stub in stubs:
                 if self._db.job_exists(stub.job_id):
+                    continue
+                if stub.title and not _title_passes_filter(stub.title, title_filter):
+                    logger.debug("Title filter blocked: {}", stub.title)
                     continue
                 self._db.insert_job(stub.job_id, keyword, location.geo_id)
                 self._details_queue.put(stub.job_id)

@@ -55,6 +55,11 @@
             <i class="bi bi-bar-chart-line me-2"></i>Search Stats
           </a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'import_jobs' %}active{% endif %}" href="/jobs/import">
+            <i class="bi bi-plus-circle me-2"></i>Import Jobs
+          </a>
+        </li>
         <li class="nav-item mt-3">
           <span class="nav-link text-secondary" style="font-size:0.7rem;text-transform:uppercase;letter-spacing:.1em">Filter by status</span>
         </li>

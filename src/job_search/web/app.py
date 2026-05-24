@@ -7,6 +7,7 @@ Run with:  job-search web
 from __future__ import annotations
 
 import os
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -215,6 +216,66 @@ def _redirect_to_list(form) -> "Response":
     if status_filter:
         return redirect(url_for("jobs", status=status_filter))
     return redirect(url_for("jobs"))
+
+
+# ---------------------------------------------------------------------------
+# Manual Job Import
+# ---------------------------------------------------------------------------
+
+# Matches a bare numeric ID or extracts the ID from a LinkedIn jobs URL.
+# LinkedIn URL formats:
+#   /jobs/view/4411863756/
+#   /jobs/view/data-scientist-at-company-4411863756/
+_JOB_ID_RE = re.compile(r"(?:linkedin\.com/jobs/view/[^/]*?[-/])?(\d{7,})")
+
+
+def _parse_job_ids(raw: str) -> tuple[list[int], list[str]]:
+    """Return (valid_ids, invalid_tokens) parsed from a free-form text input."""
+    tokens = re.split(r"[\s,]+", raw.strip())
+    valid, invalid = [], []
+    seen = set()
+    for token in tokens:
+        if not token:
+            continue
+        m = _JOB_ID_RE.search(token)
+        if m:
+            job_id = int(m.group(1))
+            if job_id not in seen:
+                seen.add(job_id)
+                valid.append(job_id)
+        else:
+            invalid.append(token)
+    return valid, invalid
+
+
+@app.route("/jobs/import", methods=["GET", "POST"])
+def import_jobs():
+    result = None
+    if request.method == "POST":
+        raw = request.form.get("job_ids", "")
+        valid_ids, invalid_tokens = _parse_job_ids(raw)
+
+        added, skipped = [], []
+        db = get_db()
+        for job_id in valid_ids:
+            if db.job_exists(job_id):
+                skipped.append(db.get_job_status(job_id))
+            else:
+                db.insert_job(job_id, keyword="manual", location_id="manual")
+                # Push to the live details queue if the runner is running
+                if _runner_coordinator is not None and _runner_thread is not None and _runner_thread.is_alive():
+                    _runner_coordinator._details_queue.put(job_id)
+                added.append(job_id)
+
+        runner_live = _runner_thread is not None and _runner_thread.is_alive()
+        result = {
+            "added": added,
+            "skipped": skipped,
+            "invalid": invalid_tokens,
+            "runner_live": runner_live,
+        }
+
+    return render_template("import_jobs.html", result=result)
 
 
 # ---------------------------------------------------------------------------
