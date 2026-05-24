@@ -63,6 +63,22 @@ class TestJobOperations:
         assert row.scraped == -1
         assert 4001 not in db.get_jobs_pending_details()
 
+    def test_delete_job_removes_it(self, db: DatabaseManager) -> None:
+        db.insert_job(4002, "kw", "loc")
+        assert db.job_exists(4002)
+        db.delete_job(4002)
+        assert not db.job_exists(4002)
+        assert db.get_job_details(4002) is None
+
+    def test_delete_job_not_in_pending_details(self, db: DatabaseManager) -> None:
+        db.insert_job(4003, "kw", "loc")
+        assert 4003 in db.get_jobs_pending_details()
+        db.delete_job(4003)
+        assert 4003 not in db.get_jobs_pending_details()
+
+    def test_delete_nonexistent_job_does_not_raise(self, db: DatabaseManager) -> None:
+        db.delete_job(99998)  # should silently succeed
+
     def test_get_job_details_returns_none_for_unknown(self, db: DatabaseManager) -> None:
         assert db.get_job_details(99999) is None
 

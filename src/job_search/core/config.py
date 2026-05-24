@@ -22,6 +22,11 @@ class RateLimitConfig(BaseModel):
     requests_per_minute: int = 30
     delay_between_requests: float = 2.0
     max_retries: int = 3
+    idle_cycle_delay: float = 60.0  # seconds to wait after a full cycle with 0 new jobs
+
+
+class TitleFilterConfig(BaseModel):
+    require_any: list[str] = []  # at least one must match (word-boundary, case-insensitive); empty = disabled
 
 
 class SearchConfig(BaseModel):
@@ -29,6 +34,7 @@ class SearchConfig(BaseModel):
     locations: list[LocationConfig]
     rate_limits: RateLimitConfig = Field(default_factory=RateLimitConfig)
     max_pages: int = 5  # pages of 100 results each, per keyword+location
+    title_filter: TitleFilterConfig = Field(default_factory=TitleFilterConfig)
 
 
 class ScreeningModelConfig(BaseModel):
@@ -65,6 +71,7 @@ class CoverLetterRateLimitConfig(BaseModel):
 
 
 class CoverLetterConfig(BaseModel):
+    mode: str = "auto"   # "auto" | "user_approval"
     model: str = "gemini-1.5-flash"
     temperature: float = 0.7
     max_tokens: int = 5000
@@ -89,6 +96,7 @@ class ExecutionConfig(BaseModel):
     shutdown_conditions: ShutdownConditionsConfig = Field(default_factory=ShutdownConditionsConfig)
     pickup_on_restart: bool = True
     checkpoint_interval_minutes: int = 5
+    retry_errors_interval_minutes: int = 1  # 0 = disabled; retries errored jobs automatically
 
 
 class DatabaseConfig(BaseModel):

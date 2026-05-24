@@ -19,13 +19,36 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="mb-0 fw-semibold">
     {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
-    <span class="badge bg-secondary ms-2">{{ jobs|length }}</span>
+    <span class="badge bg-secondary ms-2" id="job-count">{{ jobs|length }}</span>
   </h4>
   {% if status_filter %}
   <a href="{{ base_url }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear filter
   </a>
   {% endif %}
+</div>
+
+<div class="d-flex align-items-center gap-3 mb-3">
+  <div class="input-group" style="max-width:360px">
+    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+    <input type="search" id="job-search" class="form-control border-start-0"
+           placeholder="Search by ID, title or company…" autocomplete="off">
+  </div>
+  <button id="remote-toggle" class="btn btn-outline-success btn-sm">
+    <i class="bi bi-wifi me-1"></i>Remote only
+  </button>
+  <button id="hide-remote-toggle" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-wifi-off me-1"></i>Hide remote
+  </button>
+  <button id="cl-toggle" class="btn btn-outline-primary btn-sm">
+    <i class="bi bi-file-earmark-check me-1"></i>CL ready
+  </button>
+  <div class="d-flex align-items-center gap-1">
+    <label class="text-muted small mb-0">Scraped from</label>
+    <input type="date" id="scraped-from" class="form-control form-control-sm" style="width:140px">
+    <label class="text-muted small mb-0">to</label>
+    <input type="date" id="scraped-to" class="form-control form-control-sm" style="width:140px">
+  </div>
 </div>
 
 <!-- Filter bar -->
@@ -62,14 +85,21 @@
         {% if show_all %}
         <th class="text-center">Selected</th>
         {% endif %}
+        {% if cl_mode == "user_approval" %}
+        <th class="text-center">Approve CL</th>
+        {% endif %}
         <th class="text-center">Cover Letter</th>
         <th class="text-center">Status</th>
+        <th class="text-center">{{ sort_link("created_at", "Scraped") }}</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for job in jobs %}
-      <tr>
+      <tr data-search="{{ job.job_id }} {{ (job.title or '') | lower }} {{ (job.company_name or '') | lower }}"
+          data-remote="{{ '1' if job.workRemoteAllowed else '0' }}"
+          data-cl="{{ '1' if job.cover_letter_text else '0' }}"
+          data-scraped="{{ (job.created_at or '')[:10] }}">
         <td>
           <div class="fw-semibold">{{ job.title or "N/A" }}</div>
           <div class="text-muted small">{{ job.company_name or "Unknown" }}</div>
@@ -111,6 +141,32 @@
           {% endif %}
         </td>
         {% endif %}
+        {% if cl_mode == "user_approval" %}
+        <td class="text-center">
+          {% if job.cover_letter_text %}
+            <span class="badge bg-success small">Done</span>
+          {% elif job.user_cl_approved == 1 %}
+            <span class="badge bg-success small">Approved</span>
+            <form method="post" action="/jobs/{{ job.job_id }}/cl-reset" class="d-inline ms-1">
+              <input type="hidden" name="status_filter" value="{{ status_filter }}">
+              {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+              <button type="submit" class="btn btn-link p-0 text-muted" title="Undo approval" style="font-size:0.75rem">
+                <i class="bi bi-x-circle"></i>
+              </button>
+            </form>
+          {% elif job.user_cl_approved == 0 %}
+            <span class="badge bg-secondary small">Skipped</span>
+          {% elif job.is_selected == 1 %}
+            <form method="post" action="/jobs/{{ job.job_id }}/cl-approve">
+              <input type="hidden" name="status_filter" value="{{ status_filter }}">
+              {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+              <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2" style="font-size:0.75rem">Approve</button>
+            </form>
+          {% else %}
+            <span class="text-muted" style="font-size:0.75rem">—</span>
+          {% endif %}
+        </td>
+        {% endif %}
         <td class="text-center">
           {% if job.cover_letter_text %}
           <i class="bi bi-check-circle-fill text-success"></i>
@@ -126,6 +182,9 @@
           {% elif st == "rejected" %}<span class="badge bg-danger status-badge">rejected</span>
           {% elif st == "skipped" %}<span class="badge bg-dark status-badge">skipped</span>
           {% else %}<span class="badge bg-light text-muted status-badge">pending</span>{% endif %}
+        </td>
+        <td class="text-center">
+          <span class="small text-muted">{{ job.created_at | short_date }}</span>
         </td>
         <td class="text-end">
           <div class="d-flex gap-1 justify-content-end">
@@ -168,4 +227,67 @@
   </table>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const searchInput      = document.getElementById('job-search');
+  const remoteToggle     = document.getElementById('remote-toggle');
+  const hideRemoteToggle = document.getElementById('hide-remote-toggle');
+  const clToggle         = document.getElementById('cl-toggle');
+  const scrapedFrom      = document.getElementById('scraped-from');
+  const scrapedTo        = document.getElementById('scraped-to');
+  const countBadge       = document.getElementById('job-count');
+
+  // remoteFilter: 0 = all, 1 = remote only, -1 = hide remote
+  let remoteFilter = 0;
+  let clReady = false;
+
+  function applyFilters() {
+    const q       = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    const dateFrom = scrapedFrom ? scrapedFrom.value : '';
+    const dateTo   = scrapedTo   ? scrapedTo.value   : '';
+    const rows = document.querySelectorAll('tbody tr');
+    let visible = 0;
+    rows.forEach(row => {
+      const matchSearch = !q || row.dataset.search.includes(q);
+      const isRemote    = row.dataset.remote === '1';
+      const hasCl       = row.dataset.cl === '1';
+      const scraped     = row.dataset.scraped || '';
+      const matchRemote = remoteFilter === 0
+        || (remoteFilter === 1 && isRemote)
+        || (remoteFilter === -1 && !isRemote);
+      const matchCl     = !clReady || hasCl;
+      const matchFrom   = !dateFrom || scraped >= dateFrom;
+      const matchTo     = !dateTo   || scraped <= dateTo;
+      const show = matchSearch && matchRemote && matchCl && matchFrom && matchTo;
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (countBadge) countBadge.textContent = visible;
+  }
+
+  function setRemoteFilter(val) {
+    remoteFilter = val;
+    remoteToggle.classList.toggle('btn-success', val === 1);
+    remoteToggle.classList.toggle('btn-outline-success', val !== 1);
+    hideRemoteToggle.classList.toggle('btn-secondary', val === -1);
+    hideRemoteToggle.classList.toggle('btn-outline-secondary', val !== -1);
+    applyFilters();
+  }
+
+  function toggleCl() {
+    clReady = !clReady;
+    clToggle.classList.toggle('btn-primary', clReady);
+    clToggle.classList.toggle('btn-outline-primary', !clReady);
+    applyFilters();
+  }
+
+  if (searchInput)      searchInput.addEventListener('input', applyFilters);
+  if (remoteToggle)     remoteToggle.addEventListener('click', () => setRemoteFilter(remoteFilter === 1 ? 0 : 1));
+  if (hideRemoteToggle) hideRemoteToggle.addEventListener('click', () => setRemoteFilter(remoteFilter === -1 ? 0 : -1));
+  if (clToggle)         clToggle.addEventListener('click', toggleCl);
+  if (scrapedFrom)      scrapedFrom.addEventListener('change', applyFilters);
+  if (scrapedTo)        scrapedTo.addEventListener('change', applyFilters);
+</script>
 {% endblock %}

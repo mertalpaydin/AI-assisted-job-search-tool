@@ -11,6 +11,16 @@
   <span class="text-muted small"><i class="bi bi-arrow-repeat me-1"></i>Auto-refreshes every 30s</span>
 </div>
 
+{% if cl_mode == "user_approval" and pending_approval > 0 %}
+<div class="alert alert-warning d-flex align-items-center mb-4 py-2">
+  <i class="bi bi-envelope-exclamation me-2 fs-5"></i>
+  <div>
+    <strong>{{ pending_approval }} job{{ 's' if pending_approval != 1 else '' }} awaiting CL approval.</strong>
+    <a href="/jobs" class="ms-2">Review now →</a>
+  </div>
+</div>
+{% endif %}
+
 <!-- Pipeline Funnel -->
 <h5 class="mb-3 fw-semibold">Pipeline Funnel</h5>
 <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">

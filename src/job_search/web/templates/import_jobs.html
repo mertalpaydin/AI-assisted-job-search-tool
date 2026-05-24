@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Import Jobs{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+
+    <h4 class="mb-1">Import Jobs</h4>
+    <p class="text-muted mb-4">
+      Paste LinkedIn job URLs or numeric IDs — one per line, or comma/space separated.
+      The scraper will fetch details and screen them automatically.
+    </p>
+
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body p-4">
+        <form method="POST">
+          <div class="mb-3">
+            <textarea
+              name="job_ids"
+              class="form-control font-monospace"
+              rows="8"
+              placeholder="https://www.linkedin.com/jobs/view/4411863756/
+https://www.linkedin.com/jobs/view/data-scientist-at-acme-4411863757/
+4411863758
+4411863759, 4411863760"
+              autofocus
+            ></textarea>
+          </div>
+          <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">Duplicates and already-known jobs are silently skipped.</small>
+            <button type="submit" class="btn btn-primary px-4">
+              <i class="bi bi-plus-circle me-1"></i>Import
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if result is not none %}
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-4">
+        <h6 class="mb-3">Results</h6>
+
+        <div class="row g-3 mb-3">
+          <div class="col-4">
+            <div class="p-3 rounded text-center" style="background:#d1e7dd">
+              <div class="fs-3 fw-bold text-success">{{ result.added | length }}</div>
+              <div class="small text-success">Added</div>
+            </div>
+          </div>
+          <div class="col-4">
+            <div class="p-3 rounded text-center" style="background:#fff3cd">
+              <div class="fs-3 fw-bold text-warning">{{ result.skipped | length }}</div>
+              <div class="small text-warning">Already in DB</div>
+            </div>
+          </div>
+
+          <div class="col-4">
+            <div class="p-3 rounded text-center" style="background:#f8d7da">
+              <div class="fs-3 fw-bold text-danger">{{ result.invalid | length }}</div>
+              <div class="small text-danger">Invalid</div>
+            </div>
+          </div>
+        </div>
+
+        {% if result.added %}
+        <div class="mb-3">
+          {% if result.runner_live %}
+          <div class="alert alert-success py-2 mb-2">
+            <i class="bi bi-lightning-charge-fill me-1"></i>
+            Runner is live — jobs queued for immediate processing.
+          </div>
+          {% else %}
+          <div class="alert alert-warning py-2 mb-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            Runner is not running. Jobs will be picked up on next start.
+          </div>
+          {% endif %}
+          <div class="small text-muted mb-1">Added job IDs:</div>
+          <div class="font-monospace small text-break">{{ result.added | join(", ") }}</div>
+        </div>
+        {% endif %}
+
+        {% if result.skipped %}
+        <div class="mb-3">
+          <div class="small text-muted mb-2">Already in DB:</div>
+          <div class="d-flex flex-wrap gap-2">
+            {% for job in result.skipped %}
+            {% if job.selected %}
+            <a href="/jobs/{{ job.job_id }}" class="text-decoration-none">
+              <span class="badge bg-{{ job.badge }} font-monospace" style="font-size:0.8rem">
+                {{ job.job_id }} <span class="opacity-75">· {{ job.label }}</span>
+              </span>
+            </a>
+            {% else %}
+            <span class="badge bg-{{ job.badge }} font-monospace" style="font-size:0.8rem">
+              {{ job.job_id }} <span class="opacity-75">· {{ job.label }}</span>
+            </span>
+            {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if result.invalid %}
+        <div>
+          <div class="small text-muted mb-1">Unrecognised tokens:</div>
+          <div class="font-monospace small text-danger text-break">{{ result.invalid | join(", ") }}</div>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
