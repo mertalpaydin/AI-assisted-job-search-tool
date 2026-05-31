@@ -230,3 +230,6 @@ data/
 
 # Personal improvement plan (contains private context)
 docs/improvement-plan.md
+
+# Login debug snapshots (screenshots/HTML saved on auth failures)
+debug/
