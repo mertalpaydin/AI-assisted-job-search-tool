@@ -120,13 +120,31 @@ class JobSearchCoordinator:
         # --- LinkedIn auth (only needed for scraping stages) ---
         session = None
         if stages & {"search", "details"}:
-            logger.info("Authenticating with LinkedIn…")
-            session = create_session(
-                email=self._secrets.linkedin_username,
-                password=self._secrets.linkedin_password,
-            )
+            _MAX_LOGIN_ATTEMPTS = 5
+            _LOGIN_RETRY_DELAY  = 15  # seconds between attempts
+            for attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
+                logger.info(
+                    "Authenticating with LinkedIn (attempt {}/{})…",
+                    attempt, _MAX_LOGIN_ATTEMPTS,
+                )
+                session = create_session(
+                    email=self._secrets.linkedin_username,
+                    password=self._secrets.linkedin_password,
+                    attempt=attempt,
+                )
+                if session is not None:
+                    break
+                if attempt < _MAX_LOGIN_ATTEMPTS:
+                    logger.warning(
+                        "Login attempt {} failed — retrying in {}s…",
+                        attempt, _LOGIN_RETRY_DELAY,
+                    )
+                    time.sleep(_LOGIN_RETRY_DELAY)
             if session is None:
-                raise RuntimeError("LinkedIn authentication failed")
+                raise RuntimeError(
+                    f"LinkedIn authentication failed after {_MAX_LOGIN_ATTEMPTS} attempts. "
+                    "Check debug/ screenshots and config/.env credentials."
+                )
 
         # --- Search workers ---
         if "search" in stages:
