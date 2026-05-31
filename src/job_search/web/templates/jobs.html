@@ -1,11 +1,16 @@
 {% extends "base.html" %}
 {% block title %}{{ "All Jobs" if show_all else "Selected Jobs" }}{% endblock %}
 
+{# Build a URL with all active params, overriding individual ones as needed #}
+{% macro page_url(p=page, s=current_sort, d=current_dir, st=status_filter, sq=search_query) -%}
+  {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
+  {%- if st %}&status={{ st }}{% endif %}
+  {%- if sq %}&search={{ sq | urlencode }}{% endif %}
+{%- endmacro %}
+
 {% macro sort_link(field, label) %}
   {% set next_dir = "asc" if (current_sort == field and current_dir == "desc") else "desc" %}
-  {% set base = "/jobs/all" if show_all else "/jobs" %}
-  {% set filter_param = ("&status=" ~ status_filter) if status_filter else "" %}
-  <a href="{{ base }}?sort={{ field }}&dir={{ next_dir }}{{ filter_param }}"
+  <a href="{{ page_url(p=1, s=field, d=next_dir) }}"
      class="text-decoration-none {% if current_sort == field %}fw-semibold text-dark{% else %}text-secondary{% endif %}">
     {{ label }}
     {% if current_sort == field %}
@@ -19,20 +24,22 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="mb-0 fw-semibold">
     {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
-    <span class="badge bg-secondary ms-2" id="job-count">{{ jobs|length }}</span>
+    <span class="badge bg-secondary ms-2">{{ total }}</span>
   </h4>
-  {% if status_filter %}
+  {% if status_filter or search_query %}
   <a href="{{ base_url }}" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-x me-1"></i>Clear filter
+    <i class="bi bi-x me-1"></i>Clear filters
   </a>
   {% endif %}
 </div>
 
-<div class="d-flex align-items-center gap-3 mb-3">
+<div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+  {# Search — navigates on Enter #}
   <div class="input-group" style="max-width:360px">
     <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
     <input type="search" id="job-search" class="form-control border-start-0"
-           placeholder="Search by ID, title or company…" autocomplete="off">
+           placeholder="Search by ID, title or company… (Enter)" autocomplete="off"
+           value="{{ search_query }}">
   </div>
   <button id="remote-toggle" class="btn btn-outline-success btn-sm">
     <i class="bi bi-wifi me-1"></i>Remote only
@@ -51,20 +58,17 @@
   </div>
 </div>
 
-<!-- Filter bar -->
+<!-- Status filter bar -->
 <div class="d-flex flex-wrap gap-2 mb-3">
   {% set filters = [
-    ("",             "All",          "secondary"),
-    ("pending",      "Pending",      "secondary"),
-    ("applied",      "Applied",      "primary"),
-    ("interviewing", "Interviewing", "info"),
-    ("offered",      "Offered",      "success"),
-    ("rejected",     "Rejected",     "danger"),
-    ("skipped",      "Skipped",      "dark"),
+    ("",        "All",     "secondary"),
+    ("pending", "Pending", "secondary"),
+    ("applied", "Applied", "primary"),
+    ("skipped", "Skipped", "dark"),
   ] %}
   {% for val, label, color in filters %}
   {% set active = (status_filter == val) %}
-  <a href="{{ base_url }}{% if val %}?status={{ val }}{% endif %}"
+  <a href="{{ page_url(p=1, st=val) }}"
      class="btn btn-sm {{ 'btn-' ~ color if active else 'btn-outline-' ~ color }}{{ ' text-dark' if color in ('info', 'warning') else '' }}">
     {{ label }}
   </a>
@@ -72,7 +76,7 @@
 </div>
 
 {% if not jobs %}
-<div class="alert alert-info">No jobs found{% if status_filter %} for this filter{% endif %}.</div>
+<div class="alert alert-info">No jobs found{% if status_filter or search_query %} for this filter{% endif %}.</div>
 {% else %}
 <div class="table-responsive">
   <table class="table table-hover align-middle bg-white shadow-sm rounded">
@@ -226,6 +230,39 @@
     </tbody>
   </table>
 </div>
+
+{# Pagination controls #}
+{% if total_pages > 1 %}
+<nav class="mt-3">
+  <ul class="pagination pagination-sm justify-content-center mb-1">
+    <li class="page-item {% if page == 1 %}disabled{% endif %}">
+      <a class="page-link" href="{{ page_url(p=page-1) }}">‹ Prev</a>
+    </li>
+    {% set win = 3 %}
+    {% set start = [1, page - win] | max %}
+    {% set end   = [total_pages, page + win] | min %}
+    {% if start > 1 %}
+      <li class="page-item"><a class="page-link" href="{{ page_url(p=1) }}">1</a></li>
+      {% if start > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+    {% endif %}
+    {% for p in range(start, end + 1) %}
+    <li class="page-item {% if p == page %}active{% endif %}">
+      <a class="page-link" href="{{ page_url(p=p) }}">{{ p }}</a>
+    </li>
+    {% endfor %}
+    {% if end < total_pages %}
+      {% if end < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+      <li class="page-item"><a class="page-link" href="{{ page_url(p=total_pages) }}">{{ total_pages }}</a></li>
+    {% endif %}
+    <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+      <a class="page-link" href="{{ page_url(p=page+1) }}">Next ›</a>
+    </li>
+  </ul>
+  <p class="text-center text-muted small mb-0">
+    Page {{ page }} of {{ total_pages }} &mdash; {{ total }} job{{ 's' if total != 1 }}
+  </p>
+</nav>
+{% endif %}
 {% endif %}
 {% endblock %}
 
@@ -237,57 +274,91 @@
   const clToggle         = document.getElementById('cl-toggle');
   const scrapedFrom      = document.getElementById('scraped-from');
   const scrapedTo        = document.getElementById('scraped-to');
-  const countBadge       = document.getElementById('job-count');
 
-  // remoteFilter: 0 = all, 1 = remote only, -1 = hide remote
-  let remoteFilter = 0;
-  let clReady = false;
+  // ── Server-side search: navigate on Enter ──────────────────────────────────
+  if (searchInput) {
+    searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        const url = new URL(window.location.href);
+        const q = this.value.trim();
+        if (q) url.searchParams.set('search', q);
+        else   url.searchParams.delete('search');
+        url.searchParams.delete('page');
+        window.location.href = url.toString();
+      }
+    });
+  }
+
+  // ── Client-side filters — state persisted in localStorage so status-filter
+  //    navigations (full page reload) don't wipe them. ───────────────────────
+  const LS = 'jobFilters';
+  function loadState() {
+    try { return JSON.parse(localStorage.getItem(LS)) || {}; } catch { return {}; }
+  }
+  function saveState(patch) {
+    localStorage.setItem(LS, JSON.stringify(Object.assign(loadState(), patch)));
+  }
+
+  let remoteFilter = parseInt(loadState().remote ?? '0', 10) || 0;
+  let clReady      = loadState().cl === true;
 
   function applyFilters() {
-    const q       = searchInput ? searchInput.value.toLowerCase().trim() : '';
     const dateFrom = scrapedFrom ? scrapedFrom.value : '';
     const dateTo   = scrapedTo   ? scrapedTo.value   : '';
     const rows = document.querySelectorAll('tbody tr');
-    let visible = 0;
     rows.forEach(row => {
-      const matchSearch = !q || row.dataset.search.includes(q);
-      const isRemote    = row.dataset.remote === '1';
-      const hasCl       = row.dataset.cl === '1';
-      const scraped     = row.dataset.scraped || '';
+      const isRemote = row.dataset.remote === '1';
+      const hasCl    = row.dataset.cl === '1';
+      const scraped  = row.dataset.scraped || '';
       const matchRemote = remoteFilter === 0
         || (remoteFilter === 1 && isRemote)
         || (remoteFilter === -1 && !isRemote);
-      const matchCl     = !clReady || hasCl;
-      const matchFrom   = !dateFrom || scraped >= dateFrom;
-      const matchTo     = !dateTo   || scraped <= dateTo;
-      const show = matchSearch && matchRemote && matchCl && matchFrom && matchTo;
-      row.style.display = show ? '' : 'none';
-      if (show) visible++;
+      const matchCl   = !clReady || hasCl;
+      const matchFrom = !dateFrom || scraped >= dateFrom;
+      const matchTo   = !dateTo   || scraped <= dateTo;
+      row.style.display = (matchRemote && matchCl && matchFrom && matchTo) ? '' : 'none';
     });
-    if (countBadge) countBadge.textContent = visible;
   }
 
   function setRemoteFilter(val) {
     remoteFilter = val;
-    remoteToggle.classList.toggle('btn-success', val === 1);
-    remoteToggle.classList.toggle('btn-outline-success', val !== 1);
-    hideRemoteToggle.classList.toggle('btn-secondary', val === -1);
+    saveState({ remote: val });
+    remoteToggle.classList.toggle('btn-success',          val === 1);
+    remoteToggle.classList.toggle('btn-outline-success',  val !== 1);
+    hideRemoteToggle.classList.toggle('btn-secondary',         val === -1);
     hideRemoteToggle.classList.toggle('btn-outline-secondary', val !== -1);
     applyFilters();
   }
 
   function toggleCl() {
     clReady = !clReady;
-    clToggle.classList.toggle('btn-primary', clReady);
+    saveState({ cl: clReady });
+    clToggle.classList.toggle('btn-primary',         clReady);
     clToggle.classList.toggle('btn-outline-primary', !clReady);
     applyFilters();
   }
 
-  if (searchInput)      searchInput.addEventListener('input', applyFilters);
+  // Restore button visual state on load
+  if (remoteFilter !== 0) setRemoteFilter(remoteFilter);
+  if (clReady) toggleCl();
+
+  // Restore date inputs from localStorage
+  const savedFrom = loadState().dateFrom || '';
+  const savedTo   = loadState().dateTo   || '';
+  if (savedFrom && scrapedFrom) scrapedFrom.value = savedFrom;
+  if (savedTo   && scrapedTo)   scrapedTo.value   = savedTo;
+  if (savedFrom || savedTo) applyFilters();
+
   if (remoteToggle)     remoteToggle.addEventListener('click', () => setRemoteFilter(remoteFilter === 1 ? 0 : 1));
   if (hideRemoteToggle) hideRemoteToggle.addEventListener('click', () => setRemoteFilter(remoteFilter === -1 ? 0 : -1));
   if (clToggle)         clToggle.addEventListener('click', toggleCl);
-  if (scrapedFrom)      scrapedFrom.addEventListener('change', applyFilters);
-  if (scrapedTo)        scrapedTo.addEventListener('change', applyFilters);
+  if (scrapedFrom)      scrapedFrom.addEventListener('change', function () {
+    saveState({ dateFrom: this.value });
+    applyFilters();
+  });
+  if (scrapedTo)        scrapedTo.addEventListener('change', function () {
+    saveState({ dateTo: this.value });
+    applyFilters();
+  });
 </script>
 {% endblock %}
