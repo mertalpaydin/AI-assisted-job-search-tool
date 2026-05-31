@@ -66,9 +66,6 @@
         {% set status_list = [
           ("pending",      "bi-hourglass",       "Pending"),
           ("applied",      "bi-send",            "Applied"),
-          ("interviewing", "bi-calendar-check",  "Interviewing"),
-          ("offered",      "bi-trophy",          "Offered"),
-          ("rejected",     "bi-x-circle",        "Rejected"),
           ("skipped",      "bi-slash-circle",    "Skipped"),
         ] %}
         {% set list_base = "/jobs/all" if request.endpoint == "jobs_all" else "/jobs" %}

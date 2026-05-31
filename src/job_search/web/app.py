@@ -72,11 +72,16 @@ def index():
     pipeline_stats = db.get_pipeline_stats()
     app_counts = db.get_application_counts()
     cl_mode = get_cl_mode()
-    pending_approval = len(db.get_jobs_pending_cl_approval()) if cl_mode == "user_approval" else 0
+    _APPROVAL_DAYS = 30
+    _RECENT_DAYS = 7
+    pending_approval = len(db.get_jobs_pending_cl_approval(days=_APPROVAL_DAYS)) if cl_mode == "user_approval" else 0
+    recent_stats = db.get_recent_stats(days=_RECENT_DAYS)
     return render_template(
         "index.html", stats=stats, pipeline_stats=pipeline_stats,
         app_counts=app_counts, statuses=APPLICATION_STATUSES,
         cl_mode=cl_mode, pending_approval=pending_approval,
+        approval_period_days=_APPROVAL_DAYS,
+        recent_stats=recent_stats,
     )
 
 
@@ -94,7 +99,7 @@ def _get_page() -> int:
 def jobs():
     db = get_db()
     status_filter  = request.args.get("status", "")
-    sort_by        = request.args.get("sort", "cv_match_score")
+    sort_by        = request.args.get("sort", "created_at")
     sort_dir       = request.args.get("dir", "desc")
     search         = request.args.get("search", "").strip()
     remote_filter  = request.args.get("remote", "")   # "1" remote-only, "-1" hide-remote
@@ -130,7 +135,7 @@ def jobs():
 def jobs_all():
     db = get_db()
     status_filter  = request.args.get("status", "")
-    sort_by        = request.args.get("sort", "listedAt")
+    sort_by        = request.args.get("sort", "created_at")
     sort_dir       = request.args.get("dir", "desc")
     search         = request.args.get("search", "").strip()
     remote_filter  = request.args.get("remote", "")
@@ -185,8 +190,9 @@ def update_status(job_id: int):
 @app.route("/stats")
 def search_stats():
     db = get_db()
-    combos = db.get_search_combo_stats()
-    return render_template("stats.html", combos=combos)
+    _STATS_DAYS = 30
+    combos = db.get_search_combo_stats(days=_STATS_DAYS)
+    return render_template("stats.html", combos=combos, stats_period_days=_STATS_DAYS)
 
 
 @app.route("/jobs/<int:job_id>/quick-apply", methods=["POST"])

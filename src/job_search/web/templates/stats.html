@@ -4,7 +4,10 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-4">
   <h4 class="mb-0 fw-semibold">Search Stats</h4>
-  <span class="text-muted small">Per keyword + location breakdown</span>
+  <span class="text-muted small">
+    Per keyword + location breakdown &nbsp;·&nbsp;
+    <i class="bi bi-calendar3 me-1"></i>Last {{ stats_period_days }} days
+  </span>
 </div>
 
 {% if not combos %}
@@ -71,9 +74,9 @@
   </div>
 </div>
 
-<!-- Suggestions -->
-{% set low_rate_combos = combos | selectattr("selection_rate_pct") | selectattr("total_found", "gt", 10) | selectattr("selection_rate_pct", "lt", 5) | list %}
-{% set no_results_combos = combos | selectattr("total_found", "lt", 5) | list %}
+<!-- Suggestions (manual imports excluded) -->
+{% set low_rate_combos = combos | selectattr("selection_rate_pct") | selectattr("total_found", "gt", 10) | selectattr("selection_rate_pct", "lt", 5) | rejectattr("search_keyword", "equalto", "manual") | list %}
+{% set no_results_combos = combos | selectattr("total_found", "lt", 5) | rejectattr("search_keyword", "equalto", "manual") | list %}
 {% if low_rate_combos or no_results_combos %}
 <div class="alert alert-warning d-flex gap-2 mb-4">
   <i class="bi bi-lightbulb-fill fs-5 flex-shrink-0 mt-1"></i>
