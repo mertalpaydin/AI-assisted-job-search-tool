@@ -53,23 +53,15 @@
            value="{{ search_query }}">
   </div>
 
-  {# Remote toggle — clicking cycles: all → remote-only → hide-remote → all #}
-  {% if remote_filter == "1" %}
-  <a href="{{ page_url(p=1, rm='-1') }}" class="btn btn-success btn-sm">
+  {# Remote filters — both buttons always visible; clicking active one deselects it #}
+  <a href="{{ page_url(p=1, rm='' if remote_filter == '1' else '1') }}"
+     class="btn btn-sm {{ 'btn-success' if remote_filter == '1' else 'btn-outline-success' }}">
     <i class="bi bi-wifi me-1"></i>Remote only
   </a>
-  {% elif remote_filter == "-1" %}
-  <a href="{{ page_url(p=1, rm='') }}" class="btn btn-secondary btn-sm">
+  <a href="{{ page_url(p=1, rm='' if remote_filter == '-1' else '-1') }}"
+     class="btn btn-sm {{ 'btn-secondary' if remote_filter == '-1' else 'btn-outline-secondary' }}">
     <i class="bi bi-wifi-off me-1"></i>Hide remote
   </a>
-  {% else %}
-  <a href="{{ page_url(p=1, rm='1') }}" class="btn btn-outline-success btn-sm">
-    <i class="bi bi-wifi me-1"></i>Remote only
-  </a>
-  <a href="{{ page_url(p=1, rm='-1') }}" class="btn btn-outline-secondary btn-sm">
-    <i class="bi bi-wifi-off me-1"></i>Hide remote
-  </a>
-  {% endif %}
 
   {# CL ready toggle #}
   {% if cl_filter %}

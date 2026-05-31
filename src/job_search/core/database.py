@@ -131,7 +131,7 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(request_timestam
 # Data classes
 # ---------------------------------------------------------------------------
 
-APPLICATION_STATUSES = ("applied", "rejected", "interviewing", "offered", "skipped")
+APPLICATION_STATUSES = ("applied", "skipped")
 
 
 @dataclass
@@ -786,13 +786,42 @@ class DatabaseManager:
             "cl_error": cl_error,
         }
 
-    def get_search_combo_stats(self) -> list[dict]:
+    def get_recent_stats(self, days: int = 7) -> dict[str, int]:
+        """Counts for jobs found, selected, and cover letters in the last *days* days."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM jobs WHERE created_at >= datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            found = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM jobs WHERE is_selected = 1 AND created_at >= datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            selected = cur.fetchone()[0]
+            cur.execute(
+                """SELECT COUNT(*) FROM cover_letters cl
+                   JOIN jobs j ON cl.job_id = j.job_id
+                   WHERE cl.generation_status = 1 AND j.created_at >= datetime('now', ?)""",
+                (f"-{days} days",),
+            )
+            cover_letters = cur.fetchone()[0]
+        return {"found": found, "selected": selected, "cover_letters": cover_letters, "days": days}
+
+    def get_search_combo_stats(self, days: int | None = None) -> list[dict]:
         """
         Per keyword+location breakdown: found, with details, screened, selected,
         selection rate %, and avg CV match score.
+
+        If *days* is given, only jobs created within the last *days* days are included.
         """
+        where = ""
+        params: list = []
+        if days is not None:
+            where = f"WHERE created_at >= datetime('now', '-{int(days)} days')"
+
         with self._cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT
                     search_keyword,
                     search_location_id,
@@ -812,9 +841,10 @@ class DatabaseManager:
                         ELSE NULL
                     END AS selection_rate_pct
                 FROM jobs
+                {where}
                 GROUP BY search_keyword, search_location_id
                 ORDER BY selected DESC, total_found DESC
-            """)
+            """, params)
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
@@ -844,10 +874,17 @@ class DatabaseManager:
                 (approved, job_id),
             )
 
-    def get_jobs_pending_cl_approval(self) -> list[SelectedJobRow]:
-        """Jobs screened-and-selected with no approval decision yet (for user_approval mode)."""
+    def get_jobs_pending_cl_approval(self, days: int | None = None) -> list[SelectedJobRow]:
+        """Jobs screened-and-selected with no approval decision yet (for user_approval mode).
+
+        If *days* is given, only jobs created within the last *days* days are included.
+        """
+        extra = ""
+        if days is not None:
+            extra = f"AND j.created_at >= datetime('now', '-{int(days)} days')"
+
         with self._cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT
                     j.job_id, j.title, j.company_name, j.formattedLocation,
                     j.jobPostingUrl, j.workRemoteAllowed, j.description,
@@ -861,6 +898,7 @@ class DatabaseManager:
                 WHERE j.is_selected = 1
                   AND j.user_cl_approved IS NULL
                   AND cl.id IS NULL
+                  {extra}
                 ORDER BY j.cv_match_score DESC NULLS LAST
             """)
             return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]

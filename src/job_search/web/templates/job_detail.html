@@ -134,21 +134,6 @@
               <i class="bi bi-send me-1"></i>Mark Applied
             </button>
             {% endif %}
-            {% if job.application_status != "interviewing" %}
-            <button name="status" value="interviewing" class="btn btn-info btn-sm text-dark">
-              <i class="bi bi-calendar-check me-1"></i>Mark Interviewing
-            </button>
-            {% endif %}
-            {% if job.application_status != "offered" %}
-            <button name="status" value="offered" class="btn btn-success btn-sm">
-              <i class="bi bi-trophy me-1"></i>Mark Offered
-            </button>
-            {% endif %}
-            {% if job.application_status != "rejected" %}
-            <button name="status" value="rejected" class="btn btn-outline-danger btn-sm">
-              <i class="bi bi-x-circle me-1"></i>Mark Rejected
-            </button>
-            {% endif %}
             {% if job.application_status != "skipped" %}
             <button name="status" value="skipped" class="btn btn-outline-dark btn-sm">
               <i class="bi bi-slash-circle me-1"></i>Skip (not applying)

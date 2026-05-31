@@ -15,7 +15,8 @@
 <div class="alert alert-warning d-flex align-items-center mb-4 py-2">
   <i class="bi bi-envelope-exclamation me-2 fs-5"></i>
   <div>
-    <strong>{{ pending_approval }} job{{ 's' if pending_approval != 1 else '' }} awaiting CL approval.</strong>
+    <strong>{{ pending_approval }} job{{ 's' if pending_approval != 1 else '' }} awaiting CL approval</strong>
+    <span class="text-muted small ms-1">(last {{ approval_period_days }} days)</span>
     <a href="/jobs" class="ms-2">Review now →</a>
   </div>
 </div>
@@ -70,20 +71,39 @@
 <!-- Application Tracking -->
 <h5 class="mb-3 fw-semibold">Application Tracking</h5>
 <div class="row g-3 mb-4">
-  {% set applied_count     = app_counts.get("applied", 0) %}
-  {% set interview_count   = app_counts.get("interviewing", 0) %}
-  {% set offered_count     = app_counts.get("offered", 0) %}
-  {% set rejected_count    = app_counts.get("rejected", 0) %}
-  {% set tracked_total     = applied_count + interview_count + offered_count + rejected_count %}
-  {% set pending_count     = [pipeline_stats.screen_pass - tracked_total, 0] | max %}
+  {% set applied_count  = app_counts.get("applied", 0) %}
+  {% set skipped_count  = app_counts.get("skipped", 0) %}
+  {% set pending_count  = [pipeline_stats.screen_pass - applied_count - skipped_count, 0] | max %}
   {% set track_cards = [
-    ("Pending",      pending_count,    "light",   "bi-hourglass"),
-    ("Applied",      applied_count,    "primary", "bi-send"),
-    ("Interviewing", interview_count,  "info",    "bi-calendar-check"),
-    ("Offered",      offered_count,    "success", "bi-trophy"),
-    ("Rejected",     rejected_count,   "danger",  "bi-x-circle"),
+    ("Pending",  pending_count,         "light",   "bi-hourglass"),
+    ("Applied",  applied_count,         "primary", "bi-send"),
+    ("Skipped",  skipped_count,         "dark",    "bi-slash-circle"),
   ] %}
   {% for label, value, color, icon in track_cards %}
+  <div class="col-md-2">
+    <div class="card stat-card border-{{ color }} shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <i class="bi {{ icon }} text-{{ color }} fs-3"></i>
+        <div class="fs-2 fw-bold mt-1">{{ value }}</div>
+        <div class="text-muted small">{{ label }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Recent Activity (last 7 days) -->
+<h5 class="mb-3 fw-semibold d-flex align-items-center gap-2">
+  Recent Activity
+  <span class="badge bg-secondary fw-normal" style="font-size:0.7rem">Last {{ recent_stats.days }} days</span>
+</h5>
+<div class="row g-3 mb-4">
+  {% set recent_cards = [
+    ("Jobs Found",     recent_stats.found,         "info",    "bi-search"),
+    ("Jobs Selected",  recent_stats.selected,       "success", "bi-check-circle"),
+    ("Cover Letters",  recent_stats.cover_letters,  "warning", "bi-envelope"),
+  ] %}
+  {% for label, value, color, icon in recent_cards %}
   <div class="col-md-2">
     <div class="card stat-card border-{{ color }} shadow-sm h-100">
       <div class="card-body text-center py-3">
