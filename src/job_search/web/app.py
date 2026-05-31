@@ -80,23 +80,40 @@ def index():
     )
 
 
+_PAGE_SIZE = 50
+
+
+def _get_page() -> int:
+    try:
+        return max(1, int(request.args.get("page", 1) or 1))
+    except (ValueError, TypeError):
+        return 1
+
+
 @app.route("/jobs")
 def jobs():
     db = get_db()
     status_filter = request.args.get("status", "")
     sort_by = request.args.get("sort", "cv_match_score")
     sort_dir = request.args.get("dir", "desc")
-    job_list = db.get_selected_jobs(sort_by=sort_by, sort_dir=sort_dir)
-    if status_filter:
-        if status_filter == "pending":
-            job_list = [j for j in job_list if not j.application_status]
-        else:
-            job_list = [j for j in job_list if j.application_status == status_filter]
+    search = request.args.get("search", "").strip()
+    page = _get_page()
+    offset = (page - 1) * _PAGE_SIZE
+
+    job_list, total = db.get_selected_jobs(
+        sort_by=sort_by, sort_dir=sort_dir,
+        search=search, status=status_filter,
+        limit=_PAGE_SIZE, offset=offset,
+    )
+    total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+
     return render_template(
         "jobs.html", jobs=job_list, status_filter=status_filter,
         statuses=APPLICATION_STATUSES, show_all=False,
         current_sort=sort_by, current_dir=sort_dir,
         cl_mode=get_cl_mode(),
+        search_query=search,
+        page=page, total_pages=total_pages, total=total,
     )
 
 
@@ -106,17 +123,24 @@ def jobs_all():
     status_filter = request.args.get("status", "")
     sort_by = request.args.get("sort", "listedAt")
     sort_dir = request.args.get("dir", "desc")
-    job_list = db.get_all_jobs(sort_by=sort_by, sort_dir=sort_dir)
-    if status_filter:
-        if status_filter == "pending":
-            job_list = [j for j in job_list if not j.application_status]
-        else:
-            job_list = [j for j in job_list if j.application_status == status_filter]
+    search = request.args.get("search", "").strip()
+    page = _get_page()
+    offset = (page - 1) * _PAGE_SIZE
+
+    job_list, total = db.get_all_jobs(
+        sort_by=sort_by, sort_dir=sort_dir,
+        search=search, status=status_filter,
+        limit=_PAGE_SIZE, offset=offset,
+    )
+    total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+
     return render_template(
         "jobs.html", jobs=job_list, status_filter=status_filter,
         statuses=APPLICATION_STATUSES, show_all=True,
         current_sort=sort_by, current_dir=sort_dir,
         cl_mode=get_cl_mode(),
+        search_query=search,
+        page=page, total_pages=total_pages, total=total,
     )
 
 

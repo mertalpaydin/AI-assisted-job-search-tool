@@ -196,11 +196,7 @@ def list_jobs(config: str, status: str | None) -> None:
     cfg = load_config(config)
     db = DatabaseManager(cfg.database.path)
     try:
-        jobs = db.get_selected_jobs()
-        if status == "pending":
-            jobs = [j for j in jobs if not j.application_status]
-        elif status:
-            jobs = [j for j in jobs if j.application_status == status]
+        jobs, _ = db.get_selected_jobs(status=status or "", limit=100_000)
 
         if not jobs:
             click.echo("No jobs found.")

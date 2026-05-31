@@ -155,7 +155,7 @@ def export_cover_letters(
 
     Returns a summary dict with keys ``exported``, ``skipped``, ``total``.
     """
-    jobs = db.get_selected_jobs()
+    jobs, _ = db.get_selected_jobs(limit=100_000)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 

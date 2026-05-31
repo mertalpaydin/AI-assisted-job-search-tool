@@ -882,26 +882,61 @@ class DatabaseManager:
         self,
         sort_by: str = "cv_match_score",
         sort_dir: str = "desc",
-    ) -> list[SelectedJobRow]:
-        """Return all AI-selected jobs ordered by the given column."""
+        search: str = "",
+        status: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[SelectedJobRow], int]:
+        """Return paginated AI-selected jobs with optional search/status filter.
+
+        Returns (rows, total_count).  description is omitted from list rows
+        (fetched only in get_selected_job) to keep the response small.
+        """
         sort_col = sort_by if sort_by in _SORTABLE_FIELDS else "cv_match_score"
         sort_order = "ASC" if sort_dir.upper() == "ASC" else "DESC"
+
+        conditions: list[str] = ["j.is_selected = 1"]
+        params: list = []
+
+        if search:
+            conditions.append(
+                "(LOWER(j.title) LIKE ? OR LOWER(j.company_name) LIKE ?"
+                " OR CAST(j.job_id AS TEXT) = ?)"
+            )
+            like = f"%{search.lower()}%"
+            params.extend([like, like, search.strip()])
+
+        if status == "pending":
+            conditions.append("(j.application_status IS NULL OR j.application_status = '')")
+        elif status:
+            conditions.append("j.application_status = ?")
+            params.append(status)
+
+        where = " AND ".join(conditions)
+
         with self._cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM jobs j WHERE {where}", params)
+            total: int = cur.fetchone()[0]
+
             cur.execute(f"""
                 SELECT
                     j.job_id, j.title, j.company_name, j.formattedLocation,
-                    j.jobPostingUrl, j.workRemoteAllowed, j.description,
+                    j.jobPostingUrl, j.workRemoteAllowed,
+                    NULL as description,
                     j.application_status, j.applied_at,
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
-                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    CASE WHEN cl.cover_letter_text IS NOT NULL THEN 'yes' ELSE NULL END
+                        as cover_letter_text,
+                    cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
-                WHERE j.is_selected = 1
+                WHERE {where}
                 ORDER BY j.{sort_col} {sort_order}
-            """)
-            return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]
+                LIMIT ? OFFSET ?
+            """, params + [limit, offset])
+            return [SelectedJobRow(**dict(row)) for row in cur.fetchall()], total
 
     def get_selected_job(self, job_id: int) -> SelectedJobRow | None:
         """Return a single job by ID (selected or not)."""
@@ -926,26 +961,60 @@ class DatabaseManager:
         self,
         sort_by: str = "listedAt",
         sort_dir: str = "desc",
-    ) -> list[SelectedJobRow]:
-        """Return all scraped jobs (selected or not), ordered by the given column."""
+        search: str = "",
+        status: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[SelectedJobRow], int]:
+        """Return paginated scraped jobs (selected or not) with optional filters.
+
+        Returns (rows, total_count).  description is omitted from list rows.
+        """
         sort_col = sort_by if sort_by in _SORTABLE_FIELDS else "listedAt"
         sort_order = "ASC" if sort_dir.upper() == "ASC" else "DESC"
+
+        conditions: list[str] = ["j.scraped = 1"]
+        params: list = []
+
+        if search:
+            conditions.append(
+                "(LOWER(j.title) LIKE ? OR LOWER(j.company_name) LIKE ?"
+                " OR CAST(j.job_id AS TEXT) = ?)"
+            )
+            like = f"%{search.lower()}%"
+            params.extend([like, like, search.strip()])
+
+        if status == "pending":
+            conditions.append("(j.application_status IS NULL OR j.application_status = '')")
+        elif status:
+            conditions.append("j.application_status = ?")
+            params.append(status)
+
+        where = " AND ".join(conditions)
+
         with self._cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM jobs j WHERE {where}", params)
+            total: int = cur.fetchone()[0]
+
             cur.execute(f"""
                 SELECT
                     j.job_id, j.title, j.company_name, j.formattedLocation,
-                    j.jobPostingUrl, j.workRemoteAllowed, j.description,
+                    j.jobPostingUrl, j.workRemoteAllowed,
+                    NULL as description,
                     j.application_status, j.applied_at,
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
-                    cl.cover_letter_text, cl.generation_date, cl.generation_status,
+                    CASE WHEN cl.cover_letter_text IS NOT NULL THEN 'yes' ELSE NULL END
+                        as cover_letter_text,
+                    cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
-                WHERE j.scraped = 1
+                WHERE {where}
                 ORDER BY j.{sort_col} {sort_order} NULLS LAST
-            """)
-            return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]
+                LIMIT ? OFFSET ?
+            """, params + [limit, offset])
+            return [SelectedJobRow(**dict(row)) for row in cur.fetchall()], total
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn:
