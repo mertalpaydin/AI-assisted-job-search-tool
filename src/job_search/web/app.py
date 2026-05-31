@@ -93,16 +93,23 @@ def _get_page() -> int:
 @app.route("/jobs")
 def jobs():
     db = get_db()
-    status_filter = request.args.get("status", "")
-    sort_by = request.args.get("sort", "cv_match_score")
-    sort_dir = request.args.get("dir", "desc")
-    search = request.args.get("search", "").strip()
-    page = _get_page()
-    offset = (page - 1) * _PAGE_SIZE
+    status_filter  = request.args.get("status", "")
+    sort_by        = request.args.get("sort", "cv_match_score")
+    sort_dir       = request.args.get("dir", "desc")
+    search         = request.args.get("search", "").strip()
+    remote_filter  = request.args.get("remote", "")   # "1" remote-only, "-1" hide-remote
+    cl_filter      = request.args.get("cl_ready", "")
+    date_from      = request.args.get("date_from", "")
+    date_to        = request.args.get("date_to", "")
+    page           = _get_page()
+    offset         = (page - 1) * _PAGE_SIZE
 
     job_list, total = db.get_selected_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
         search=search, status=status_filter,
+        remote_filter=remote_filter,
+        cl_ready=bool(cl_filter),
+        date_from=date_from, date_to=date_to,
         limit=_PAGE_SIZE, offset=offset,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
@@ -113,6 +120,8 @@ def jobs():
         current_sort=sort_by, current_dir=sort_dir,
         cl_mode=get_cl_mode(),
         search_query=search,
+        remote_filter=remote_filter, cl_filter=cl_filter,
+        date_from=date_from, date_to=date_to,
         page=page, total_pages=total_pages, total=total,
     )
 
@@ -120,16 +129,23 @@ def jobs():
 @app.route("/jobs/all")
 def jobs_all():
     db = get_db()
-    status_filter = request.args.get("status", "")
-    sort_by = request.args.get("sort", "listedAt")
-    sort_dir = request.args.get("dir", "desc")
-    search = request.args.get("search", "").strip()
-    page = _get_page()
-    offset = (page - 1) * _PAGE_SIZE
+    status_filter  = request.args.get("status", "")
+    sort_by        = request.args.get("sort", "listedAt")
+    sort_dir       = request.args.get("dir", "desc")
+    search         = request.args.get("search", "").strip()
+    remote_filter  = request.args.get("remote", "")
+    cl_filter      = request.args.get("cl_ready", "")
+    date_from      = request.args.get("date_from", "")
+    date_to        = request.args.get("date_to", "")
+    page           = _get_page()
+    offset         = (page - 1) * _PAGE_SIZE
 
     job_list, total = db.get_all_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
         search=search, status=status_filter,
+        remote_filter=remote_filter,
+        cl_ready=bool(cl_filter),
+        date_from=date_from, date_to=date_to,
         limit=_PAGE_SIZE, offset=offset,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
@@ -140,6 +156,8 @@ def jobs_all():
         current_sort=sort_by, current_dir=sort_dir,
         cl_mode=get_cl_mode(),
         search_query=search,
+        remote_filter=remote_filter, cl_filter=cl_filter,
+        date_from=date_from, date_to=date_to,
         page=page, total_pages=total_pages, total=total,
     )
 

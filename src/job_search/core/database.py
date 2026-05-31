@@ -884,10 +884,14 @@ class DatabaseManager:
         sort_dir: str = "desc",
         search: str = "",
         status: str = "",
+        remote_filter: str = "",   # "1" = remote only, "-1" = hide remote
+        cl_ready: bool = False,
+        date_from: str = "",
+        date_to: str = "",
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[SelectedJobRow], int]:
-        """Return paginated AI-selected jobs with optional search/status filter.
+        """Return paginated AI-selected jobs with optional filters.
 
         Returns (rows, total_count).  description is omitted from list rows
         (fetched only in get_selected_job) to keep the response small.
@@ -912,10 +916,31 @@ class DatabaseManager:
             conditions.append("j.application_status = ?")
             params.append(status)
 
+        if remote_filter == "1":
+            conditions.append("j.workRemoteAllowed = 1")
+        elif remote_filter == "-1":
+            conditions.append("(j.workRemoteAllowed IS NULL OR j.workRemoteAllowed != 1)")
+
+        if cl_ready:
+            conditions.append("cl.cover_letter_text IS NOT NULL")
+
+        if date_from:
+            conditions.append("DATE(j.created_at) >= ?")
+            params.append(date_from)
+
+        if date_to:
+            conditions.append("DATE(j.created_at) <= ?")
+            params.append(date_to)
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) FROM jobs j WHERE {where}", params)
+            # Always include the CL join so cl.* conditions in WHERE work correctly
+            cur.execute(f"""
+                SELECT COUNT(*) FROM jobs j
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                WHERE {where}
+            """, params)
             total: int = cur.fetchone()[0]
 
             cur.execute(f"""
@@ -963,6 +988,10 @@ class DatabaseManager:
         sort_dir: str = "desc",
         search: str = "",
         status: str = "",
+        remote_filter: str = "",
+        cl_ready: bool = False,
+        date_from: str = "",
+        date_to: str = "",
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[SelectedJobRow], int]:
@@ -990,10 +1019,30 @@ class DatabaseManager:
             conditions.append("j.application_status = ?")
             params.append(status)
 
+        if remote_filter == "1":
+            conditions.append("j.workRemoteAllowed = 1")
+        elif remote_filter == "-1":
+            conditions.append("(j.workRemoteAllowed IS NULL OR j.workRemoteAllowed != 1)")
+
+        if cl_ready:
+            conditions.append("cl.cover_letter_text IS NOT NULL")
+
+        if date_from:
+            conditions.append("DATE(j.created_at) >= ?")
+            params.append(date_from)
+
+        if date_to:
+            conditions.append("DATE(j.created_at) <= ?")
+            params.append(date_to)
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) FROM jobs j WHERE {where}", params)
+            cur.execute(f"""
+                SELECT COUNT(*) FROM jobs j
+                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                WHERE {where}
+            """, params)
             total: int = cur.fetchone()[0]
 
             cur.execute(f"""
