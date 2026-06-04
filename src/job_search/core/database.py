@@ -916,6 +916,70 @@ class DatabaseManager:
     # Selected jobs and all jobs (for export and web UI)
     # ------------------------------------------------------------------
 
+    def get_company_counts(
+        self,
+        selected_only: bool = False,
+        status: str = "",
+        remote_filter: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        search: str = "",
+        cl_ready: bool = False,
+    ) -> list[tuple[str, int]]:
+        """Return (company_name, job_count) sorted by count desc.
+
+        Applies the same filters as get_selected_jobs / get_all_jobs so the
+        company list always reflects what is visible in the current view.
+        """
+        conditions: list[str] = ["j.is_selected = 1" if selected_only else "j.scraped = 1"]
+        conditions.append("j.company_name IS NOT NULL")
+        conditions.append("j.company_name != ''")
+        params: list = []
+
+        if search:
+            conditions.append(
+                "(LOWER(j.title) LIKE ? OR LOWER(j.company_name) LIKE ?"
+                " OR CAST(j.job_id AS TEXT) = ?)"
+            )
+            like = f"%{search.lower()}%"
+            params.extend([like, like, search.strip()])
+
+        if status == "pending":
+            conditions.append("(j.application_status IS NULL OR j.application_status = '')")
+        elif status:
+            conditions.append("j.application_status = ?")
+            params.append(status)
+
+        if remote_filter == "1":
+            conditions.append("j.workRemoteAllowed = 1")
+        elif remote_filter == "-1":
+            conditions.append("(j.workRemoteAllowed IS NULL OR j.workRemoteAllowed != 1)")
+
+        if date_from:
+            conditions.append("DATE(j.created_at) >= ?")
+            params.append(date_from)
+
+        if date_to:
+            conditions.append("DATE(j.created_at) <= ?")
+            params.append(date_to)
+
+        if cl_ready:
+            conditions.append("cl.cover_letter_text IS NOT NULL")
+
+        where = " AND ".join(conditions)
+        join = "LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1" if cl_ready else ""
+
+        with self._cursor() as cur:
+            cur.execute(f"""
+                SELECT j.company_name, COUNT(*) AS cnt
+                FROM jobs j
+                {join}
+                WHERE {where}
+                GROUP BY j.company_name
+                ORDER BY cnt DESC, j.company_name ASC
+            """, params)
+            return [(row[0], row[1]) for row in cur.fetchall()]
+
     def get_selected_jobs(
         self,
         sort_by: str = "cv_match_score",
@@ -926,6 +990,7 @@ class DatabaseManager:
         cl_ready: bool = False,
         date_from: str = "",
         date_to: str = "",
+        exclude_companies: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[SelectedJobRow], int]:
@@ -969,6 +1034,11 @@ class DatabaseManager:
         if date_to:
             conditions.append("DATE(j.created_at) <= ?")
             params.append(date_to)
+
+        if exclude_companies:
+            placeholders = ",".join("?" * len(exclude_companies))
+            conditions.append(f"(j.company_name IS NULL OR j.company_name NOT IN ({placeholders}))")
+            params.extend(exclude_companies)
 
         where = " AND ".join(conditions)
 
@@ -1030,6 +1100,7 @@ class DatabaseManager:
         cl_ready: bool = False,
         date_from: str = "",
         date_to: str = "",
+        exclude_companies: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[SelectedJobRow], int]:
@@ -1072,6 +1143,11 @@ class DatabaseManager:
         if date_to:
             conditions.append("DATE(j.created_at) <= ?")
             params.append(date_to)
+
+        if exclude_companies:
+            placeholders = ",".join("?" * len(exclude_companies))
+            conditions.append(f"(j.company_name IS NULL OR j.company_name NOT IN ({placeholders}))")
+            params.extend(exclude_companies)
 
         where = " AND ".join(conditions)
 

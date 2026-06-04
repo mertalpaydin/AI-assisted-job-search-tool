@@ -8,7 +8,7 @@
 {% macro page_url(p=page, s=current_sort, d=current_dir,
                   st=status_filter, sq=search_query,
                   rm=remote_filter, cl=cl_filter,
-                  df=date_from, dt=date_to) -%}
+                  df=date_from, dt=date_to, ex=exclude_companies) -%}
   {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
@@ -16,6 +16,7 @@
   {%- if cl %}&cl_ready=1{% endif %}
   {%- if df %}&date_from={{ df }}{% endif %}
   {%- if dt %}&date_to={{ dt }}{% endif %}
+  {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
 
 {% macro sort_link(field, label) %}
@@ -37,7 +38,7 @@
     {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
     <span class="badge bg-secondary ms-2">{{ total }}</span>
   </h4>
-  {% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to %}
+  {% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies %}
   <a href="{{ base_url }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear all filters
   </a>
@@ -83,6 +84,55 @@
     <input type="date" id="scraped-to" class="form-control form-control-sm"
            style="width:140px" value="{{ date_to }}">
   </div>
+
+  {# Company filter dropdown #}
+  {% if company_counts %}
+  {% set exc_count = exclude_companies | length %}
+  <div class="dropdown" id="companyFilterDropdown">
+    <button class="btn btn-sm {% if exc_count > 0 %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+      <i class="bi bi-building me-1"></i>Companies
+      {% if exc_count > 0 %}<span class="badge bg-dark ms-1">{{ exc_count }} hidden</span>{% endif %}
+    </button>
+    <div class="dropdown-menu p-2 shadow" style="min-width:320px; z-index:1050">
+      <input type="text" id="companySearch" class="form-control form-control-sm mb-2"
+             placeholder="Search companies…" autocomplete="off">
+      <div class="d-flex gap-1 mb-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm flex-fill" id="selectAllCo">
+          <i class="bi bi-check-all me-1"></i>Select all
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm flex-fill" id="deselectAllCo">
+          <i class="bi bi-square me-1"></i>Deselect all
+        </button>
+      </div>
+      <div id="companyList" style="max-height:300px; overflow-y:auto; overflow-x:hidden">
+        {% for company, count in company_counts %}
+        <div class="d-flex align-items-center justify-content-between px-1 py-0 company-row"
+             data-name="{{ company | lower }}">
+          <div class="form-check mb-0 flex-fill">
+            <input class="form-check-input company-cb" type="checkbox"
+                   value="{{ company }}" id="co_{{ loop.index }}"
+                   {% if company not in exclude_companies %}checked{% endif %}>
+            <label class="form-check-label small text-truncate d-block" for="co_{{ loop.index }}"
+                   style="max-width:220px" title="{{ company }}">{{ company }}</label>
+          </div>
+          <span class="badge bg-secondary ms-1 flex-shrink-0" style="font-size:0.7rem">{{ count }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="mt-2 pt-2 border-top d-flex gap-1">
+        <button type="button" class="btn btn-primary btn-sm flex-fill" id="applyCompanyFilter">
+          <i class="bi bi-funnel me-1"></i>Apply
+        </button>
+        {% if exc_count > 0 %}
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="clearCompanyFilter">
+          <i class="bi bi-x"></i>
+        </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {# ── Status filter bar ───────────────────────────────────────────────────── #}
@@ -104,7 +154,7 @@
 
 {# ── Job table ───────────────────────────────────────────────────────────── #}
 {% if not jobs %}
-<div class="alert alert-info">No jobs found{% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to %} for the active filters{% endif %}.</div>
+<div class="alert alert-info">No jobs found{% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies %} for the active filters{% endif %}.</div>
 {% else %}
 <div class="table-responsive">
   <table class="table table-hover align-middle bg-white shadow-sm rounded">
@@ -322,6 +372,58 @@
       const url = new URL(window.location.href);
       if (this.value) url.searchParams.set('date_to', this.value);
       else            url.searchParams.delete('date_to');
+      url.searchParams.delete('page');
+      window.location.href = url.toString();
+    });
+  }
+
+  // ── Company filter ───────────────────────────────────────────────────────
+  const companySearch   = document.getElementById('companySearch');
+  const companyList     = document.getElementById('companyList');
+  const applyBtn        = document.getElementById('applyCompanyFilter');
+  const clearBtn        = document.getElementById('clearCompanyFilter');
+  const selectAllBtn    = document.getElementById('selectAllCo');
+  const deselectAllBtn  = document.getElementById('deselectAllCo');
+
+  function visibleCheckboxes() {
+    return Array.from(document.querySelectorAll('.company-row'))
+      .filter(row => row.style.display !== 'none')
+      .map(row => row.querySelector('.company-cb'));
+  }
+
+  if (companySearch) {
+    companySearch.addEventListener('input', function() {
+      const q = this.value.toLowerCase();
+      document.querySelectorAll('.company-row').forEach(row => {
+        row.style.display = row.dataset.name.includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener('click', () => visibleCheckboxes().forEach(cb => cb.checked = true));
+  }
+  if (deselectAllBtn) {
+    deselectAllBtn.addEventListener('click', () => visibleCheckboxes().forEach(cb => cb.checked = false));
+  }
+
+  if (applyBtn) {
+    applyBtn.addEventListener('click', () => {
+      const unchecked = Array.from(document.querySelectorAll('.company-cb'))
+        .filter(cb => !cb.checked)
+        .map(cb => cb.value);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('page');
+      url.searchParams.delete('exc');
+      unchecked.forEach(c => url.searchParams.append('exc', c));
+      window.location.href = url.toString();
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('exc');
       url.searchParams.delete('page');
       window.location.href = url.toString();
     });

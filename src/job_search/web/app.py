@@ -106,15 +106,23 @@ def jobs():
     cl_filter      = request.args.get("cl_ready", "")
     date_from      = request.args.get("date_from", "")
     date_to        = request.args.get("date_to", "")
+    exclude_companies = request.args.getlist("exc")
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
+    company_counts = db.get_company_counts(
+        selected_only=True,
+        status=status_filter, remote_filter=remote_filter,
+        date_from=date_from, date_to=date_to,
+        search=search, cl_ready=bool(cl_filter),
+    )
     job_list, total = db.get_selected_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
         search=search, status=status_filter,
         remote_filter=remote_filter,
         cl_ready=bool(cl_filter),
         date_from=date_from, date_to=date_to,
+        exclude_companies=exclude_companies or None,
         limit=_PAGE_SIZE, offset=offset,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
@@ -127,6 +135,8 @@ def jobs():
         search_query=search,
         remote_filter=remote_filter, cl_filter=cl_filter,
         date_from=date_from, date_to=date_to,
+        company_counts=company_counts,
+        exclude_companies=exclude_companies,
         page=page, total_pages=total_pages, total=total,
     )
 
@@ -142,15 +152,23 @@ def jobs_all():
     cl_filter      = request.args.get("cl_ready", "")
     date_from      = request.args.get("date_from", "")
     date_to        = request.args.get("date_to", "")
+    exclude_companies = request.args.getlist("exc")
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
+    company_counts = db.get_company_counts(
+        selected_only=False,
+        status=status_filter, remote_filter=remote_filter,
+        date_from=date_from, date_to=date_to,
+        search=search, cl_ready=bool(cl_filter),
+    )
     job_list, total = db.get_all_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
         search=search, status=status_filter,
         remote_filter=remote_filter,
         cl_ready=bool(cl_filter),
         date_from=date_from, date_to=date_to,
+        exclude_companies=exclude_companies or None,
         limit=_PAGE_SIZE, offset=offset,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
@@ -163,6 +181,8 @@ def jobs_all():
         search_query=search,
         remote_filter=remote_filter, cl_filter=cl_filter,
         date_from=date_from, date_to=date_to,
+        company_counts=company_counts,
+        exclude_companies=exclude_companies,
         page=page, total_pages=total_pages, total=total,
     )
 
