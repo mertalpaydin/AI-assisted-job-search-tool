@@ -70,6 +70,8 @@ class CoverLetterWorker:
         )
         self._cl_cfg = config.cover_letter
         self._export_dir = export_dir
+        # Tracks job_ids enqueued via the DB poll to prevent duplicate queueing.
+        self._queued_ids: set[int] = set()
 
     async def _call_gemini(
         self, api_key: str, system_prompt: str, user_prompt: str
@@ -109,7 +111,34 @@ class CoverLetterWorker:
 
         return await loop.run_in_executor(None, _sync_call)
 
+    async def _poll_for_new_approved(self) -> int:
+        """Query DB for approved jobs not yet tracked by this worker.
+
+        Returns the count of newly enqueued jobs. Uses ``_queued_ids`` to avoid
+        re-enqueueing jobs that were already added via this poll mechanism; the
+        idempotency guard in ``_generate_for_job`` handles the (rare) case where
+        the screening worker independently pushed the same job.
+        """
+        loop = asyncio.get_running_loop()
+        pending = await loop.run_in_executor(
+            None,
+            lambda: self._db.get_jobs_pending_cover_letter(mode=self._cl_cfg.mode),
+        )
+        count = 0
+        for job_id in pending:
+            if job_id not in self._queued_ids:
+                self._queued_ids.add(job_id)
+                self._queue.put(job_id)
+                count += 1
+        return count
+
     async def _generate_for_job(self, job_id: int) -> None:
+        # Idempotency guard: a job may arrive from both the screening worker and
+        # the DB poll (in "auto" mode).  Skip it if already done.
+        if self._db.has_successful_cover_letter(job_id):
+            logger.debug("Job {} already has a cover letter — skipping duplicate", job_id)
+            return
+
         job = self._db.get_job_details(job_id)
         if job is None:
             logger.warning("Job {} not found — skipping cover letter", job_id)
@@ -158,6 +187,22 @@ class CoverLetterWorker:
             self._db.mark_cover_letter_error(job_id, "Empty response from API", retry_count=max_retries)
             return
 
+        # Detect when the model outputs a raw search query instead of a cover letter.
+        # This can happen with search grounding enabled: the model emits the tool call
+        # as plain text rather than executing it and returning the finished letter.
+        stripped = text.strip()
+        if stripped.startswith("google:search{") or stripped.startswith("google:search("):
+            logger.error(
+                "Cover letter for job {} contains raw search query instead of text — marking as error",
+                job_id,
+            )
+            self._db.mark_cover_letter_error(
+                job_id,
+                "Model returned raw search query instead of cover letter text",
+                retry_count=max_retries,
+            )
+            return
+
         self._db.save_cover_letter(job_id, text, cl_cfg.model, key_idx)
         logger.info("Cover letter generated for job {} ({})", job_id, job.title)
 
@@ -169,11 +214,37 @@ class CoverLetterWorker:
                 logger.warning("Auto-export failed for job {}: {}", job_id, exc)
 
     async def _worker_loop(self) -> None:
-        """Async loop: drain the queue until shutdown."""
+        """Async loop: drain the queue until shutdown.
+
+        Polls the database every ``_POLL_INTERVAL`` seconds for jobs that
+        became user-approved after startup (e.g. via the web UI) and enqueues
+        them automatically, so the worker does not need to be restarted.
+        """
+        _POLL_INTERVAL = 30.0  # seconds between DB polls for newly approved jobs
+
         tasks: set[asyncio.Task] = set()
         max_concurrent = self._config.concurrency.max_cover_letter_workers
 
+        # Seed _queued_ids with whatever resume() already put in the queue so
+        # the first poll does not re-enqueue those jobs.
+        loop = asyncio.get_running_loop()
+        initial = await loop.run_in_executor(
+            None,
+            lambda: self._db.get_jobs_pending_cover_letter(mode=self._cl_cfg.mode),
+        )
+        self._queued_ids.update(initial)
+        last_poll = loop.time()
+
         while not self._shutdown.should_shutdown():
+            # Poll DB for newly approved jobs
+            if loop.time() - last_poll >= _POLL_INTERVAL:
+                new_count = await self._poll_for_new_approved()
+                if new_count:
+                    logger.info(
+                        "CL worker: picked up {} newly approved job(s) from DB", new_count
+                    )
+                last_poll = loop.time()
+
             # Launch up to max_concurrent tasks
             while len(tasks) < max_concurrent:
                 try:

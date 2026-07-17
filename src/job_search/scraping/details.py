@@ -135,6 +135,10 @@ class DetailsWorker:
             for loc in config.search.locations
             if loc.work_type == "remote"
         )
+        # Lowercase set for O(1) case-insensitive company blocking
+        self._blocked_companies: frozenset[str] = frozenset(
+            c.lower() for c in config.search.blocked_companies
+        )
 
     def run(self) -> None:
         logger.info("Details worker started")
@@ -187,6 +191,12 @@ class DetailsWorker:
             parsed.job_fields["company_url"] = cf.get("url")
             parsed.job_fields["company_staff_count"] = cf.get("staffCount")
             parsed.job_fields["company_universal_name"] = cf.get("universalName")
+
+        company_name: str | None = parsed.job_fields.get("company_name")
+        if company_name and company_name.lower() in self._blocked_companies:
+            logger.info("Blocked company '{}' — deleting job {}", company_name, job_id)
+            self._db.delete_job(job_id)
+            return
 
         self._db.update_job_details(job_id, parsed.job_fields)
 

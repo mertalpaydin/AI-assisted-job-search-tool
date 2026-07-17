@@ -35,6 +35,7 @@ class SearchConfig(BaseModel):
     rate_limits: RateLimitConfig = Field(default_factory=RateLimitConfig)
     max_pages: int = 5  # pages of 100 results each, per keyword+location
     title_filter: TitleFilterConfig = Field(default_factory=TitleFilterConfig)
+    blocked_companies: list[str] = []  # company names to skip entirely (case-insensitive)
 
 
 class ScreeningModelConfig(BaseModel):

@@ -656,6 +656,16 @@ class DatabaseManager:
                 VALUES (?, -1, ?, ?)
             """, (job_id, error, retry_count))
 
+    def has_successful_cover_letter(self, job_id: int) -> bool:
+        """Return True if a non-empty cover letter has already been generated for this job."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM cover_letters WHERE job_id = ? AND generation_status = 1 "
+                "AND cover_letter_text IS NOT NULL AND cover_letter_text != ''",
+                (job_id,),
+            )
+            return cur.fetchone() is not None
+
     def purge_cover_letter_errors(self) -> list[int]:
         """Delete all failed cover letter rows. Returns the job_ids that were cleared."""
         with self._cursor() as cur:
@@ -925,6 +935,7 @@ class DatabaseManager:
         date_to: str = "",
         search: str = "",
         cl_ready: bool = False,
+        exclude_companies: list[str] | None = None,
     ) -> list[tuple[str, int]]:
         """Return (company_name, job_count) sorted by count desc.
 
@@ -965,6 +976,11 @@ class DatabaseManager:
 
         if cl_ready:
             conditions.append("cl.cover_letter_text IS NOT NULL")
+
+        if exclude_companies:
+            placeholders = ",".join("?" * len(exclude_companies))
+            conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
+            params.extend(c.lower() for c in exclude_companies)
 
         where = " AND ".join(conditions)
         join = "LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1" if cl_ready else ""
@@ -1037,8 +1053,8 @@ class DatabaseManager:
 
         if exclude_companies:
             placeholders = ",".join("?" * len(exclude_companies))
-            conditions.append(f"(j.company_name IS NULL OR j.company_name NOT IN ({placeholders}))")
-            params.extend(exclude_companies)
+            conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
+            params.extend(c.lower() for c in exclude_companies)
 
         where = " AND ".join(conditions)
 
@@ -1146,8 +1162,8 @@ class DatabaseManager:
 
         if exclude_companies:
             placeholders = ",".join("?" * len(exclude_companies))
-            conditions.append(f"(j.company_name IS NULL OR j.company_name NOT IN ({placeholders}))")
-            params.extend(exclude_companies)
+            conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
+            params.extend(c.lower() for c in exclude_companies)
 
         where = " AND ".join(conditions)
 

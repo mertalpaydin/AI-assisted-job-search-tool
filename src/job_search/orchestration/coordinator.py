@@ -62,6 +62,7 @@ class JobSearchCoordinator:
         logger.info("=== AI Job Search Tool starting (stages: {}) ===", ", ".join(active))
 
         if resume:
+            self._cleanup_errors_on_start()
             queues = PipelineQueues(
                 details_pending=self._details_queue if "details" in self._stages else None,
                 screening_pending=self._screening_queue if "screen" in self._stages else None,
@@ -82,6 +83,43 @@ class JobSearchCoordinator:
         self._db.close()
         logger.info("=== Shutdown complete ===")
         self._state.log_stats()
+
+    def _cleanup_errors_on_start(self) -> None:
+        """Reset all stage errors before resume so they are re-queued naturally.
+
+        Called once at startup (before ``StateManager.resume``). Error rows from
+        a previous session are cleared so the jobs become "pending" again and are
+        picked up by the resume logic alongside any other unfinished work.
+        """
+        stages = self._stages
+        total = 0
+
+        if "details" in stages:
+            job_ids = self._db.reset_detail_errors()
+            if job_ids:
+                logger.info(
+                    "Startup cleanup: {} detail-error job(s) reset for retry", len(job_ids)
+                )
+                total += len(job_ids)
+
+        if "screen" in stages:
+            job_ids = self._db.reset_screening_errors()
+            if job_ids:
+                logger.info(
+                    "Startup cleanup: {} screening-error job(s) reset for retry", len(job_ids)
+                )
+                total += len(job_ids)
+
+        if "cover-letter" in stages:
+            job_ids = self._db.purge_cover_letter_errors()
+            if job_ids:
+                logger.info(
+                    "Startup cleanup: {} cover-letter-error job(s) reset for retry", len(job_ids)
+                )
+                total += len(job_ids)
+
+        if total == 0:
+            logger.debug("Startup cleanup: no error jobs found")
 
     # ------------------------------------------------------------------
     # Worker startup

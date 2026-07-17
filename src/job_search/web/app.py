@@ -52,6 +52,13 @@ def get_cl_mode() -> str:
     return _cl_mode
 
 
+def get_blocked_companies() -> list[str]:
+    """Return the blocked companies list from config (empty list if config not loaded)."""
+    if _config is None:
+        return []
+    return list(_config.search.blocked_companies)
+
+
 def init_app(db: DatabaseManager, config: Config | None = None) -> Flask:
     global _db, _cl_mode, _config
     _db = db
@@ -110,11 +117,14 @@ def jobs():
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
+    all_excluded = list(dict.fromkeys(exclude_companies + get_blocked_companies()))
+
     company_counts = db.get_company_counts(
         selected_only=True,
         status=status_filter, remote_filter=remote_filter,
         date_from=date_from, date_to=date_to,
         search=search, cl_ready=bool(cl_filter),
+        exclude_companies=all_excluded or None,
     )
     job_list, total = db.get_selected_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -122,7 +132,7 @@ def jobs():
         remote_filter=remote_filter,
         cl_ready=bool(cl_filter),
         date_from=date_from, date_to=date_to,
-        exclude_companies=exclude_companies or None,
+        exclude_companies=all_excluded or None,
         limit=_PAGE_SIZE, offset=offset,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
@@ -156,11 +166,14 @@ def jobs_all():
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
+    all_excluded = list(dict.fromkeys(exclude_companies + get_blocked_companies()))
+
     company_counts = db.get_company_counts(
         selected_only=False,
         status=status_filter, remote_filter=remote_filter,
         date_from=date_from, date_to=date_to,
         search=search, cl_ready=bool(cl_filter),
+        exclude_companies=all_excluded or None,
     )
     job_list, total = db.get_all_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -168,7 +181,7 @@ def jobs_all():
         remote_filter=remote_filter,
         cl_ready=bool(cl_filter),
         date_from=date_from, date_to=date_to,
-        exclude_companies=exclude_companies or None,
+        exclude_companies=all_excluded or None,
         limit=_PAGE_SIZE, offset=offset,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
