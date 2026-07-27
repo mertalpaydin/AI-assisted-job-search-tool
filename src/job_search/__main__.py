@@ -220,6 +220,25 @@ def list_jobs(config: str, status: str | None) -> None:
 
 @main.command()
 @click.option("--config", default="config/config.yaml", show_default=True)
+@click.option("--limit", default=100, show_default=True, help="Number of pending jobs to check for expiration")
+def clean(config: str, limit: int) -> None:
+    """Discover expired/closed jobs on LinkedIn and mark them as 'expired'."""
+    from job_search.core.database import DatabaseManager
+    from job_search.cleaner.cleaner import JobCleaner
+
+    cfg = load_config(config)
+    setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)
+    db = DatabaseManager(cfg.database.path)
+    try:
+        cleaner = JobCleaner(db)
+        result = cleaner.clean_pending_jobs(limit=limit)
+        click.echo(f"Cleaner finished: Checked {result['checked']} jobs, marked {result['expired']} as expired.")
+    finally:
+        db.close()
+
+
+@main.command()
+@click.option("--config", default="config/config.yaml", show_default=True)
 @click.option("--host", default="127.0.0.1", show_default=True)
 @click.option("--port", default=5000, show_default=True)
 @click.option("--debug", is_flag=True, default=False)

@@ -266,6 +266,16 @@ def update_status(job_id: int):
     return redirect(url_for("job_detail", job_id=job_id))
 
 
+@app.route("/jobs/clean", methods=["POST"])
+def clean_jobs():
+    db = get_db()
+    from job_search.cleaner.cleaner import JobCleaner
+    limit = request.form.get("limit", 100, type=int)
+    cleaner = JobCleaner(db)
+    cleaner.clean_pending_jobs(limit=limit)
+    return redirect(url_for("jobs", status="pending"))
+
+
 @app.route("/jobs/<int:job_id>/notes", methods=["POST"])
 def update_notes(job_id: int):
     db = get_db()

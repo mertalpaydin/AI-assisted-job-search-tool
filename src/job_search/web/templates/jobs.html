@@ -229,20 +229,29 @@
 </div>
 
 {# ── Status filter bar ───────────────────────────────────────────────────── #}
-<div class="d-flex flex-wrap gap-2 mb-3">
-  {% set filters = [
-    ("",        "All",     "secondary"),
-    ("pending", "Pending", "secondary"),
-    ("applied", "Applied", "primary"),
-    ("skipped", "Skipped", "dark"),
-  ] %}
-  {% for val, label, color in filters %}
-  {% set active = (status_filter == val) %}
-  <a href="{{ page_url(p=1, st=val) }}"
-     class="btn btn-sm {{ 'btn-' ~ color if active else 'btn-outline-' ~ color }}">
-    {{ label }}
-  </a>
-  {% endfor %}
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+  <div class="d-flex flex-wrap gap-2">
+    {% set filters = [
+      ("",        "All",     "secondary"),
+      ("pending", "Pending", "secondary"),
+      ("applied", "Applied", "primary"),
+      ("skipped", "Skipped", "dark"),
+      ("expired", "Expired", "danger"),
+    ] %}
+    {% for val, label, color in filters %}
+    {% set active = (status_filter == val) %}
+    <a href="{{ page_url(p=1, st=val) }}"
+       class="btn btn-sm {{ 'btn-' ~ color if active else 'btn-outline-' ~ color }}">
+      {{ label }}
+    </a>
+    {% endfor %}
+  </div>
+
+  <form action="/jobs/clean" method="post" class="m-0">
+    <button type="submit" class="btn btn-sm btn-outline-warning" title="Scan pending jobs on LinkedIn and mark closed ones as expired">
+      <i class="bi bi-stars me-1"></i>Clean Expired Jobs
+    </button>
+  </form>
 </div>
 
 {# ── Floating Bulk Actions Bar ───────────────────────────────────────────── #}
@@ -404,6 +413,7 @@
           {% elif st == "offered" %}<span class="badge bg-success status-badge">offered</span>
           {% elif st == "rejected" %}<span class="badge bg-danger status-badge">rejected</span>
           {% elif st == "skipped" %}<span class="badge bg-secondary text-secondary-emphasis status-badge">skipped</span>
+          {% elif st == "expired" %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle status-badge">expired</span>
           {% else %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle status-badge">pending</span>{% endif %}
         </td>
         <td class="text-center">

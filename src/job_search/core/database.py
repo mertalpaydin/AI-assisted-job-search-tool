@@ -139,7 +139,7 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(request_timestam
 # Data classes
 # ---------------------------------------------------------------------------
 
-APPLICATION_STATUSES = ("applied", "skipped")
+APPLICATION_STATUSES = ("applied", "skipped", "expired")
 
 
 @dataclass
@@ -1387,6 +1387,30 @@ class DatabaseManager:
                 ORDER BY search_keyword ASC
             """)
             return [row[0] for row in cur.fetchall()]
+
+    def get_pending_jobs_for_cleaner(self, limit: int = 100) -> list[dict]:
+        """Return pending jobs to inspect for expired status."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT job_id, jobPostingUrl
+                FROM jobs
+                WHERE application_status IS NULL
+                ORDER BY created_at ASC, job_id ASC
+                LIMIT ?
+            """, (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def mark_jobs_expired_batch(self, job_ids: list[int]) -> int:
+        """Batch update application_status = 'expired' for specified job_ids."""
+        if not job_ids:
+            return 0
+        with self._cursor() as cur:
+            placeholders = ",".join("?" * len(job_ids))
+            cur.execute(
+                f"UPDATE jobs SET application_status = 'expired' WHERE job_id IN ({placeholders})",
+                job_ids,
+            )
+            return cur.rowcount
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn:
