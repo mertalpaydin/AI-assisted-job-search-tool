@@ -527,7 +527,12 @@ def runner_stop():
 def runner_status():
     global _runner_thread
     is_running = _runner_thread is not None and _runner_thread.is_alive()
-    return jsonify({"is_running": is_running})
+    db = get_db()
+    pipeline_stats = db.get_pipeline_stats()
+    return jsonify({
+        "is_running": is_running,
+        "pipeline_stats": pipeline_stats,
+    })
 
 
 @app.route("/runner/logs")
