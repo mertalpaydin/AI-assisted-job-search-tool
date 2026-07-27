@@ -819,6 +819,22 @@ class DatabaseManager:
             cl_pending = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM cover_letters WHERE generation_status = -1")
             cl_error = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM jobs WHERE scraped = 1 AND cv_match_score IS NULL")
+            screen_pending = cur.fetchone()[0]
+            cur.execute("""
+                SELECT COUNT(*) FROM jobs j
+                JOIN cover_letters cl ON j.job_id = cl.job_id
+                WHERE j.is_selected = 1 AND cl.generation_status = 1 AND (j.application_status IS NULL OR j.application_status = '')
+            """)
+            ready_to_apply = cur.fetchone()[0]
+            cur.execute("""
+                SELECT COUNT(*) FROM jobs
+                WHERE is_selected = 1 AND cv_match_score >= 0.85 AND (application_status IS NULL OR application_status = '')
+            """)
+            top_matches_pending = cur.fetchone()[0]
+
+        pass_rate_pct = round(100.0 * screen_pass / screened_ok, 1) if screened_ok > 0 else 0.0
+
         return {
             "total_found": total_found,
             "details_scraped": details_scraped,
@@ -826,11 +842,15 @@ class DatabaseManager:
             "details_error": details_error,
             "screened_ok": screened_ok,
             "screened_error": screened_error,
+            "screen_pending": screen_pending,
             "screen_pass": screen_pass,
             "screen_fail": screen_fail,
+            "screen_pass_rate_pct": pass_rate_pct,
             "cl_generated": cl_generated,
             "cl_pending": cl_pending,
             "cl_error": cl_error,
+            "ready_to_apply": ready_to_apply,
+            "top_matches_pending": top_matches_pending,
         }
 
     def get_recent_stats(self, days: int = 7) -> dict[str, int]:
@@ -977,6 +997,7 @@ class DatabaseManager:
         german_filter: str = "",
         company_search: str = "",
         limit: int | None = None,
+        min_match: float | None = None,
     ) -> list[tuple[str, int]]:
         """Return (company_name, job_count) sorted by count desc.
 
@@ -987,6 +1008,10 @@ class DatabaseManager:
         conditions.append("j.company_name IS NOT NULL")
         conditions.append("j.company_name != ''")
         params: list = []
+
+        if min_match is not None:
+            conditions.append("j.cv_match_score >= ?")
+            params.append(min_match)
 
         if company_search:
             conditions.append("LOWER(j.company_name) LIKE ?")
@@ -1070,6 +1095,7 @@ class DatabaseManager:
         offset: int = 0,
         keyword_filter: str = "",
         german_filter: str = "",
+        min_match: float | None = None,
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated AI-selected jobs with optional filters.
 
@@ -1081,6 +1107,10 @@ class DatabaseManager:
 
         conditions: list[str] = ["j.is_selected = 1"]
         params: list = []
+
+        if min_match is not None:
+            conditions.append("j.cv_match_score >= ?")
+            params.append(min_match)
 
         if search:
             conditions.append(
@@ -1194,6 +1224,7 @@ class DatabaseManager:
         offset: int = 0,
         keyword_filter: str = "",
         german_filter: str = "",
+        min_match: float | None = None,
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated scraped jobs (selected or not) with optional filters.
 
@@ -1204,6 +1235,10 @@ class DatabaseManager:
 
         conditions: list[str] = ["j.scraped = 1"]
         params: list = []
+
+        if min_match is not None:
+            conditions.append("j.cv_match_score >= ?")
+            params.append(min_match)
 
         if search:
             conditions.append(

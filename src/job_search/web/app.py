@@ -20,6 +20,8 @@ from job_search.core.database import APPLICATION_STATUSES, DatabaseManager
 # Flask finds templates relative to this file's directory
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "local-job-search-ui"
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 
 @app.template_filter("short_date")
@@ -82,17 +84,21 @@ def index():
     _APPROVAL_DAYS = 30
     _RECENT_DAYS = 7
     pending_approval = len(db.get_jobs_pending_cl_approval(days=_APPROVAL_DAYS)) if cl_mode == "user_approval" else 0
+    pending_cl_gen = len(db.get_jobs_pending_cover_letter(mode=cl_mode))
     recent_stats = db.get_recent_stats(days=_RECENT_DAYS)
+    is_runner_active = _runner_thread is not None and _runner_thread.is_alive()
     return render_template(
         "index.html", stats=stats, pipeline_stats=pipeline_stats,
         app_counts=app_counts, statuses=APPLICATION_STATUSES,
         cl_mode=cl_mode, pending_approval=pending_approval,
+        pending_cl_gen=pending_cl_gen,
         approval_period_days=_APPROVAL_DAYS,
         recent_stats=recent_stats,
+        is_runner_active=is_runner_active,
     )
 
 
-_PAGE_SIZE = 50
+_PAGE_SIZE = 25
 
 
 def _get_page() -> int:
@@ -116,6 +122,11 @@ def jobs():
     exclude_companies = request.args.getlist("exc")
     keyword_filter = request.args.get("kw", "").strip()
     german_filter  = request.args.get("german", "").strip()
+    min_match_param = request.args.get("min_match", "").strip()
+    try:
+        min_match_val = float(min_match_param) if min_match_param else None
+    except ValueError:
+        min_match_val = None
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
@@ -129,6 +140,7 @@ def jobs():
         exclude_companies=all_excluded or None,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
+        min_match=min_match_val,
     )
     job_list, total = db.get_selected_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -140,6 +152,7 @@ def jobs():
         limit=_PAGE_SIZE, offset=offset,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
+        min_match=min_match_val,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -156,6 +169,7 @@ def jobs():
         exclude_companies=exclude_companies,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
+        min_match=min_match_param,
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )
@@ -175,6 +189,11 @@ def jobs_all():
     exclude_companies = request.args.getlist("exc")
     keyword_filter = request.args.get("kw", "").strip()
     german_filter  = request.args.get("german", "").strip()
+    min_match_param = request.args.get("min_match", "").strip()
+    try:
+        min_match_val = float(min_match_param) if min_match_param else None
+    except ValueError:
+        min_match_val = None
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
@@ -188,6 +207,7 @@ def jobs_all():
         exclude_companies=all_excluded or None,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
+        min_match=min_match_val,
         limit=200,
     )
     job_list, total = db.get_all_jobs(
@@ -200,6 +220,7 @@ def jobs_all():
         limit=_PAGE_SIZE, offset=offset,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
+        min_match=min_match_val,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -216,6 +237,7 @@ def jobs_all():
         exclude_companies=exclude_companies,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
+        min_match=min_match_param,
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )

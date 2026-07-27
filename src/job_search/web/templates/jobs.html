@@ -9,12 +9,13 @@
                   st=status_filter, sq=search_query,
                   rm=remote_filter, cl=cl_filter,
                   df=date_from, dt=date_to, ex=exclude_companies,
-                  kw=keyword_filter, ger=german_filter) -%}
+                  kw=keyword_filter, ger=german_filter, mm=min_match) -%}
   {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
   {%- if rm %}&remote={{ rm }}{% endif %}
   {%- if cl %}&cl_ready=1{% endif %}
+  {%- if mm %}&min_match={{ mm }}{% endif %}
   {%- if df %}&date_from={{ df }}{% endif %}
   {%- if dt %}&date_to={{ dt }}{% endif %}
   {%- if kw %}&kw={{ kw | urlencode }}{% endif %}
@@ -41,7 +42,7 @@
     {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
     <span class="badge bg-secondary ms-2">{{ total }}</span>
   </h4>
-  {% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies or keyword_filter or german_filter %}
+  {% if status_filter or search_query or remote_filter or cl_filter or min_match or date_from or date_to or exclude_companies or keyword_filter or german_filter %}
   <a href="{{ base_url }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear all filters
   </a>
@@ -75,6 +76,17 @@
   {% else %}
   <a href="{{ page_url(p=1, cl='1') }}" class="btn btn-outline-primary btn-sm">
     <i class="bi bi-file-earmark-check me-1"></i>CL ready
+  </a>
+  {% endif %}
+
+  {# High match filter toggle #}
+  {% if min_match == '0.85' %}
+  <a href="{{ page_url(p=1, mm='') }}" class="btn btn-warning btn-sm">
+    <i class="bi bi-star-fill me-1"></i>&ge;85% Match
+  </a>
+  {% else %}
+  <a href="{{ page_url(p=1, mm='0.85') }}" class="btn btn-outline-warning text-dark btn-sm">
+    <i class="bi bi-star me-1"></i>&ge;85% Match
   </a>
   {% endif %}
 
