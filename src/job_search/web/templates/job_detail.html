@@ -125,8 +125,8 @@
           {% elif st == "interviewing" %}<span class="badge bg-info text-dark">interviewing</span>
           {% elif st == "offered" %}<span class="badge bg-success">offered</span>
           {% elif st == "rejected" %}<span class="badge bg-danger">rejected</span>
-          {% elif st == "skipped" %}<span class="badge bg-dark">skipped</span>
-          {% else %}<span class="badge bg-light text-muted">pending</span>{% endif %}
+          {% elif st == "skipped" %}<span class="badge bg-secondary text-secondary-emphasis">skipped</span>
+          {% else %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">pending</span>{% endif %}
           {% if job.applied_at %}
           <span class="ms-2 text-muted">· {{ job.applied_at[:10] }}</span>
           {% endif %}
@@ -140,13 +140,13 @@
             </button>
             {% endif %}
             {% if job.application_status != "skipped" %}
-            <button name="status" value="skipped" class="btn btn-outline-dark btn-sm">
+            <button name="status" value="skipped" class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-slash-circle me-1"></i>Skip (not applying)
             </button>
             {% endif %}
             {% if job.application_status %}
             <hr class="my-1">
-            <button name="status" value="" class="btn btn-light btn-sm text-muted">
+            <button name="status" value="" class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-arrow-counterclockwise me-1"></i>Clear Status
             </button>
             {% endif %}

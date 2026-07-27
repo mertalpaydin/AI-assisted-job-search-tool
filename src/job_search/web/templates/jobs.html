@@ -26,7 +26,7 @@
 {% macro sort_link(field, label) %}
   {% set next_dir = "asc" if (current_sort == field and current_dir == "desc") else "desc" %}
   <a href="{{ page_url(p=1, s=field, d=next_dir) }}"
-     class="text-decoration-none {% if current_sort == field %}fw-semibold text-dark{% else %}text-secondary{% endif %}">
+     class="text-decoration-none {% if current_sort == field %}fw-bold text-light{% else %}text-secondary{% endif %}">
     {{ label }}
     {% if current_sort == field %}
       <i class="bi bi-caret-{{ 'up' if current_dir == 'asc' else 'down' }}-fill ms-1" style="font-size:0.7rem"></i>
@@ -52,7 +52,7 @@
 {# ── Search bar & Filters ─────────────────────────────────────────────────── #}
 <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
   <div class="input-group" style="max-width:360px">
-    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+    <span class="input-group-text"><i class="bi bi-search text-muted"></i></span>
     <input type="search" id="job-search" class="form-control border-start-0"
            placeholder="Search title, company, ID… (Enter)" autocomplete="off"
            value="{{ search_query }}">
@@ -85,7 +85,7 @@
     <i class="bi bi-star-fill me-1"></i>&ge;85% Match
   </a>
   {% else %}
-  <a href="{{ page_url(p=1, mm='0.85') }}" class="btn btn-outline-warning text-dark btn-sm">
+  <a href="{{ page_url(p=1, mm='0.85') }}" class="btn btn-outline-warning btn-sm">
     <i class="bi bi-star me-1"></i>&ge;85% Match
   </a>
   {% endif %}
@@ -292,8 +292,8 @@
 <div class="alert alert-info">No jobs found{% if status_filter or search_query or remote_filter or cl_filter or min_match or date_from or date_to or exclude_companies or keyword_filter or german_filter %} for the active filters{% endif %}.</div>
 {% else %}
 <div class="table-responsive">
-  <table class="table table-hover align-middle bg-white shadow-sm rounded">
-    <thead class="table-light">
+  <table class="table table-hover align-middle shadow-sm rounded">
+    <thead>
       <tr>
         <th style="width: 38px;">
           <input class="form-check-input" type="checkbox" id="selectAllJobs" title="Select all on page">
@@ -311,7 +311,7 @@
         <th class="text-center">Cover Letter</th>
         <th class="text-center">Status</th>
         <th class="text-center">{{ sort_link("created_at", "Scraped") }}</th>
-        <th class="text-end">Actions</th>
+        <th class="text-center">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -321,18 +321,18 @@
           <input class="form-check-input job-select-cb" type="checkbox" value="{{ job.job_id }}">
         </td>
         <td>
-          <div class="fw-semibold">{{ job.title or "N/A" }}</div>
+          <div class="fw-semibold text-light">{{ job.title or "N/A" }}</div>
           <div class="text-muted small">
             {{ job.company_name or "Unknown" }}
             {% if job.search_keyword %}
-            <span class="badge bg-light text-secondary border ms-1" style="font-size:0.7rem;" title="Scraped with keyword">
+            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle ms-1" style="font-size:0.7rem;" title="Scraped with keyword">
               <i class="bi bi-tag-fill me-1"></i>{{ job.search_keyword }}
             </span>
             {% endif %}
           </div>
         </td>
         <td>
-          <span class="small">{{ job.formattedLocation or "N/A" }}</span>
+          <span class="small text-muted">{{ job.formattedLocation or "N/A" }}</span>
           {% if job.workRemoteAllowed %}
           <span class="badge bg-success-subtle text-success ms-1 small border border-success-subtle">Remote</span>
           {% endif %}
@@ -403,14 +403,14 @@
           {% elif st == "interviewing" %}<span class="badge bg-info text-dark status-badge">interviewing</span>
           {% elif st == "offered" %}<span class="badge bg-success status-badge">offered</span>
           {% elif st == "rejected" %}<span class="badge bg-danger status-badge">rejected</span>
-          {% elif st == "skipped" %}<span class="badge bg-dark status-badge">skipped</span>
-          {% else %}<span class="badge bg-light text-muted status-badge">pending</span>{% endif %}
+          {% elif st == "skipped" %}<span class="badge bg-secondary text-secondary-emphasis status-badge">skipped</span>
+          {% else %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle status-badge">pending</span>{% endif %}
         </td>
         <td class="text-center">
           <span class="small text-muted">{{ job.created_at | short_date }}</span>
         </td>
-        <td class="text-end">
-          <div class="d-flex gap-1 justify-content-end align-items-center">
+        <td class="text-center">
+          <div class="d-flex gap-1 align-items-center justify-content-center">
             {% if job.jobPostingUrl %}
             <a href="{{ job.jobPostingUrl }}" target="_blank" rel="noopener"
                class="btn btn-sm btn-outline-primary" title="Open job on LinkedIn (new tab)">
@@ -418,7 +418,6 @@
             </a>
             {% endif %}
 
-            {% if job.is_selected == 1 or not show_all %}
             <form method="post" action="/jobs/{{ job.job_id }}/quick-apply">
               <input type="hidden" name="status_filter" value="{{ status_filter }}">
               {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
@@ -432,20 +431,21 @@
               </button>
               {% endif %}
             </form>
+
             <form method="post" action="/jobs/{{ job.job_id }}/quick-skip">
               <input type="hidden" name="status_filter" value="{{ status_filter }}">
               {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
               {% if job.application_status == "skipped" %}
-              <button type="submit" class="btn btn-sm btn-dark" title="Click to undo skip">
+              <button type="submit" class="btn btn-sm btn-secondary" title="Click to undo skip">
                 <i class="bi bi-slash-circle me-1"></i>Skipped
               </button>
               {% else %}
-              <button type="submit" class="btn btn-sm btn-outline-dark" title="Mark as skipped">
+              <button type="submit" class="btn btn-sm btn-outline-secondary" title="Mark as skipped">
                 <i class="bi bi-slash-circle me-1"></i>Skip
               </button>
               {% endif %}
             </form>
-            {% endif %}
+
             <a href="/jobs/{{ job.job_id }}" class="btn btn-sm btn-outline-secondary" title="View details">
               <i class="bi bi-chevron-right"></i>
             </a>
