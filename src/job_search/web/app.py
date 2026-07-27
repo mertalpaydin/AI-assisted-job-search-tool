@@ -287,9 +287,10 @@ def update_cover_letter(job_id: int):
 @app.route("/stats")
 def search_stats():
     db = get_db()
-    _STATS_DAYS = 30
-    combos = db.get_search_combo_stats(days=_STATS_DAYS)
-    return render_template("stats.html", combos=combos, stats_period_days=_STATS_DAYS)
+    days_param = request.args.get("days", 30, type=int)
+    days = days_param if days_param in (7, 30, 90, 0) else 30
+    combos = db.get_search_combo_stats(days=days if days > 0 else None)
+    return render_template("stats.html", combos=combos, stats_period_days=days)
 
 
 @app.route("/jobs/<int:job_id>/quick-apply", methods=["POST"])
