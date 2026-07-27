@@ -19,7 +19,7 @@ from job_search.scraping.details import DetailsWorker
 from job_search.scraping.search import SearchWorker
 
 
-ALL_STAGES = ("search", "details", "screen", "cover-letter")
+ALL_STAGES = ("search", "details", "screen", "cover-letter", "clean")
 
 
 class JobSearchCoordinator:
@@ -266,6 +266,14 @@ class JobSearchCoordinator:
                 export_dir=self._config.export.output_dir,
             )
             self._spawn("cover-letter", cl_worker.run)
+
+        # --- Cleaner worker ---
+        if "clean" in stages:
+            def run_cleaner():
+                from job_search.cleaner.cleaner import JobCleaner
+                cleaner = JobCleaner(self._db)
+                cleaner.clean_pending_jobs()
+            self._spawn("cleaner", run_cleaner)
 
         logger.info(
             "Workers started: {} search, {} details, {} screening ({}), {} cover-letter",

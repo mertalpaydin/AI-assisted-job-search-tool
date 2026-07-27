@@ -50,7 +50,7 @@ def test_clean_pending_jobs(tmp_path):
     cleaner = JobCleaner(db)
     cleaner.is_job_expired = MagicMock(return_value=True)
 
-    result = cleaner.clean_pending_jobs(limit=10, delay_between=0)
+    result = cleaner.clean_pending_jobs(limit=10)
     assert result["checked"] == 1
     assert result["expired"] == 1
     assert result["expired_ids"] == [1234567]

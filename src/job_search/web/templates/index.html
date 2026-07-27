@@ -176,6 +176,9 @@
   {% if pipeline_stats.cl_error > 0 %}
   <span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-x-circle me-1"></i>{{ pipeline_stats.cl_error }} CL errors</span>
   {% endif %}
+  {% if pipeline_stats.expired_count > 0 %}
+  <a href="/jobs/all?status=expired" class="badge bg-danger-subtle text-danger border border-danger-subtle text-decoration-none"><i class="bi bi-x-circle me-1"></i>{{ pipeline_stats.expired_count }} expired</a>
+  {% endif %}
 </div>
 
 <!-- Application Tracking & Recent Activity -->
@@ -187,29 +190,39 @@
         <h6 class="card-title fw-bold mb-3"><i class="bi bi-kanban me-2 text-primary"></i>Application Progress</h6>
         {% set applied_count  = app_counts.get("applied", 0) %}
         {% set skipped_count  = app_counts.get("skipped", 0) %}
-        {% set pending_count  = [pipeline_stats.screen_pass - applied_count - skipped_count, 0] | max %}
+        {% set expired_count  = app_counts.get("expired", 0) %}
+        {% set pending_count  = [pipeline_stats.screen_pass - applied_count - skipped_count - expired_count, 0] | max %}
         
         <div class="row g-2 text-center">
-          <div class="col-4">
+          <div class="col-3">
             <div class="p-3 rounded-3 border" style="background: #0f172a; border-color: #334155 !important;">
-              <i class="bi bi-hourglass-split text-warning fs-4"></i>
-              <div class="fs-3 fw-bold text-light mt-1">{{ pending_count }}</div>
-              <div class="text-muted small">Pending</div>
+              <i class="bi bi-hourglass-split text-warning fs-5"></i>
+              <div class="fs-4 fw-bold text-light mt-1">{{ pending_count }}</div>
+              <div class="text-muted small" style="font-size:0.75rem;">Pending</div>
             </div>
           </div>
-          <div class="col-4">
+          <div class="col-3">
             <div class="p-3 bg-primary-subtle rounded-3 border border-primary-subtle">
-              <i class="bi bi-send text-primary fs-4"></i>
-              <div class="fs-3 fw-bold text-primary mt-1">{{ applied_count }}</div>
-              <div class="text-primary small fw-semibold">Applied</div>
+              <i class="bi bi-send text-primary fs-5"></i>
+              <div class="fs-4 fw-bold text-primary mt-1">{{ applied_count }}</div>
+              <div class="text-primary small fw-semibold" style="font-size:0.75rem;">Applied</div>
             </div>
           </div>
-          <div class="col-4">
+          <div class="col-3">
             <div class="p-3 rounded-3 border" style="background: #0f172a; border-color: #334155 !important;">
-              <i class="bi bi-slash-circle text-muted fs-4"></i>
-              <div class="fs-3 fw-bold text-secondary mt-1">{{ skipped_count }}</div>
-              <div class="text-muted small">Skipped</div>
+              <i class="bi bi-slash-circle text-muted fs-5"></i>
+              <div class="fs-4 fw-bold text-secondary mt-1">{{ skipped_count }}</div>
+              <div class="text-muted small" style="font-size:0.75rem;">Skipped</div>
             </div>
+          </div>
+          <div class="col-3">
+            <a href="/jobs/all?status=expired" class="text-decoration-none">
+              <div class="p-3 rounded-3 border bg-danger-subtle border-danger-subtle">
+                <i class="bi bi-x-circle text-danger fs-5"></i>
+                <div class="fs-4 fw-bold text-danger mt-1">{{ expired_count }}</div>
+                <div class="text-danger small fw-semibold" style="font-size:0.75rem;">Expired</div>
+              </div>
+            </a>
           </div>
         </div>
       </div>

@@ -824,13 +824,15 @@ class DatabaseManager:
             cur.execute("""
                 SELECT COUNT(*) FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE j.is_selected = 1 AND cl.id IS NULL
+                WHERE j.is_selected = 1 AND cl.id IS NULL AND (j.application_status IS NULL OR j.application_status = '')
             """)
             cl_pending = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM cover_letters WHERE generation_status = -1")
             cl_error = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM jobs WHERE scraped = 1 AND cv_match_score IS NULL")
             screen_pending = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM jobs WHERE application_status = 'expired'")
+            expired_count = cur.fetchone()[0]
             cur.execute("""
                 SELECT COUNT(*) FROM jobs j
                 JOIN cover_letters cl ON j.job_id = cl.job_id
@@ -859,6 +861,7 @@ class DatabaseManager:
             "cl_generated": cl_generated,
             "cl_pending": cl_pending,
             "cl_error": cl_error,
+            "expired_count": expired_count,
             "ready_to_apply": ready_to_apply,
             "top_matches_pending": top_matches_pending,
         }
@@ -1388,16 +1391,29 @@ class DatabaseManager:
             """)
             return [row[0] for row in cur.fetchall()]
 
-    def get_pending_jobs_for_cleaner(self, limit: int = 100) -> list[dict]:
+    def get_pending_jobs_for_cleaner(self, limit: int = 100, exclude_ids: set[int] | None = None) -> list[dict]:
         """Return pending jobs to inspect for expired status."""
         with self._cursor() as cur:
-            cur.execute("""
-                SELECT job_id, jobPostingUrl
-                FROM jobs
-                WHERE application_status IS NULL
-                ORDER BY created_at ASC, job_id ASC
-                LIMIT ?
-            """, (limit,))
+            if exclude_ids:
+                placeholders = ",".join("?" * len(exclude_ids))
+                sql = f"""
+                    SELECT job_id, jobPostingUrl
+                    FROM jobs
+                    WHERE application_status IS NULL AND job_id NOT IN ({placeholders})
+                    ORDER BY created_at ASC, job_id ASC
+                    LIMIT ?
+                """
+                params = list(exclude_ids) + [limit]
+            else:
+                sql = """
+                    SELECT job_id, jobPostingUrl
+                    FROM jobs
+                    WHERE application_status IS NULL
+                    ORDER BY created_at ASC, job_id ASC
+                    LIMIT ?
+                """
+                params = [limit]
+            cur.execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
 
     def mark_jobs_expired_batch(self, job_ids: list[int]) -> int:
@@ -1411,6 +1427,14 @@ class DatabaseManager:
                 job_ids,
             )
             return cur.rowcount
+
+    def reset_all_pipeline_errors(self) -> dict[str, int]:
+        """Clear all detail, screening, and cover letter pipeline errors."""
+        return {
+            "details": self.reset_detail_errors(),
+            "screening": self.reset_screening_errors(),
+            "cover_letter": self.purge_cover_letter_errors(),
+        }
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn:

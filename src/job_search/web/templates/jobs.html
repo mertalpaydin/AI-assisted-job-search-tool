@@ -254,6 +254,13 @@
   </form>
 </div>
 
+{% if status_filter == 'expired' and not show_all %}
+<div class="alert alert-info py-2 mb-3 small d-flex align-items-center justify-content-between shadow-sm border-0" style="background:#1e293b; color:#38bdf8; border-left: 4px solid #38bdf8 !important;">
+  <span><i class="bi bi-info-circle me-2"></i>Showing <strong>{{ total }}</strong> selected expired job{{ 's' if total != 1 else '' }}.</span>
+  <a href="/jobs/all?status=expired" class="text-decoration-none fw-bold text-info">View all expired jobs in All Jobs →</a>
+</div>
+{% endif %}
+
 {# ── Floating Bulk Actions Bar ───────────────────────────────────────────── #}
 <div id="bulkActionBar" class="card shadow-lg border-0 bg-dark text-white p-3 position-fixed bottom-0 start-50 translate-middle-x mb-4 rounded-3 d-none" style="z-index: 1060; min-width: 520px;">
   <div class="d-flex align-items-center justify-content-between">

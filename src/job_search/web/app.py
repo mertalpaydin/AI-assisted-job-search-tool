@@ -268,12 +268,24 @@ def update_status(job_id: int):
 
 @app.route("/jobs/clean", methods=["POST"])
 def clean_jobs():
-    db = get_db()
-    from job_search.cleaner.cleaner import JobCleaner
-    limit = request.form.get("limit", 100, type=int)
-    cleaner = JobCleaner(db)
-    cleaner.clean_pending_jobs(limit=limit)
-    return redirect(url_for("jobs", status="pending"))
+    global _runner_thread, _runner_coordinator, _config
+    if _runner_thread is None or not _runner_thread.is_alive():
+        if _config is not None:
+            from job_search.orchestration.coordinator import JobSearchCoordinator
+            _runner_coordinator = JobSearchCoordinator(_config, stages={"clean"})
+
+            def run_pipeline():
+                from job_search.utils.logging import setup_logging
+                setup_logging(level=_config.logging.level, log_file=_config.logging.file)
+                try:
+                    _runner_coordinator.start(resume=True)
+                finally:
+                    _runner_coordinator.cleanup()
+
+            _runner_thread = threading.Thread(target=run_pipeline, name="runner-ui-thread", daemon=True)
+            _runner_thread.start()
+
+    return redirect(url_for("runner_dashboard"))
 
 
 @app.route("/jobs/<int:job_id>/notes", methods=["POST"])
@@ -531,6 +543,13 @@ def runner_stop():
         # The background run_pipeline() thread owns cleanup() and will call it
         # when workers finish. Joining in a request handler would block the browser.
         _runner_coordinator._shutdown.request_shutdown()
+    return redirect(url_for("runner_dashboard"))
+
+
+@app.route("/runner/clear-errors", methods=["POST"])
+def runner_clear_errors():
+    db = get_db()
+    db.reset_all_pipeline_errors()
     return redirect(url_for("runner_dashboard"))
 
 

@@ -161,6 +161,7 @@
           ("pending",      "bi-hourglass",       "Pending"),
           ("applied",      "bi-send",            "Applied"),
           ("skipped",      "bi-slash-circle",    "Skipped"),
+          ("expired",      "bi-x-circle",         "Expired"),
         ] %}
         {% set list_base = "/jobs/all" if request.endpoint == "jobs_all" else "/jobs" %}
         {% for val, icon, label in status_list %}
