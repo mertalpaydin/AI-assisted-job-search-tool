@@ -249,8 +249,11 @@ def job_detail(job_id: int):
     job = db.get_selected_job(job_id)
     if job is None:
         abort(404)
+    prev_job_id, next_job_id = db.get_adjacent_job_ids(job_id)
     return render_template("job_detail.html", job=job, statuses=APPLICATION_STATUSES,
-                           cl_mode=get_cl_mode())
+                           cl_mode=get_cl_mode(),
+                           prev_job_id=prev_job_id,
+                           next_job_id=next_job_id)
 
 
 @app.route("/jobs/<int:job_id>/status", methods=["POST"])
@@ -260,6 +263,24 @@ def update_status(job_id: int):
     if status not in APPLICATION_STATUSES and status != "":
         abort(400)
     db.mark_application_status(job_id, status if status else None)
+    return redirect(url_for("job_detail", job_id=job_id))
+
+
+@app.route("/jobs/<int:job_id>/notes", methods=["POST"])
+def update_notes(job_id: int):
+    db = get_db()
+    notes = request.form.get("notes", "").strip()
+    db.update_user_notes(job_id, notes if notes else None)
+    return redirect(url_for("job_detail", job_id=job_id))
+
+
+@app.route("/jobs/<int:job_id>/cover-letter/update", methods=["POST"])
+def update_cover_letter(job_id: int):
+    db = get_db()
+    cl_text = request.form.get("cover_letter_text", "").strip()
+    if db.get_selected_job(job_id) is None:
+        abort(404)
+    db.save_cover_letter(job_id, cl_text, model="manual-edit", api_key_index=0)
     return redirect(url_for("job_detail", job_id=job_id))
 
 

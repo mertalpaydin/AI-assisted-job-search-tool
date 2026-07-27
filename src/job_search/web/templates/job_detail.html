@@ -1,130 +1,221 @@
 {% extends "base.html" %}
 {% block title %}{{ job.title or job.job_id }}{% endblock %}
 
+{% block head_extra %}
+<style>
+  .detail-summary-card {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+  }
+  .reasoning-callout {
+    background-color: #0f172a;
+    border-left: 4px solid #38bdf8;
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: #e2e8f0;
+    white-space: pre-wrap;
+  }
+  .cl-textarea {
+    background-color: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    font-family: Georgia, serif;
+    font-size: 0.95rem;
+    line-height: 1.7;
+    border-radius: 8px;
+    padding: 1.25rem;
+    width: 100%;
+    resize: vertical;
+  }
+  .cl-textarea:focus {
+    background-color: #0f172a;
+    color: #f8fafc;
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 0.25rem rgba(56, 189, 248, 0.2);
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="d-flex align-items-center mb-3 gap-2">
-  <a href="/jobs" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left me-1"></i>Back
-  </a>
-  <h4 class="mb-0 fw-semibold">{{ job.title or "Job " ~ job.job_id }}</h4>
+<!-- Top Header & Sequential Navigation -->
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+  <div class="d-flex align-items-center gap-2">
+    <a href="/jobs" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back to List
+    </a>
+    <h4 class="mb-0 fw-semibold text-light">{{ job.title or "Job " ~ job.job_id }}</h4>
+  </div>
+
+  <!-- Sequential Navigation Buttons -->
+  <div class="d-flex align-items-center gap-2">
+    {% if prev_job_id %}
+    <a href="/jobs/{{ prev_job_id }}" class="btn btn-sm btn-outline-secondary" title="Previous selected job">
+      <i class="bi bi-chevron-left me-1"></i>Previous Job
+    </a>
+    {% else %}
+    <button class="btn btn-sm btn-outline-secondary opacity-50" disabled>
+      <i class="bi bi-chevron-left me-1"></i>Previous
+    </button>
+    {% endif %}
+
+    {% if next_job_id %}
+    <a href="/jobs/{{ next_job_id }}" class="btn btn-sm btn-outline-secondary" title="Next selected job">
+      Next Job<i class="bi bi-chevron-right ms-1"></i>
+    </a>
+    {% else %}
+    <button class="btn btn-sm btn-outline-secondary opacity-50" disabled>
+      Next<i class="bi bi-chevron-right ms-1"></i>
+    </button>
+    {% endif %}
+
+    {% if job.jobPostingUrl %}
+    <a href="{{ job.jobPostingUrl }}" target="_blank" rel="noopener" class="btn btn-sm btn-primary ms-2">
+      <i class="bi bi-box-arrow-up-right me-1"></i>LinkedIn
+    </a>
+    {% endif %}
+  </div>
 </div>
 
 <div class="row g-4">
   <!-- Left: details + cover letter -->
   <div class="col-md-8">
-    <!-- Job info card -->
-    <div class="card shadow-sm mb-4">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start">
+    <!-- Executive Screening Summary Card -->
+    <div class="card detail-summary-card shadow-sm mb-4">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start mb-3">
           <div>
-            <h5 class="card-title mb-1">{{ job.company_name or "Unknown Company" }}</h5>
-            <p class="text-muted mb-0">
+            <h5 class="card-title fw-bold mb-1 text-light">{{ job.company_name or "Unknown Company" }}</h5>
+            <p class="text-muted small mb-0">
               <i class="bi bi-geo-alt me-1"></i>{{ job.formattedLocation or "N/A" }}
               {% if job.workRemoteAllowed %}
-              <span class="badge bg-light text-success ms-2">Remote OK</span>
+              <span class="badge bg-success-subtle text-success border border-success-subtle ms-2">Remote OK</span>
               {% endif %}
               {% if job.search_keyword %}
-              <span class="badge bg-light text-secondary border ms-2">
-                <i class="bi bi-tag-fill me-1"></i>Keyword: {{ job.search_keyword }}
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle ms-2">
+                <i class="bi bi-tag-fill me-1"></i>{{ job.search_keyword }}
               </span>
               {% endif %}
             </p>
           </div>
-          {% if job.jobPostingUrl %}
-          <a href="{{ job.jobPostingUrl }}" target="_blank" rel="noopener"
-             class="btn btn-primary btn-sm">
-            <i class="bi bi-box-arrow-up-right me-1"></i>Apply on LinkedIn
-          </a>
-          {% endif %}
+          {% set st = job.application_status %}
+          {% if st == "applied" %}<span class="badge bg-primary fs-6 px-3 py-2">Applied</span>
+          {% elif st == "skipped" %}<span class="badge bg-secondary text-secondary-emphasis fs-6 px-3 py-2">Skipped</span>
+          {% else %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle fs-6 px-3 py-2">Pending</span>{% endif %}
         </div>
 
-        <hr>
-        <div class="row text-center g-2">
-          <div class="col">
-            <div class="text-muted small">CV Match</div>
+        <hr class="border-secondary opacity-25">
+        
+        <div class="row text-center g-3 my-1">
+          <div class="col-3">
+            <div class="text-muted small mb-1">CV Match</div>
             {% if job.cv_match_score is not none %}
             {% set pct = (job.cv_match_score * 100)|int %}
-            <div class="fw-bold {% if pct >= 80 %}text-success{% elif pct >= 65 %}text-warning{% else %}text-secondary{% endif %}">
+            <div class="fs-4 fw-bold {% if pct >= 85 %}text-success{% elif pct >= 65 %}text-warning{% else %}text-secondary{% endif %}">
               {{ pct }}%
             </div>
-            {% else %}<div>—</div>{% endif %}
+            {% else %}<div class="fs-5 text-muted">—</div>{% endif %}
           </div>
-          <div class="col">
-            <div class="text-muted small">German Req</div>
-            <div class="fw-semibold">{{ job.german_requirement_level or "—" }}</div>
-          </div>
-          <div class="col">
-            <div class="text-muted small">Job ID</div>
-            <div class="fw-semibold text-muted">{{ job.job_id }}</div>
-          </div>
-          <div class="col">
-            <div class="text-muted small">CL Generated</div>
+
+          <div class="col-3">
+            <div class="text-muted small mb-1">German Requirement</div>
+            {% set gl = job.german_requirement_level or "none" %}
             <div>
-              {% if job.generation_date %}
-              {{ job.generation_date[:10] }}
-              {% else %}—{% endif %}
+              {% if gl == "none" %}<span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">English</span>
+              {% elif gl == "low" %}<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle px-2 py-1">Low German</span>
+              {% elif gl == "medium" %}<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1">Med German</span>
+              {% elif gl == "high" %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1">High German</span>
+              {% else %}<span class="badge bg-secondary px-2 py-1">{{ gl }}</span>{% endif %}
             </div>
+          </div>
+
+          <div class="col-3">
+            <div class="text-muted small mb-1">AI Selection</div>
+            <div>
+              {% if job.is_selected == 1 %}
+              <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1"><i class="bi bi-check-circle me-1"></i>Selected</span>
+              {% elif job.is_selected == 0 %}
+              <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1"><i class="bi bi-x-circle me-1"></i>Not Selected</span>
+              {% else %}
+              <span class="badge bg-secondary-subtle text-secondary px-2 py-1">Pending</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="col-3">
+            <div class="text-muted small mb-1">Job ID</div>
+            <div class="fw-semibold text-secondary small">{{ job.job_id }}</div>
           </div>
         </div>
 
         {% if job.screening_reasoning %}
-        <hr>
-        <div class="small">
-          <span class="text-muted fw-semibold">Screening notes: </span>{{ job.screening_reasoning }}
+        <hr class="border-secondary opacity-25">
+        <div>
+          <h6 class="fw-semibold text-light mb-2"><i class="bi bi-cpu me-2 text-info"></i>AI Screening Assessment</h6>
+          <div class="reasoning-callout">{{ job.screening_reasoning }}</div>
         </div>
         {% endif %}
       </div>
     </div>
 
-    <!-- Cover letter -->
-    <div class="card shadow-sm mb-4">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span class="fw-semibold"><i class="bi bi-envelope me-2"></i>Cover Letter</span>
+    <!-- Editable Cover Letter -->
+    <div class="card detail-summary-card shadow-sm mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center py-3">
+        <span class="fw-semibold text-light"><i class="bi bi-envelope me-2 text-warning"></i>Cover Letter</span>
         {% if job.cover_letter_text %}
-        <button class="btn btn-sm btn-outline-secondary" id="copyBtn" onclick="copyCoverLetter()">
-          <i class="bi bi-clipboard me-1"></i>Copy
-        </button>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-secondary" id="copyBtn" onclick="copyCoverLetter()">
+            <i class="bi bi-clipboard me-1"></i>Copy Text
+          </button>
+        </div>
         {% endif %}
       </div>
-      <div class="card-body">
+      <div class="card-body p-4">
         {% if job.cover_letter_text %}
-        <div class="cover-letter-box" id="coverLetterText">{{ job.cover_letter_text }}</div>
+        <form method="post" action="/jobs/{{ job.job_id }}/cover-letter/update">
+          <textarea name="cover_letter_text" class="cl-textarea mb-3" rows="12" id="coverLetterText">{{ job.cover_letter_text }}</textarea>
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="text-muted small"><i class="bi bi-pencil me-1"></i>Editable text area</span>
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-check2 me-1"></i>Save Cover Letter Edits
+            </button>
+          </div>
+        </form>
         {% else %}
         <div class="text-muted text-center py-4">
-          <i class="bi bi-hourglass fs-2 d-block mb-2"></i>
-          Cover letter not yet generated. Run the pipeline to generate it.
+          <i class="bi bi-hourglass-split fs-2 d-block mb-2 text-secondary"></i>
+          Cover letter not yet generated. Run the pipeline runner to generate it.
         </div>
         {% endif %}
       </div>
     </div>
 
-    <!-- Job description -->
+    <!-- Job Description -->
     {% if job.description %}
-    <div class="card shadow-sm">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-file-text me-2"></i>Job Description
+    <div class="card detail-summary-card shadow-sm mb-4">
+      <div class="card-header fw-semibold text-light py-3">
+        <i class="bi bi-file-text me-2 text-primary"></i>Job Description
       </div>
-      <div class="card-body">
-        <div class="small" style="white-space: pre-wrap;">{{ job.description }}</div>
+      <div class="card-body p-4">
+        <div class="small" style="white-space: pre-wrap; line-height: 1.7; color: #cbd5e1;">{{ job.description }}</div>
       </div>
     </div>
     {% endif %}
   </div>
 
-  <!-- Right: status tracking -->
+  <!-- Right Panel: Application Tracking & Notes -->
   <div class="col-md-4">
-    <div class="card shadow-sm mb-3">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-kanban me-2"></i>Application Status
+    <!-- Application Status Control -->
+    <div class="card detail-summary-card shadow-sm mb-4">
+      <div class="card-header fw-semibold text-light py-3">
+        <i class="bi bi-kanban me-2 text-primary"></i>Application Status
       </div>
-      <div class="card-body">
+      <div class="card-body p-3">
         <p class="text-muted small mb-3">
-          Current:
-          {% set st = job.application_status %}
+          Current Status:
           {% if st == "applied" %}<span class="badge bg-primary">applied</span>
-          {% elif st == "interviewing" %}<span class="badge bg-info text-dark">interviewing</span>
-          {% elif st == "offered" %}<span class="badge bg-success">offered</span>
-          {% elif st == "rejected" %}<span class="badge bg-danger">rejected</span>
           {% elif st == "skipped" %}<span class="badge bg-secondary text-secondary-emphasis">skipped</span>
           {% else %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">pending</span>{% endif %}
           {% if job.applied_at %}
@@ -141,11 +232,11 @@
             {% endif %}
             {% if job.application_status != "skipped" %}
             <button name="status" value="skipped" class="btn btn-outline-secondary btn-sm">
-              <i class="bi bi-slash-circle me-1"></i>Skip (not applying)
+              <i class="bi bi-slash-circle me-1"></i>Skip (Not Applying)
             </button>
             {% endif %}
             {% if job.application_status %}
-            <hr class="my-1">
+            <hr class="my-1 border-secondary opacity-25">
             <button name="status" value="" class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-arrow-counterclockwise me-1"></i>Clear Status
             </button>
@@ -155,14 +246,31 @@
       </div>
     </div>
 
-    <!-- CL generation control -->
-    <div class="card shadow-sm mb-3">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-envelope-check me-2"></i>Cover Letter
+    <!-- Personal Application Notes Card -->
+    <div class="card detail-summary-card shadow-sm mb-4">
+      <div class="card-header fw-semibold text-light py-3">
+        <i class="bi bi-journal-text me-2 text-info"></i>Personal Notes
       </div>
-      <div class="card-body">
+      <div class="card-body p-3">
+        <form method="post" action="/jobs/{{ job.job_id }}/notes">
+          <div class="mb-3">
+            <textarea name="notes" class="form-control" rows="4" placeholder="Add custom application notes (e.g. Recruiter contacted, interview scheduled)...">{{ job.user_notes or '' }}</textarea>
+          </div>
+          <button type="submit" class="btn btn-sm btn-outline-info w-100">
+            <i class="bi bi-save me-1"></i>Save Personal Notes
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Cover Letter Approval Control -->
+    <div class="card detail-summary-card shadow-sm mb-4">
+      <div class="card-header fw-semibold text-light py-3">
+        <i class="bi bi-envelope-check me-2 text-warning"></i>Cover Letter Approval
+      </div>
+      <div class="card-body p-3">
         {% if job.cover_letter_text %}
-          <p class="text-success small mb-0"><i class="bi bi-check-circle-fill me-1"></i>Generated — see left panel</p>
+          <p class="text-success small mb-0"><i class="bi bi-check-circle-fill me-1"></i>Generated</p>
         {% elif job.user_cl_approved == 1 %}
           <p class="text-success small mb-2"><i class="bi bi-hourglass-split me-1"></i>Approved — run pipeline to generate</p>
           <form method="post" action="/jobs/{{ job.job_id }}/cl-reset">
@@ -204,11 +312,10 @@
     </div>
 
     {% if job.jobPostingUrl %}
-    <div class="card shadow-sm">
-      <div class="card-body text-center">
-        <a href="{{ job.jobPostingUrl }}" target="_blank" rel="noopener"
-           class="btn btn-primary w-100">
-          <i class="bi bi-linkedin me-2"></i>Open on LinkedIn
+    <div class="card detail-summary-card shadow-sm">
+      <div class="card-body p-3 text-center">
+        <a href="{{ job.jobPostingUrl }}" target="_blank" rel="noopener" class="btn btn-primary w-100">
+          <i class="bi bi-box-arrow-up-right me-2"></i>Open on LinkedIn
         </a>
         <div class="text-muted small mt-2">Job ID: {{ job.job_id }}</div>
       </div>
@@ -221,13 +328,14 @@
 {% block scripts %}
 <script>
 function copyCoverLetter() {
-  const text = document.getElementById("coverLetterText").innerText;
+  const textarea = document.getElementById("coverLetterText");
+  const text = textarea ? textarea.value : "";
   navigator.clipboard.writeText(text).then(() => {
     const btn = document.getElementById("copyBtn");
     btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
     btn.classList.replace("btn-outline-secondary", "btn-success");
     setTimeout(() => {
-      btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy';
+      btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy Text';
       btn.classList.replace("btn-success", "btn-outline-secondary");
     }, 2000);
   });

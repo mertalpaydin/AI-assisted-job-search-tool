@@ -184,6 +184,7 @@ class SelectedJobRow:
     user_cl_approved: int | None = None
     created_at: str | None = None
     search_keyword: str | None = None
+    user_notes: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +285,15 @@ class DatabaseManager:
         self._migrate_v2(conn)
         self._migrate_v3(conn)
         self._migrate_v4(conn)
+        self._migrate_v5(conn)
+
+    def _migrate_v5(self, conn: sqlite3.Connection) -> None:
+        """Add user_notes column to jobs table."""
+        try:
+            conn.execute("ALTER TABLE jobs ADD COLUMN user_notes TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     def _migrate_v4(self, conn: sqlite3.Connection) -> None:
         """Add compound performance indexes for web UI queries and pagination."""
@@ -1228,13 +1238,36 @@ class DatabaseManager:
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
-                    j.user_cl_approved, j.created_at, j.search_keyword
+                    j.user_cl_approved, j.created_at, j.search_keyword,
+                    j.user_notes
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
             """, (job_id,))
             row = cur.fetchone()
             return SelectedJobRow(**dict(row)) if row else None
+
+    def update_user_notes(self, job_id: int, notes: str | None) -> None:
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET user_notes = ? WHERE job_id = ?",
+                (notes, job_id),
+            )
+
+    def get_adjacent_job_ids(self, job_id: int) -> tuple[int | None, int | None]:
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT job_id FROM jobs
+                WHERE is_selected = 1
+                ORDER BY cv_match_score DESC NULLS LAST, created_at DESC, job_id DESC
+            """)
+            ids = [row[0] for row in cur.fetchall()]
+            if job_id not in ids:
+                return None, None
+            idx = ids.index(job_id)
+            prev_id = ids[idx - 1] if idx > 0 else None
+            next_id = ids[idx + 1] if idx < len(ids) - 1 else None
+            return prev_id, next_id
 
     def get_all_jobs(
         self,
