@@ -259,3 +259,50 @@ class TestKeywordFiltering:
         assert len(counts) == 1
         assert counts[0][0] == "PyCorp"
 
+
+class TestGermanFiltering:
+    def test_jobs_filter_by_german_level(self, db: DatabaseManager) -> None:
+        db.insert_job(30001, "kw", "loc1")
+        db.insert_job(30002, "kw", "loc2")
+        db.insert_job(30003, "kw", "loc3")
+        db.insert_job(30004, "kw", "loc4")
+
+        db.update_job_details(30001, {"title": "Job 1", "company_name": "Co1"})
+        db.update_job_details(30002, {"title": "Job 2", "company_name": "Co2"})
+        db.update_job_details(30003, {"title": "Job 3", "company_name": "Co3"})
+        db.update_job_details(30004, {"title": "Job 4", "company_name": "Co4"})
+
+        db.save_screening_result(30001, ScreeningResult(0.9, "none", True, "Reason"))
+        db.save_screening_result(30002, ScreeningResult(0.8, "low", True, "Reason"))
+        db.save_screening_result(30003, ScreeningResult(0.75, "medium", True, "Reason"))
+        db.save_screening_result(30004, ScreeningResult(0.7, "high", True, "Reason"))
+
+        # Exact level filter
+        none_jobs, none_count = db.get_selected_jobs(german_filter="none")
+        assert none_count == 1
+        assert none_jobs[0].job_id == 30001
+
+        low_jobs, low_count = db.get_selected_jobs(german_filter="low")
+        assert low_count == 1
+        assert low_jobs[0].job_id == 30002
+
+        # Cumulative max filters
+        max_low_jobs, max_low_count = db.get_selected_jobs(german_filter="max_low")
+        assert max_low_count == 2
+        assert {j.job_id for j in max_low_jobs} == {30001, 30002}
+
+        max_med_jobs, max_med_count = db.get_selected_jobs(german_filter="max_medium")
+        assert max_med_count == 3
+        assert {j.job_id for j in max_med_jobs} == {30001, 30002, 30003}
+
+        # get_all_jobs check
+        all_high, all_high_count = db.get_all_jobs(german_filter="high")
+        assert all_high_count == 1
+        assert all_high[0].job_id == 30004
+
+        # company counts check
+        co_counts = db.get_company_counts(selected_only=True, german_filter="max_low")
+        assert len(co_counts) == 2
+        assert {c[0] for c in co_counts} == {"Co1", "Co2"}
+
+

@@ -9,7 +9,7 @@
                   st=status_filter, sq=search_query,
                   rm=remote_filter, cl=cl_filter,
                   df=date_from, dt=date_to, ex=exclude_companies,
-                  kw=keyword_filter) -%}
+                  kw=keyword_filter, ger=german_filter) -%}
   {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
@@ -18,6 +18,7 @@
   {%- if df %}&date_from={{ df }}{% endif %}
   {%- if dt %}&date_to={{ dt }}{% endif %}
   {%- if kw %}&kw={{ kw | urlencode }}{% endif %}
+  {%- if ger %}&german={{ ger }}{% endif %}
   {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
 
@@ -40,7 +41,7 @@
     {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
     <span class="badge bg-secondary ms-2">{{ total }}</span>
   </h4>
-  {% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies or keyword_filter %}
+  {% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies or keyword_filter or german_filter %}
   <a href="{{ base_url }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear all filters
   </a>
@@ -85,6 +86,60 @@
     <label class="text-muted small mb-0">to</label>
     <input type="date" id="scraped-to" class="form-control form-control-sm"
            style="width:140px" value="{{ date_to }}">
+  </div>
+
+  {# German level filter dropdown #}
+  <div class="dropdown" id="germanFilterDropdown">
+    <button class="btn btn-sm {% if german_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-translate me-1"></i>German
+      {% if german_filter %}
+        <span class="badge bg-dark ms-1">
+          {% if german_filter == 'max_low' %}≤ low
+          {% elif german_filter == 'max_medium' %}≤ medium
+          {% else %}{{ german_filter }}{% endif %}
+        </span>
+      {% endif %}
+    </button>
+    <ul class="dropdown-menu p-2 shadow" style="min-width:180px">
+      <li>
+        <a class="dropdown-item small {% if not german_filter %}active{% endif %}" href="{{ page_url(p=1, ger='') }}">
+          All German Levels
+        </a>
+      </li>
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <a class="dropdown-item small {% if german_filter == 'none' %}active{% endif %}" href="{{ page_url(p=1, ger='none') }}">
+          <span class="badge bg-success me-1">none</span> None (English)
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item small {% if german_filter == 'low' %}active{% endif %}" href="{{ page_url(p=1, ger='low') }}">
+          <span class="badge bg-info text-dark me-1">low</span> Low German
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item small {% if german_filter == 'medium' %}active{% endif %}" href="{{ page_url(p=1, ger='medium') }}">
+          <span class="badge bg-warning text-dark me-1">medium</span> Medium German
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item small {% if german_filter == 'high' %}active{% endif %}" href="{{ page_url(p=1, ger='high') }}">
+          <span class="badge bg-danger me-1">high</span> High German
+        </a>
+      </li>
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <a class="dropdown-item small {% if german_filter == 'max_low' %}active{% endif %}" href="{{ page_url(p=1, ger='max_low') }}">
+          ≤ Low (None / Low)
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item small {% if german_filter == 'max_medium' %}active{% endif %}" href="{{ page_url(p=1, ger='max_medium') }}">
+          ≤ Medium (None / Low / Medium)
+        </a>
+      </li>
+    </ul>
   </div>
 
   {# Keyword filter dropdown #}
@@ -182,7 +237,7 @@
 
 {# ── Job table ───────────────────────────────────────────────────────────── #}
 {% if not jobs %}
-<div class="alert alert-info">No jobs found{% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies %} for the active filters{% endif %}.</div>
+<div class="alert alert-info">No jobs found{% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies or keyword_filter or german_filter %} for the active filters{% endif %}.</div>
 {% else %}
 <div class="table-responsive">
   <table class="table table-hover align-middle bg-white shadow-sm rounded">

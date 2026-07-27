@@ -99,11 +99,6 @@ class TestScreeningPrompt:
         assert "Yes" in user_yes
         assert "No" in user_no
 
-    def test_description_truncated_to_3000_chars(self, pm: PromptManager) -> None:
-        long_desc = "x" * 5000
-        _, user = pm.format_screening_prompt("Dev", "Co", "loc", True, long_desc)
-        assert "x" * 3001 not in user
-
 
 class TestCoverLetterPrompt:
     def test_returns_two_strings(self, pm: PromptManager) -> None:

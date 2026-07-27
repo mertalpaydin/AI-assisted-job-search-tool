@@ -115,6 +115,7 @@ def jobs():
     date_to        = request.args.get("date_to", "")
     exclude_companies = request.args.getlist("exc")
     keyword_filter = request.args.get("kw", "").strip()
+    german_filter  = request.args.get("german", "").strip()
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
@@ -127,6 +128,7 @@ def jobs():
         search=search, cl_ready=bool(cl_filter),
         exclude_companies=all_excluded or None,
         keyword_filter=keyword_filter,
+        german_filter=german_filter,
     )
     job_list, total = db.get_selected_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -137,6 +139,7 @@ def jobs():
         exclude_companies=all_excluded or None,
         limit=_PAGE_SIZE, offset=offset,
         keyword_filter=keyword_filter,
+        german_filter=german_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -152,6 +155,7 @@ def jobs():
         company_counts=company_counts,
         exclude_companies=exclude_companies,
         keyword_filter=keyword_filter,
+        german_filter=german_filter,
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )
@@ -170,6 +174,7 @@ def jobs_all():
     date_to        = request.args.get("date_to", "")
     exclude_companies = request.args.getlist("exc")
     keyword_filter = request.args.get("kw", "").strip()
+    german_filter  = request.args.get("german", "").strip()
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
@@ -182,6 +187,7 @@ def jobs_all():
         search=search, cl_ready=bool(cl_filter),
         exclude_companies=all_excluded or None,
         keyword_filter=keyword_filter,
+        german_filter=german_filter,
     )
     job_list, total = db.get_all_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -192,6 +198,7 @@ def jobs_all():
         exclude_companies=all_excluded or None,
         limit=_PAGE_SIZE, offset=offset,
         keyword_filter=keyword_filter,
+        german_filter=german_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -207,6 +214,7 @@ def jobs_all():
         company_counts=company_counts,
         exclude_companies=exclude_companies,
         keyword_filter=keyword_filter,
+        german_filter=german_filter,
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )

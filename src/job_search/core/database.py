@@ -946,6 +946,7 @@ class DatabaseManager:
         cl_ready: bool = False,
         exclude_companies: list[str] | None = None,
         keyword_filter: str = "",
+        german_filter: str = "",
     ) -> list[tuple[str, int]]:
         """Return (company_name, job_count) sorted by count desc.
 
@@ -996,6 +997,14 @@ class DatabaseManager:
             conditions.append("LOWER(j.search_keyword) = LOWER(?)")
             params.append(keyword_filter)
 
+        if german_filter == "max_low":
+            conditions.append("LOWER(j.german_requirement_level) IN ('none', 'low')")
+        elif german_filter == "max_medium":
+            conditions.append("LOWER(j.german_requirement_level) IN ('none', 'low', 'medium')")
+        elif german_filter:
+            conditions.append("LOWER(j.german_requirement_level) = LOWER(?)")
+            params.append(german_filter)
+
         where = " AND ".join(conditions)
         join = "LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1" if cl_ready else ""
 
@@ -1024,6 +1033,7 @@ class DatabaseManager:
         limit: int = 50,
         offset: int = 0,
         keyword_filter: str = "",
+        german_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated AI-selected jobs with optional filters.
 
@@ -1074,6 +1084,14 @@ class DatabaseManager:
         if keyword_filter:
             conditions.append("LOWER(j.search_keyword) = LOWER(?)")
             params.append(keyword_filter)
+
+        if german_filter == "max_low":
+            conditions.append("LOWER(j.german_requirement_level) IN ('none', 'low')")
+        elif german_filter == "max_medium":
+            conditions.append("LOWER(j.german_requirement_level) IN ('none', 'low', 'medium')")
+        elif german_filter:
+            conditions.append("LOWER(j.german_requirement_level) = LOWER(?)")
+            params.append(german_filter)
 
         where = " AND ".join(conditions)
 
@@ -1139,6 +1157,7 @@ class DatabaseManager:
         limit: int = 50,
         offset: int = 0,
         keyword_filter: str = "",
+        german_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated scraped jobs (selected or not) with optional filters.
 
@@ -1188,6 +1207,14 @@ class DatabaseManager:
         if keyword_filter:
             conditions.append("LOWER(j.search_keyword) = LOWER(?)")
             params.append(keyword_filter)
+
+        if german_filter == "max_low":
+            conditions.append("LOWER(j.german_requirement_level) IN ('none', 'low')")
+        elif german_filter == "max_medium":
+            conditions.append("LOWER(j.german_requirement_level) IN ('none', 'low', 'medium')")
+        elif german_filter:
+            conditions.append("LOWER(j.german_requirement_level) = LOWER(?)")
+            params.append(german_filter)
 
         where = " AND ".join(conditions)
 
