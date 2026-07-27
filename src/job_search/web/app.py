@@ -119,7 +119,7 @@ def jobs():
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
-    all_excluded = list(dict.fromkeys(exclude_companies + get_blocked_companies()))
+    all_excluded = list(dict.fromkeys(exclude_companies))
 
     company_counts = db.get_company_counts(
         selected_only=True,
@@ -178,7 +178,7 @@ def jobs_all():
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
-    all_excluded = list(dict.fromkeys(exclude_companies + get_blocked_companies()))
+    all_excluded = list(dict.fromkeys(exclude_companies))
 
     company_counts = db.get_company_counts(
         selected_only=False,
@@ -188,6 +188,7 @@ def jobs_all():
         exclude_companies=all_excluded or None,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
+        limit=200,
     )
     job_list, total = db.get_all_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -377,6 +378,7 @@ def import_jobs():
         }
 
     return render_template("import_jobs.html", result=result)
+
 
 
 # ---------------------------------------------------------------------------

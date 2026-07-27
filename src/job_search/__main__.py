@@ -232,7 +232,7 @@ def web(config: str, host: str, port: int, debug: bool) -> None:
     db = DatabaseManager(cfg.database.path)
     flask_app = init_app(db, config=cfg)
     click.echo(f"Web UI running at http://{host}:{port}/")
-    flask_app.run(host=host, port=port, debug=debug)
+    flask_app.run(host=host, port=port, debug=debug, threaded=True)
 
 
 if __name__ == "__main__":

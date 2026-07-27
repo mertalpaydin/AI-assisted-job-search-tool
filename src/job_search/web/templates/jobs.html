@@ -178,8 +178,6 @@
       {% if exc_count > 0 %}<span class="badge bg-dark ms-1">{{ exc_count }} hidden</span>{% endif %}
     </button>
     <div class="dropdown-menu p-2 shadow" style="min-width:320px; z-index:1050">
-      <input type="text" id="companySearch" class="form-control form-control-sm mb-2"
-             placeholder="Search companies…" autocomplete="off">
       <div class="d-flex gap-1 mb-2">
         <button type="button" class="btn btn-outline-secondary btn-sm flex-fill" id="selectAllCo">
           <i class="bi bi-check-all me-1"></i>Select all
@@ -469,32 +467,15 @@
 
   // ── Company filter ───────────────────────────────────────────────────────
   const companySearch   = document.getElementById('companySearch');
-  const companyList     = document.getElementById('companyList');
-  const applyBtn        = document.getElementById('applyCompanyFilter');
-  const clearBtn        = document.getElementById('clearCompanyFilter');
-  const selectAllBtn    = document.getElementById('selectAllCo');
-  const deselectAllBtn  = document.getElementById('deselectAllCo');
-
-  function visibleCheckboxes() {
-    return Array.from(document.querySelectorAll('.company-row'))
-      .filter(row => row.style.display !== 'none')
-      .map(row => row.querySelector('.company-cb'));
-  }
-
-  if (companySearch) {
-    companySearch.addEventListener('input', function() {
-      const q = this.value.toLowerCase();
-      document.querySelectorAll('.company-row').forEach(row => {
-        row.style.display = row.dataset.name.includes(q) ? '' : 'none';
-      });
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener('click', () => {
+      document.querySelectorAll('.company-cb').forEach(cb => cb.checked = true);
     });
   }
-
-  if (selectAllBtn) {
-    selectAllBtn.addEventListener('click', () => visibleCheckboxes().forEach(cb => cb.checked = true));
-  }
   if (deselectAllBtn) {
-    deselectAllBtn.addEventListener('click', () => visibleCheckboxes().forEach(cb => cb.checked = false));
+    deselectAllBtn.addEventListener('click', () => {
+      document.querySelectorAll('.company-cb').forEach(cb => cb.checked = false);
+    });
   }
 
   if (applyBtn) {

@@ -120,6 +120,14 @@ CREATE TABLE IF NOT EXISTS api_usage (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_scraped ON jobs(scraped);
 CREATE INDEX IF NOT EXISTS idx_jobs_job_id ON jobs(job_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_selected_cv ON jobs(is_selected, cv_match_score DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_selected_created ON jobs(is_selected, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_scraped_created ON jobs(scraped, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_scraped_listed ON jobs(scraped, listedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_company_selected ON jobs(company_name, is_selected);
+CREATE INDEX IF NOT EXISTS idx_jobs_remote_selected ON jobs(workRemoteAllowed, is_selected);
+CREATE INDEX IF NOT EXISTS idx_jobs_german_level ON jobs(german_requirement_level);
+CREATE INDEX IF NOT EXISTS idx_jobs_search_kw ON jobs(search_keyword);
 CREATE INDEX IF NOT EXISTS idx_screening_status ON screening_results(screening_status);
 CREATE INDEX IF NOT EXISTS idx_screening_selected ON screening_results(is_selected);
 CREATE INDEX IF NOT EXISTS idx_cover_letter_status ON cover_letters(generation_status);
@@ -275,6 +283,26 @@ class DatabaseManager:
         self._migrate_v1(conn)
         self._migrate_v2(conn)
         self._migrate_v3(conn)
+        self._migrate_v4(conn)
+
+    def _migrate_v4(self, conn: sqlite3.Connection) -> None:
+        """Add compound performance indexes for web UI queries and pagination."""
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_jobs_selected_cv ON jobs(is_selected, cv_match_score DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_selected_created ON jobs(is_selected, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_scraped_created ON jobs(scraped, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_scraped_listed ON jobs(scraped, listedAt DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_company_selected ON jobs(company_name, is_selected)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_remote_selected ON jobs(workRemoteAllowed, is_selected)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_german_level ON jobs(german_requirement_level)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_search_kw ON jobs(search_keyword)",
+        ]
+        for sql in indexes:
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError:
+                pass
+        conn.commit()
 
     def _migrate_v1(self, conn: sqlite3.Connection) -> None:
         """Add columns introduced after the initial old schema."""
@@ -947,6 +975,8 @@ class DatabaseManager:
         exclude_companies: list[str] | None = None,
         keyword_filter: str = "",
         german_filter: str = "",
+        company_search: str = "",
+        limit: int | None = None,
     ) -> list[tuple[str, int]]:
         """Return (company_name, job_count) sorted by count desc.
 
@@ -957,6 +987,10 @@ class DatabaseManager:
         conditions.append("j.company_name IS NOT NULL")
         conditions.append("j.company_name != ''")
         params: list = []
+
+        if company_search:
+            conditions.append("LOWER(j.company_name) LIKE ?")
+            params.append(f"%{company_search.lower()}%")
 
         if search:
             conditions.append(
@@ -1007,6 +1041,7 @@ class DatabaseManager:
 
         where = " AND ".join(conditions)
         join = "LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1" if cl_ready else ""
+        limit_clause = f" LIMIT {int(limit)}" if limit is not None else ""
 
         with self._cursor() as cur:
             cur.execute(f"""
@@ -1016,6 +1051,7 @@ class DatabaseManager:
                 WHERE {where}
                 GROUP BY j.company_name
                 ORDER BY cnt DESC, j.company_name ASC
+                {limit_clause}
             """, params)
             return [(row[0], row[1]) for row in cur.fetchall()]
 
