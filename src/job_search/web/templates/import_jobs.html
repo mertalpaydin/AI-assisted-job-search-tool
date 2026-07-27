@@ -1,83 +1,117 @@
 {% extends "base.html" %}
 {% block title %}Import Jobs{% endblock %}
 
+{% block head_extra %}
+<style>
+  .import-card {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-lg-7">
+  <div class="col-lg-8">
 
-    <h4 class="mb-1">Import Jobs</h4>
-    <p class="text-muted mb-4">
-      Paste LinkedIn job URLs or numeric IDs — one per line, or comma/space separated.
-      The scraper will fetch details and screen them automatically.
-    </p>
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div>
+        <h4 class="mb-0 fw-bold">Manual Job Import</h4>
+        <span class="text-muted small">Import specific LinkedIn job postings directly into your pipeline</span>
+      </div>
+      <a href="/jobs" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-list-ul me-1"></i>View Jobs
+      </a>
+    </div>
 
-    <div class="card border-0 shadow-sm mb-4">
+    <!-- Main Import Form Card -->
+    <div class="card import-card shadow-sm mb-4">
       <div class="card-body p-4">
         <form method="POST">
           <div class="mb-3">
+            <label class="form-label fw-semibold text-light">LinkedIn Job URLs or IDs</label>
             <textarea
               name="job_ids"
               class="form-control font-monospace"
-              rows="8"
+              rows="7"
+              style="background-color: #0f172a; color: #f8fafc; border-color: #334155;"
               placeholder="https://www.linkedin.com/jobs/view/4411863756/
 https://www.linkedin.com/jobs/view/data-scientist-at-acme-4411863757/
-4411863758
-4411863759, 4411863760"
+4411863758, 4411863759"
               autofocus
             ></textarea>
+            <small class="text-muted d-block mt-2">
+              <i class="bi bi-info-circle me-1"></i>Paste full LinkedIn URLs or 10-digit Job IDs (one per line or comma separated). Duplicate jobs already in your database are skipped automatically.
+            </small>
           </div>
-          <div class="d-flex justify-content-between align-items-center">
-            <small class="text-muted">Duplicates and already-known jobs are silently skipped.</small>
+
+          <div class="d-flex justify-content-end align-items-center">
             <button type="submit" class="btn btn-primary px-4">
-              <i class="bi bi-plus-circle me-1"></i>Import
+              <i class="bi bi-plus-circle me-1"></i>Import Jobs
             </button>
           </div>
         </form>
       </div>
     </div>
 
+    <!-- Results Panel -->
     {% if result is not none %}
-    <div class="card border-0 shadow-sm">
+    <div class="card import-card shadow-sm mb-4">
       <div class="card-body p-4">
-        <h6 class="mb-3">Results</h6>
+        <h6 class="fw-bold text-light mb-3"><i class="bi bi-card-checklist me-2 text-info"></i>Import Summary</h6>
 
-        <div class="row g-3 mb-3">
+        <div class="row g-3 mb-4">
           <div class="col-4">
-            <div class="p-3 rounded text-center" style="background:#d1e7dd">
+            <div class="p-3 rounded-3 text-center border border-success-subtle bg-success-subtle">
               <div class="fs-3 fw-bold text-success">{{ result.added | length }}</div>
-              <div class="small text-success">Added</div>
-            </div>
-          </div>
-          <div class="col-4">
-            <div class="p-3 rounded text-center" style="background:#fff3cd">
-              <div class="fs-3 fw-bold text-warning">{{ result.skipped | length }}</div>
-              <div class="small text-warning">Already in DB</div>
+              <div class="small fw-semibold text-success">Added</div>
             </div>
           </div>
 
           <div class="col-4">
-            <div class="p-3 rounded text-center" style="background:#f8d7da">
+            <div class="p-3 rounded-3 text-center border border-warning-subtle bg-warning-subtle">
+              <div class="fs-3 fw-bold text-warning-emphasis">{{ result.skipped | length }}</div>
+              <div class="small fw-semibold text-warning-emphasis">Already in DB</div>
+            </div>
+          </div>
+
+          <div class="col-4">
+            <div class="p-3 rounded-3 text-center border border-danger-subtle bg-danger-subtle">
               <div class="fs-3 fw-bold text-danger">{{ result.invalid | length }}</div>
-              <div class="small text-danger">Invalid</div>
+              <div class="small fw-semibold text-danger">Invalid</div>
             </div>
           </div>
         </div>
 
         {% if result.added %}
-        <div class="mb-3">
+        <div class="mb-4">
           {% if result.runner_live %}
-          <div class="alert alert-success py-2 mb-2">
-            <i class="bi bi-lightning-charge-fill me-1"></i>
-            Runner is live — jobs queued for immediate processing.
+          <div class="alert alert-success d-flex align-items-center justify-content-between py-3 mb-3 border-0 rounded-3">
+            <div class="d-flex align-items-center">
+              <i class="bi bi-lightning-charge-fill me-2 fs-5 text-success"></i>
+              <span><strong>Pipeline Runner is Active</strong> — Added jobs were pushed to the live scraping queue.</span>
+            </div>
+            <a href="/runner" class="btn btn-sm btn-success px-3">View Runner</a>
           </div>
           {% else %}
-          <div class="alert alert-warning py-2 mb-2">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            Runner is not running. Jobs will be picked up on next start.
+          <div class="alert alert-warning d-flex align-items-center justify-content-between py-3 mb-3 border-0 rounded-3">
+            <div class="d-flex align-items-center">
+              <i class="bi bi-pause-circle-fill me-2 fs-5 text-warning"></i>
+              <span><strong>Pipeline Runner is Idle</strong> — Start the runner to fetch details and screen these jobs.</span>
+            </div>
+            <form action="/runner/start" method="POST" class="m-0">
+              <button type="submit" class="btn btn-sm btn-warning fw-semibold px-3">
+                <i class="bi bi-play-fill me-1"></i>Start Runner Now
+              </button>
+            </form>
           </div>
           {% endif %}
-          <div class="small text-muted mb-1">Added job IDs:</div>
-          <div class="font-monospace small text-break">{{ result.added | join(", ") }}</div>
+
+          <div class="small text-muted mb-1">Added Job IDs:</div>
+          <div class="p-2 rounded bg-dark border border-secondary text-light font-monospace small text-break mb-3">
+            {{ result.added | join(", ") }}
+          </div>
         </div>
         {% endif %}
 
@@ -86,17 +120,11 @@ https://www.linkedin.com/jobs/view/data-scientist-at-acme-4411863757/
           <div class="small text-muted mb-2">Already in DB:</div>
           <div class="d-flex flex-wrap gap-2">
             {% for job in result.skipped %}
-            {% if job.selected %}
             <a href="/jobs/{{ job.job_id }}" class="text-decoration-none">
-              <span class="badge bg-{{ job.badge }} font-monospace" style="font-size:0.8rem">
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle font-monospace py-2 px-2" style="font-size:0.8rem">
                 {{ job.job_id }} <span class="opacity-75">· {{ job.label }}</span>
               </span>
             </a>
-            {% else %}
-            <span class="badge bg-{{ job.badge }} font-monospace" style="font-size:0.8rem">
-              {{ job.job_id }} <span class="opacity-75">· {{ job.label }}</span>
-            </span>
-            {% endif %}
             {% endfor %}
           </div>
         </div>
@@ -104,7 +132,7 @@ https://www.linkedin.com/jobs/view/data-scientist-at-acme-4411863757/
 
         {% if result.invalid %}
         <div>
-          <div class="small text-muted mb-1">Unrecognised tokens:</div>
+          <div class="small text-muted mb-1">Unrecognised input tokens:</div>
           <div class="font-monospace small text-danger text-break">{{ result.invalid | join(", ") }}</div>
         </div>
         {% endif %}
