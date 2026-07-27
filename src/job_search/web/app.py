@@ -325,6 +325,35 @@ def cl_reset(job_id: int):
     return _redirect_back(request.form, job_id)
 
 
+@app.route("/jobs/batch-status", methods=["POST"])
+def batch_update_status():
+    db = get_db()
+    status = request.form.get("status", "").strip()
+    raw_ids = request.form.getlist("job_ids")
+    if status not in APPLICATION_STATUSES and status != "":
+        abort(400)
+    job_ids = [int(i) for i in raw_ids if str(i).isdigit()]
+    if job_ids:
+        db.mark_application_status_batch(job_ids, status if status else None)
+    return _redirect_to_list(request.form)
+
+
+@app.route("/jobs/batch-cl-approve", methods=["POST"])
+def batch_cl_approve():
+    db = get_db()
+    action = request.form.get("action", "").strip()
+    raw_ids = request.form.getlist("job_ids")
+    job_ids = [int(i) for i in raw_ids if str(i).isdigit()]
+    if job_ids:
+        if action == "approve":
+            db.set_cl_approval_batch(job_ids, 1)
+        elif action == "reject":
+            db.set_cl_approval_batch(job_ids, 0)
+        elif action == "reset":
+            db.set_cl_approval_batch(job_ids, None)
+    return _redirect_to_list(request.form)
+
+
 def _redirect_back(form, job_id: int):
     """Redirect to job detail or job list depending on the 'source' form field."""
     if form.get("source") == "detail":

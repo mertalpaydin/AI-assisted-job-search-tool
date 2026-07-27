@@ -941,6 +941,33 @@ class DatabaseManager:
                 (approved, job_id),
             )
 
+    def mark_application_status_batch(self, job_ids: list[int], status: str | None) -> None:
+        if not job_ids:
+            return
+        placeholders = ",".join("?" for _ in job_ids)
+        if status == "applied":
+            with self._cursor() as cur:
+                cur.execute(
+                    f"UPDATE jobs SET application_status = ?, applied_at = CURRENT_TIMESTAMP WHERE job_id IN ({placeholders})",
+                    [status] + list(job_ids),
+                )
+        else:
+            with self._cursor() as cur:
+                cur.execute(
+                    f"UPDATE jobs SET application_status = ? WHERE job_id IN ({placeholders})",
+                    [status] + list(job_ids),
+                )
+
+    def set_cl_approval_batch(self, job_ids: list[int], approved: int | None) -> None:
+        if not job_ids:
+            return
+        placeholders = ",".join("?" for _ in job_ids)
+        with self._cursor() as cur:
+            cur.execute(
+                f"UPDATE jobs SET user_cl_approved = ? WHERE job_id IN ({placeholders})",
+                [approved] + list(job_ids),
+            )
+
     def get_jobs_pending_cl_approval(self, days: int | None = None) -> list[SelectedJobRow]:
         """Jobs screened-and-selected with no approval decision yet (for user_approval mode).
 

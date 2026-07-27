@@ -49,7 +49,7 @@
   {% endif %}
 </div>
 
-{# ── Search bar ─────────────────────────────────────────────────────────── #}
+{# ── Search bar & Filters ─────────────────────────────────────────────────── #}
 <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
   <div class="input-group" style="max-width:360px">
     <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
@@ -58,7 +58,7 @@
            value="{{ search_query }}">
   </div>
 
-  {# Remote filters — both buttons always visible; clicking active one deselects it #}
+  {# Remote filters #}
   <a href="{{ page_url(p=1, rm='' if remote_filter == '1' else '1') }}"
      class="btn btn-sm {{ 'btn-success' if remote_filter == '1' else 'btn-outline-success' }}">
     <i class="bi bi-wifi me-1"></i>Remote only
@@ -90,7 +90,7 @@
   </a>
   {% endif %}
 
-  {# Date range — JS navigates on change, inputs pre-filled from URL #}
+  {# Date range #}
   <div class="d-flex align-items-center gap-1">
     <label class="text-muted small mb-0">Scraped from</label>
     <input type="date" id="scraped-from" class="form-control form-control-sm"
@@ -245,14 +245,59 @@
   {% endfor %}
 </div>
 
+{# ── Floating Bulk Actions Bar ───────────────────────────────────────────── #}
+<div id="bulkActionBar" class="card shadow-lg border-0 bg-dark text-white p-3 position-fixed bottom-0 start-50 translate-middle-x mb-4 rounded-3 d-none" style="z-index: 1060; min-width: 520px;">
+  <div class="d-flex align-items-center justify-content-between">
+    <div class="fw-semibold small">
+      <i class="bi bi-check-square-fill text-primary me-2 fs-6"></i>
+      <span id="selectedCount">0</span> jobs selected
+    </div>
+    <div class="d-flex gap-2">
+      <form id="bulkApplyForm" method="post" action="/jobs/batch-status">
+        <input type="hidden" name="status_filter" value="{{ status_filter }}">
+        {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+        <input type="hidden" name="status" value="applied">
+        <div class="bulk-job-ids-container"></div>
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-send me-1"></i>Mark Applied
+        </button>
+      </form>
+      <form id="bulkSkipForm" method="post" action="/jobs/batch-status">
+        <input type="hidden" name="status_filter" value="{{ status_filter }}">
+        {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+        <input type="hidden" name="status" value="skipped">
+        <div class="bulk-job-ids-container"></div>
+        <button type="submit" class="btn btn-outline-light btn-sm">
+          <i class="bi bi-slash-circle me-1"></i>Skip
+        </button>
+      </form>
+      {% if cl_mode == "user_approval" %}
+      <form id="bulkApproveForm" method="post" action="/jobs/batch-cl-approve">
+        <input type="hidden" name="status_filter" value="{{ status_filter }}">
+        {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+        <input type="hidden" name="action" value="approve">
+        <div class="bulk-job-ids-container"></div>
+        <button type="submit" class="btn btn-success btn-sm">
+          <i class="bi bi-check2 me-1"></i>Approve CL
+        </button>
+      </form>
+      {% endif %}
+      <button type="button" class="btn btn-sm btn-link text-white-50 p-0 ms-2" id="clearSelectionBtn">Clear</button>
+    </div>
+  </div>
+</div>
+
 {# ── Job table ───────────────────────────────────────────────────────────── #}
 {% if not jobs %}
-<div class="alert alert-info">No jobs found{% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies or keyword_filter or german_filter %} for the active filters{% endif %}.</div>
+<div class="alert alert-info">No jobs found{% if status_filter or search_query or remote_filter or cl_filter or min_match or date_from or date_to or exclude_companies or keyword_filter or german_filter %} for the active filters{% endif %}.</div>
 {% else %}
 <div class="table-responsive">
   <table class="table table-hover align-middle bg-white shadow-sm rounded">
     <thead class="table-light">
       <tr>
+        <th style="width: 38px;">
+          <input class="form-check-input" type="checkbox" id="selectAllJobs" title="Select all on page">
+        </th>
         <th>{{ sort_link("title", "Job") }}</th>
         <th>{{ sort_link("formattedLocation", "Location") }}</th>
         <th class="text-center">{{ sort_link("cv_match_score", "Match") }}</th>
@@ -266,12 +311,15 @@
         <th class="text-center">Cover Letter</th>
         <th class="text-center">Status</th>
         <th class="text-center">{{ sort_link("created_at", "Scraped") }}</th>
-        <th></th>
+        <th class="text-end">Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for job in jobs %}
       <tr>
+        <td>
+          <input class="form-check-input job-select-cb" type="checkbox" value="{{ job.job_id }}">
+        </td>
         <td>
           <div class="fw-semibold">{{ job.title or "N/A" }}</div>
           <div class="text-muted small">
@@ -286,27 +334,27 @@
         <td>
           <span class="small">{{ job.formattedLocation or "N/A" }}</span>
           {% if job.workRemoteAllowed %}
-          <span class="badge bg-light text-success ms-1 small">Remote</span>
+          <span class="badge bg-success-subtle text-success ms-1 small border border-success-subtle">Remote</span>
           {% endif %}
         </td>
         <td class="text-center">
           {% if job.cv_match_score is not none %}
           {% set pct = (job.cv_match_score * 100)|int %}
           {% if pct >= 80 %}
-          <span class="badge bg-success badge-match">{{ pct }}%</span>
+          <span class="badge bg-success badge-match px-2 py-1">{{ pct }}%</span>
           {% elif pct >= 65 %}
-          <span class="badge bg-warning text-dark badge-match">{{ pct }}%</span>
+          <span class="badge bg-warning text-dark badge-match px-2 py-1">{{ pct }}%</span>
           {% else %}
-          <span class="badge bg-secondary badge-match">{{ pct }}%</span>
+          <span class="badge bg-secondary badge-match px-2 py-1">{{ pct }}%</span>
           {% endif %}
           {% else %}—{% endif %}
         </td>
         <td class="text-center">
           {% set gl = job.german_requirement_level or "?" %}
-          {% if gl == "none" %}<span class="badge bg-success small">none</span>
-          {% elif gl == "low" %}<span class="badge bg-info text-dark small">low</span>
-          {% elif gl == "medium" %}<span class="badge bg-warning text-dark small">medium</span>
-          {% elif gl == "high" %}<span class="badge bg-danger small">high</span>
+          {% if gl == "none" %}<span class="badge bg-success-subtle text-success border border-success-subtle small">English</span>
+          {% elif gl == "low" %}<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle small">Low German</span>
+          {% elif gl == "medium" %}<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle small">Med German</span>
+          {% elif gl == "high" %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle small">High German</span>
           {% else %}<span class="badge bg-light text-muted small">{{ gl }}</span>{% endif %}
         </td>
         {% if show_all %}
@@ -344,7 +392,7 @@
         {% endif %}
         <td class="text-center">
           {% if job.cover_letter_text %}
-          <i class="bi bi-check-circle-fill text-success"></i>
+          <i class="bi bi-check-circle-fill text-success fs-5"></i>
           {% else %}
           <i class="bi bi-hourglass text-muted"></i>
           {% endif %}
@@ -362,7 +410,14 @@
           <span class="small text-muted">{{ job.created_at | short_date }}</span>
         </td>
         <td class="text-end">
-          <div class="d-flex gap-1 justify-content-end">
+          <div class="d-flex gap-1 justify-content-end align-items-center">
+            {% if job.jobPostingUrl %}
+            <a href="{{ job.jobPostingUrl }}" target="_blank" rel="noopener"
+               class="btn btn-sm btn-outline-primary" title="Open job on LinkedIn (new tab)">
+              <i class="bi bi-box-arrow-up-right me-1"></i>LinkedIn
+            </a>
+            {% endif %}
+
             {% if job.is_selected == 1 or not show_all %}
             <form method="post" action="/jobs/{{ job.job_id }}/quick-apply">
               <input type="hidden" name="status_filter" value="{{ status_filter }}">
@@ -391,8 +446,8 @@
               {% endif %}
             </form>
             {% endif %}
-            <a href="/jobs/{{ job.job_id }}" class="btn btn-sm btn-outline-secondary">
-              View <i class="bi bi-arrow-right ms-1"></i>
+            <a href="/jobs/{{ job.job_id }}" class="btn btn-sm btn-outline-secondary" title="View details">
+              <i class="bi bi-chevron-right"></i>
             </a>
           </div>
         </td>
@@ -478,7 +533,11 @@
   }
 
   // ── Company filter ───────────────────────────────────────────────────────
-  const companySearch   = document.getElementById('companySearch');
+  const selectAllBtn  = document.getElementById('selectAllCo');
+  const deselectAllBtn = document.getElementById('deselectAllCo');
+  const applyBtn       = document.getElementById('applyCompanyFilter');
+  const clearBtn       = document.getElementById('clearCompanyFilter');
+
   if (selectAllBtn) {
     selectAllBtn.addEventListener('click', () => {
       document.querySelectorAll('.company-cb').forEach(cb => cb.checked = true);
@@ -509,6 +568,59 @@
       url.searchParams.delete('exc');
       url.searchParams.delete('page');
       window.location.href = url.toString();
+    });
+  }
+
+  // ── Bulk Actions Script ──────────────────────────────────────────────────
+  const selectAllJobs = document.getElementById('selectAllJobs');
+  const jobCbs = document.querySelectorAll('.job-select-cb');
+  const bulkBar = document.getElementById('bulkActionBar');
+  const selectedCount = document.getElementById('selectedCount');
+  const clearSelectionBtn = document.getElementById('clearSelectionBtn');
+
+  function updateBulkBar() {
+    const checked = Array.from(jobCbs).filter(cb => cb.checked);
+    if (checked.length > 0) {
+      bulkBar.classList.remove('d-none');
+      selectedCount.textContent = checked.length;
+      
+      // Populate hidden inputs in forms
+      document.querySelectorAll('.bulk-job-ids-container').forEach(container => {
+        container.innerHTML = '';
+        checked.forEach(cb => {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'job_ids';
+          input.value = cb.value;
+          container.appendChild(input);
+        });
+      });
+    } else {
+      bulkBar.classList.add('d-none');
+    }
+  }
+
+  if (selectAllJobs) {
+    selectAllJobs.addEventListener('change', function() {
+      jobCbs.forEach(cb => cb.checked = this.checked);
+      updateBulkBar();
+    });
+  }
+
+  jobCbs.forEach(cb => {
+    cb.addEventListener('change', () => {
+      updateBulkBar();
+      if (selectAllJobs) {
+        selectAllJobs.checked = Array.from(jobCbs).every(c => c.checked);
+      }
+    });
+  });
+
+  if (clearSelectionBtn) {
+    clearSelectionBtn.addEventListener('click', () => {
+      jobCbs.forEach(cb => cb.checked = false);
+      if (selectAllJobs) selectAllJobs.checked = false;
+      updateBulkBar();
     });
   }
 </script>
