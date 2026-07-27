@@ -77,9 +77,13 @@ def init_app(db: DatabaseManager, config: Config | None = None) -> Flask:
 @app.route("/")
 def index():
     db = get_db()
+    days_param = request.args.get("days", "all").strip().lower()
+    days_map = {"24h": 1, "14d": 14, "30d": 30, "90d": 90, "all": None}
+    days_val = days_map.get(days_param, None)
+
     stats = db.get_stats()
-    pipeline_stats = db.get_pipeline_stats()
-    app_counts = db.get_application_counts()
+    pipeline_stats = db.get_pipeline_stats(days=days_val)
+    app_counts = db.get_application_counts(days=days_val)
     cl_mode = get_cl_mode()
     _APPROVAL_DAYS = 30
     _RECENT_DAYS = 7
@@ -95,6 +99,7 @@ def index():
         approval_period_days=_APPROVAL_DAYS,
         recent_stats=recent_stats,
         is_runner_active=is_runner_active,
+        active_days=days_param,
     )
 
 

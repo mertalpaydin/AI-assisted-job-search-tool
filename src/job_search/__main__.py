@@ -220,8 +220,8 @@ def list_jobs(config: str, status: str | None) -> None:
 
 @main.command()
 @click.option("--config", default="config/config.yaml", show_default=True)
-@click.option("--limit", default=10000, show_default=True, help="Number of pending jobs to check for expiration")
-def clean(config: str, limit: int) -> None:
+@click.option("--limit", default=None, type=int, help="Number of pending jobs to check for expiration (default: all pending jobs)")
+def clean(config: str, limit: int | None) -> None:
     """Discover expired/closed jobs on LinkedIn and mark them as 'expired'."""
     from job_search.core.database import DatabaseManager
     from job_search.cleaner.cleaner import JobCleaner

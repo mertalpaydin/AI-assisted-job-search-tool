@@ -131,6 +131,14 @@
 {% endif %}
 
 <!-- Main Table -->
+{% set rates = combos | map(attribute='selection_rate_pct') | select('number') | list %}
+{% set max_rate = (rates | max) if rates else 30 %}
+{% set max_rate = max_rate if max_rate > 0 else 30 %}
+
+{% set matches = combos | map(attribute='avg_match_pct') | select('number') | list %}
+{% set max_match = (matches | max) if matches else 60 %}
+{% set max_match = max_match if max_match > 0 else 60 %}
+
 <div class="card stats-card shadow-sm mb-4">
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -139,17 +147,16 @@
           <tr>
             <th class="ps-3">Keyword</th>
             <th>Location</th>
-            <th class="text-end">Found</th>
-            <th class="text-end">Scraped</th>
             <th class="text-end">Screened</th>
             <th class="text-end">Selected</th>
-            <th class="text-end" style="min-width: 140px;">Select %</th>
-            <th class="text-end pe-3">Avg Match</th>
+            <th class="text-end" style="min-width: 200px;">Selection Pass Rate</th>
+            <th class="text-end pe-3" style="min-width: 190px;">Avg Match Score</th>
           </tr>
         </thead>
         <tbody>
           {% for c in combos %}
           {% set rate = c.selection_rate_pct %}
+          {% set m = c.avg_match_pct | int if c.avg_match_pct is not none else None %}
           <tr>
             <td class="ps-3 fw-semibold">
               {% if c.search_keyword %}
@@ -159,18 +166,17 @@
               {% else %}—{% endif %}
             </td>
             <td class="text-muted small">{{ c.search_location_id or "—" }}</td>
-            <td class="text-end text-light">{{ c.total_found }}</td>
-            <td class="text-end text-light">{{ c.with_details }}</td>
-            <td class="text-end text-light">{{ c.screened }}</td>
-            <td class="text-end fw-bold text-success">{{ c.selected }}</td>
+            <td class="text-end text-light small">{{ c.screened }}</td>
+            <td class="text-end fw-bold text-success fs-6">{{ c.selected }}</td>
             <td class="text-end">
               {% if rate is not none %}
+                {% set rel_width = [((rate / max_rate) * 100), 100] | min %}
                 <div class="d-flex align-items-center justify-content-end gap-2">
-                  <div class="progress flex-fill" style="height: 6px; background: #0f172a;">
+                  <div class="progress flex-fill" style="height: 7px; background: #0f172a;" title="{{ rate | int }}% pass rate (scaled relative to top performer {{ max_rate | int }}%)">
                     <div class="progress-bar {% if rate >= 20 %}bg-success{% elif rate >= 10 %}bg-warning{% else %}bg-danger{% endif %}"
-                         role="progressbar" style="width: {{ [rate, 100]|min }}%"></div>
+                         role="progressbar" style="width: {{ rel_width }}%"></div>
                   </div>
-                  <span class="badge {% if rate >= 20 %}bg-success-subtle text-success border border-success-subtle{% elif rate >= 10 %}bg-warning-subtle text-warning-emphasis border border-warning-subtle{% else %}bg-danger-subtle text-danger border border-danger-subtle{% endif %} small">
+                  <span class="badge {% if rate >= 20 %}bg-success-subtle text-success border border-success-subtle{% elif rate >= 10 %}bg-warning-subtle text-warning-emphasis border border-warning-subtle{% else %}bg-danger-subtle text-danger border border-danger-subtle{% endif %} small" style="min-width: 45px;">
                     {{ rate | int }}%
                   </span>
                 </div>
@@ -179,10 +185,17 @@
               {% endif %}
             </td>
             <td class="text-end pe-3">
-              {% if c.avg_match_pct is not none %}
-                <span class="fw-semibold {% if c.avg_match_pct >= 80 %}text-success{% elif c.avg_match_pct >= 65 %}text-warning{% else %}text-secondary{% endif %}">
-                  {{ c.avg_match_pct | int }}%
-                </span>
+              {% if m is not none %}
+                {% set rel_m_width = [((m / max_match) * 100), 100] | min %}
+                <div class="d-flex align-items-center justify-content-end gap-2">
+                  <div class="progress flex-fill" style="height: 7px; background: #0f172a; max-width: 90px;" title="{{ m }}% avg match (scaled relative to top {{ max_match | int }}%)">
+                    <div class="progress-bar {% if m >= 45 %}bg-success{% elif m >= 30 %}bg-info{% else %}bg-warning{% endif %}"
+                         role="progressbar" style="width: {{ rel_m_width }}%"></div>
+                  </div>
+                  <span class="badge {% if m >= 45 %}bg-success-subtle text-success border border-success-subtle{% elif m >= 30 %}bg-info-subtle text-info border border-info-subtle{% else %}bg-warning-subtle text-warning-emphasis border border-warning-subtle{% endif %} small" style="min-width: 45px;">
+                    {{ m }}%
+                  </span>
+                </div>
               {% else %}
                 <span class="text-muted small">—</span>
               {% endif %}
@@ -195,11 +208,14 @@
   </div>
 </div>
 
-<div class="d-flex align-items-center gap-3 text-muted small">
-  <span><strong class="text-light">Select % Legend:</strong></span>
-  <span class="badge bg-success-subtle text-success border border-success-subtle">≥20% High relevance</span>
-  <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">10–19% Moderate</span>
-  <span class="badge bg-danger-subtle text-danger border border-danger-subtle">&lt;10% Low relevance</span>
+<div class="d-flex align-items-center justify-content-between text-muted small flex-wrap gap-2">
+  <div class="d-flex align-items-center gap-3">
+    <span><strong class="text-light">Select % Legend:</strong></span>
+    <span class="badge bg-success-subtle text-success border border-success-subtle">≥20% High relevance</span>
+    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">10–19% Moderate</span>
+    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">&lt;10% Low relevance</span>
+  </div>
+  <span class="fst-italic text-muted me-2">* Bars scaled relative to top performers (Select % max {{ max_rate | int }}%, Avg Match max {{ max_match | int }}%)</span>
 </div>
 {% endif %}
 {% endblock %}

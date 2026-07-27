@@ -72,7 +72,7 @@ class JobCleaner:
 
         return False
 
-    def clean_pending_jobs(self, limit: int = 10000, batch_size: int = 100) -> dict[str, Any]:
+    def clean_pending_jobs(self, limit: int | None = None, batch_size: int = 100) -> dict[str, Any]:
         """Scan all pending jobs continuously across batches using parallel worker threads until all pending jobs are checked."""
         checked_ids: set[int] = set()
         all_expired_ids: list[int] = []
@@ -83,7 +83,7 @@ class JobCleaner:
         def _check_single(job_id: int) -> tuple[int, bool]:
             return job_id, self.is_job_expired(job_id)
 
-        while total_checked < limit:
+        while limit is None or limit <= 0 or total_checked < limit:
             batch = self._db.get_pending_jobs_for_cleaner(limit=batch_size, exclude_ids=checked_ids)
             if not batch:
                 break

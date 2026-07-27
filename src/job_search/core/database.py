@@ -798,50 +798,88 @@ class DatabaseManager:
             "cover_letters_generated": cover_letters,
         }
 
-    def get_pipeline_stats(self) -> dict[str, int]:
+    def get_pipeline_stats(self, days: float | int | None = None) -> dict[str, Any]:
         """Detailed funnel counts at every pipeline stage, including error and pending sub-states."""
+        where_date = ""
+        if days is not None and days > 0:
+            if days == 1:
+                where_date = "AND j.created_at >= datetime('now', '-1 day')"
+            else:
+                where_date = f"AND j.created_at >= datetime('now', '-{int(days)} days')"
+
         with self._cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM jobs")
+            date_cond = where_date.replace("AND j.", "WHERE ") if where_date else ""
+            and_date = where_date.replace("AND j.", "AND ") if where_date else ""
+
+            cur.execute(f"SELECT COUNT(*) FROM jobs {date_cond}")
             total_found = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM jobs WHERE scraped = 1")
+
+            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = 1 {and_date}")
             details_scraped = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM jobs WHERE scraped = 0")
+
+            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = 0 {and_date}")
             details_pending = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM jobs WHERE scraped = -1")
+
+            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = -1 {and_date}")
             details_error = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM screening_results WHERE screening_status = 1")
+
+            cur.execute(f"""
+                SELECT COUNT(*) FROM screening_results sr
+                JOIN jobs j ON sr.job_id = j.job_id
+                WHERE sr.screening_status = 1 {where_date}
+            """)
             screened_ok = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM screening_results WHERE screening_status = -1")
+
+            cur.execute(f"""
+                SELECT COUNT(*) FROM screening_results sr
+                JOIN jobs j ON sr.job_id = j.job_id
+                WHERE sr.screening_status = -1 {where_date}
+            """)
             screened_error = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM jobs WHERE is_selected = 1")
+
+            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE is_selected = 1 {and_date}")
             screen_pass = cur.fetchone()[0]
-            cur.execute(
-                "SELECT COUNT(*) FROM jobs WHERE is_selected = 0 AND cv_match_score IS NOT NULL"
-            )
+
+            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE is_selected = 0 AND cv_match_score IS NOT NULL {and_date}")
             screen_fail = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM cover_letters WHERE generation_status = 1")
+
+            cur.execute(f"""
+                SELECT COUNT(*) FROM cover_letters cl
+                JOIN jobs j ON cl.job_id = j.job_id
+                WHERE cl.generation_status = 1 {where_date}
+            """)
             cl_generated = cur.fetchone()[0]
-            cur.execute("""
+
+            cur.execute(f"""
                 SELECT COUNT(*) FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE j.is_selected = 1 AND cl.id IS NULL AND (j.application_status IS NULL OR j.application_status = '')
+                WHERE j.is_selected = 1 AND cl.id IS NULL AND (j.application_status IS NULL OR j.application_status = '') {where_date}
             """)
             cl_pending = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM cover_letters WHERE generation_status = -1")
+
+            cur.execute(f"""
+                SELECT COUNT(*) FROM cover_letters cl
+                JOIN jobs j ON cl.job_id = j.job_id
+                WHERE cl.generation_status = -1 {where_date}
+            """)
             cl_error = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM jobs WHERE scraped = 1 AND cv_match_score IS NULL")
+
+            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = 1 AND cv_match_score IS NULL {and_date}")
             screen_pending = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM jobs WHERE application_status = 'expired'")
+
+            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE application_status = 'expired' {and_date}")
             expired_count = cur.fetchone()[0]
-            cur.execute("""
+
+            cur.execute(f"""
                 SELECT COUNT(*) FROM jobs j
                 JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE j.is_selected = 1 AND cl.generation_status = 1 AND (j.application_status IS NULL OR j.application_status = '')
+                WHERE j.is_selected = 1 AND cl.generation_status = 1 AND (j.application_status IS NULL OR j.application_status = '') {where_date}
             """)
             ready_to_apply = cur.fetchone()[0]
-            cur.execute("""
+
+            cur.execute(f"""
                 SELECT COUNT(*) FROM jobs
-                WHERE is_selected = 1 AND cv_match_score >= 0.85 AND (application_status IS NULL OR application_status = '')
+                WHERE is_selected = 1 AND cv_match_score >= 0.85 AND (application_status IS NULL OR application_status = '') {and_date}
             """)
             top_matches_pending = cur.fetchone()[0]
 
@@ -1010,11 +1048,17 @@ class DatabaseManager:
             """)
             return [SelectedJobRow(**dict(row)) for row in cur.fetchall()]
 
-    def get_application_counts(self) -> dict[str, int]:
+    def get_application_counts(self, days: float | int | None = None) -> dict[str, int]:
+        where = ""
+        if days is not None and days > 0:
+            if days == 1:
+                where = "AND created_at >= datetime('now', '-1 day')"
+            else:
+                where = f"AND created_at >= datetime('now', '-{int(days)} days')"
         with self._cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT application_status, COUNT(*) FROM jobs
-                WHERE application_status IS NOT NULL
+                WHERE application_status IS NOT NULL {where}
                 GROUP BY application_status
             """)
             return {row[0]: row[1] for row in cur.fetchall()}
