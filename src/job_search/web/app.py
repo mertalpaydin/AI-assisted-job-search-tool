@@ -114,6 +114,7 @@ def jobs():
     date_from      = request.args.get("date_from", "")
     date_to        = request.args.get("date_to", "")
     exclude_companies = request.args.getlist("exc")
+    keyword_filter = request.args.get("kw", "").strip()
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
@@ -125,6 +126,7 @@ def jobs():
         date_from=date_from, date_to=date_to,
         search=search, cl_ready=bool(cl_filter),
         exclude_companies=all_excluded or None,
+        keyword_filter=keyword_filter,
     )
     job_list, total = db.get_selected_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -134,8 +136,10 @@ def jobs():
         date_from=date_from, date_to=date_to,
         exclude_companies=all_excluded or None,
         limit=_PAGE_SIZE, offset=offset,
+        keyword_filter=keyword_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    distinct_keywords = db.get_distinct_keywords()
 
     return render_template(
         "jobs.html", jobs=job_list, status_filter=status_filter,
@@ -147,6 +151,8 @@ def jobs():
         date_from=date_from, date_to=date_to,
         company_counts=company_counts,
         exclude_companies=exclude_companies,
+        keyword_filter=keyword_filter,
+        distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )
 
@@ -163,6 +169,7 @@ def jobs_all():
     date_from      = request.args.get("date_from", "")
     date_to        = request.args.get("date_to", "")
     exclude_companies = request.args.getlist("exc")
+    keyword_filter = request.args.get("kw", "").strip()
     page           = _get_page()
     offset         = (page - 1) * _PAGE_SIZE
 
@@ -174,6 +181,7 @@ def jobs_all():
         date_from=date_from, date_to=date_to,
         search=search, cl_ready=bool(cl_filter),
         exclude_companies=all_excluded or None,
+        keyword_filter=keyword_filter,
     )
     job_list, total = db.get_all_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -183,8 +191,10 @@ def jobs_all():
         date_from=date_from, date_to=date_to,
         exclude_companies=all_excluded or None,
         limit=_PAGE_SIZE, offset=offset,
+        keyword_filter=keyword_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    distinct_keywords = db.get_distinct_keywords()
 
     return render_template(
         "jobs.html", jobs=job_list, status_filter=status_filter,
@@ -196,6 +206,8 @@ def jobs_all():
         date_from=date_from, date_to=date_to,
         company_counts=company_counts,
         exclude_companies=exclude_companies,
+        keyword_filter=keyword_filter,
+        distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )
 

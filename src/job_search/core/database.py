@@ -175,6 +175,7 @@ class SelectedJobRow:
     generation_status: int | None
     user_cl_approved: int | None = None
     created_at: str | None = None
+    search_keyword: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -512,7 +513,7 @@ class DatabaseManager:
 
     def get_jobs_pending_details(self) -> list[int]:
         with self._cursor() as cur:
-            cur.execute("SELECT job_id FROM jobs WHERE scraped = 0")
+            cur.execute("SELECT job_id FROM jobs WHERE scraped = 0 ORDER BY created_at DESC, job_id DESC")
             return [row[0] for row in cur.fetchall()]
 
     def get_jobs_pending_screening(self) -> list[int]:
@@ -521,6 +522,7 @@ class DatabaseManager:
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN screening_results sr ON j.job_id = sr.job_id
                 WHERE j.scraped = 1 AND sr.id IS NULL
+                ORDER BY j.created_at DESC, COALESCE(j.originalListedAt, j.listedAt, j.job_id) DESC
             """)
             return [row[0] for row in cur.fetchall()]
 
@@ -536,12 +538,14 @@ class DatabaseManager:
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
                 WHERE j.user_cl_approved = 1 AND {stuck_or_missing}
+                ORDER BY j.created_at DESC, COALESCE(j.originalListedAt, j.listedAt, j.job_id) DESC
             """
         else:
             sql = f"""
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
                 WHERE (j.is_selected = 1 OR j.user_cl_approved = 1) AND {stuck_or_missing}
+                ORDER BY j.created_at DESC, COALESCE(j.originalListedAt, j.listedAt, j.job_id) DESC
             """
         with self._cursor() as cur:
             cur.execute(sql)
@@ -690,7 +694,12 @@ class DatabaseManager:
         Returns the job_ids that were cleared.
         """
         with self._cursor() as cur:
-            cur.execute("SELECT job_id FROM screening_results WHERE screening_status = -1")
+            cur.execute("""
+                SELECT sr.job_id FROM screening_results sr
+                LEFT JOIN jobs j ON sr.job_id = j.job_id
+                WHERE sr.screening_status = -1
+                ORDER BY j.created_at DESC, COALESCE(j.originalListedAt, j.listedAt, j.job_id) DESC
+            """)
             job_ids = [row[0] for row in cur.fetchall()]
             if job_ids:
                 cur.execute("DELETE FROM screening_results WHERE screening_status = -1")
@@ -702,7 +711,7 @@ class DatabaseManager:
         so they are re-queued. Returns the job_ids that were reset.
         """
         with self._cursor() as cur:
-            cur.execute("SELECT job_id FROM jobs WHERE scraped = -1")
+            cur.execute("SELECT job_id FROM jobs WHERE scraped = -1 ORDER BY created_at DESC, job_id DESC")
             job_ids = [row[0] for row in cur.fetchall()]
             if job_ids:
                 cur.execute(
@@ -936,6 +945,7 @@ class DatabaseManager:
         search: str = "",
         cl_ready: bool = False,
         exclude_companies: list[str] | None = None,
+        keyword_filter: str = "",
     ) -> list[tuple[str, int]]:
         """Return (company_name, job_count) sorted by count desc.
 
@@ -982,6 +992,10 @@ class DatabaseManager:
             conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
             params.extend(c.lower() for c in exclude_companies)
 
+        if keyword_filter:
+            conditions.append("LOWER(j.search_keyword) = LOWER(?)")
+            params.append(keyword_filter)
+
         where = " AND ".join(conditions)
         join = "LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1" if cl_ready else ""
 
@@ -1009,6 +1023,7 @@ class DatabaseManager:
         exclude_companies: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
+        keyword_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated AI-selected jobs with optional filters.
 
@@ -1056,6 +1071,10 @@ class DatabaseManager:
             conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
             params.extend(c.lower() for c in exclude_companies)
 
+        if keyword_filter:
+            conditions.append("LOWER(j.search_keyword) = LOWER(?)")
+            params.append(keyword_filter)
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
@@ -1078,7 +1097,7 @@ class DatabaseManager:
                     CASE WHEN cl.cover_letter_text IS NOT NULL THEN 'yes' ELSE NULL END
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
-                    j.user_cl_approved, j.created_at
+                    j.user_cl_approved, j.created_at, j.search_keyword
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
@@ -1098,7 +1117,7 @@ class DatabaseManager:
                     j.cv_match_score, j.german_requirement_level, j.is_selected,
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
-                    j.user_cl_approved, j.created_at
+                    j.user_cl_approved, j.created_at, j.search_keyword
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -1119,6 +1138,7 @@ class DatabaseManager:
         exclude_companies: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
+        keyword_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated scraped jobs (selected or not) with optional filters.
 
@@ -1165,6 +1185,10 @@ class DatabaseManager:
             conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
             params.extend(c.lower() for c in exclude_companies)
 
+        if keyword_filter:
+            conditions.append("LOWER(j.search_keyword) = LOWER(?)")
+            params.append(keyword_filter)
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
@@ -1186,7 +1210,7 @@ class DatabaseManager:
                     CASE WHEN cl.cover_letter_text IS NOT NULL THEN 'yes' ELSE NULL END
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
-                    j.user_cl_approved, j.created_at
+                    j.user_cl_approved, j.created_at, j.search_keyword
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
@@ -1194,6 +1218,17 @@ class DatabaseManager:
                 LIMIT ? OFFSET ?
             """, params + [limit, offset])
             return [SelectedJobRow(**dict(row)) for row in cur.fetchall()], total
+
+    def get_distinct_keywords(self) -> list[str]:
+        """Return a sorted list of all distinct search keywords present in the database."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT search_keyword 
+                FROM jobs 
+                WHERE search_keyword IS NOT NULL AND search_keyword != '' 
+                ORDER BY search_keyword ASC
+            """)
+            return [row[0] for row in cur.fetchall()]
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn:

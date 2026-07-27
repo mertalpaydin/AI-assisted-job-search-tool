@@ -52,7 +52,7 @@ class TestJobOperations:
         db.update_job_details(3005, {"country": "urn:li:fs_country:de"})
         # The URN prefix should be stripped — verify by checking raw DB value via get_all_jobs
         db.save_screening_result(3005, ScreeningResult(0.8, "none", True, "ok"))
-        jobs = db.get_all_jobs()
+        jobs, _ = db.get_all_jobs()
         job = next((j for j in jobs if j.job_id == 3005), None)
         assert job is not None
 
@@ -124,7 +124,7 @@ class TestScreeningOperations:
         row = db.get_job_details(7004)
         assert row is not None
         # is_selected and cv_match_score should be in jobs table
-        jobs = db.get_selected_jobs()
+        jobs, _ = db.get_selected_jobs()
         selected_ids = [j.job_id for j in jobs]
         assert 7004 in selected_ids
 
@@ -176,7 +176,7 @@ class TestCoverLetterOperations:
         self._insert_selected_job(db, 9003)
         db.mark_cover_letter_error(9003, "API timeout")
         deleted = db.purge_cover_letter_errors()
-        assert deleted >= 1
+        assert len(deleted) >= 1
 
 
 class TestStatsAndApiUsage:
@@ -207,3 +207,55 @@ class TestStatsAndApiUsage:
     def test_log_api_usage(self, db: DatabaseManager) -> None:
         db.log_api_usage(0, "generate_content", True)
         db.log_api_usage(1, "generate_content", False, "RateLimitError")
+
+
+class TestKeywordFiltering:
+    def test_get_distinct_keywords(self, db: DatabaseManager) -> None:
+        db.insert_job(20001, "python", "loc1")
+        db.insert_job(20002, "javascript", "loc2")
+        db.insert_job(20003, "python", "loc3")
+        # should ignore empty/null
+        db.insert_job(20004, "", "loc4")
+        
+        kws = db.get_distinct_keywords()
+        assert kws == ["javascript", "python"]
+
+    def test_jobs_filter_by_keyword(self, db: DatabaseManager) -> None:
+        db.insert_job(20011, "python", "loc1")
+        db.insert_job(20012, "javascript", "loc2")
+        
+        # update title so they are counted as scraped / detailed
+        db.update_job_details(20011, {"title": "Python Dev"})
+        db.update_job_details(20012, {"title": "JS Dev"})
+        
+        # mark as selected for get_selected_jobs
+        db.save_screening_result(20011, ScreeningResult(0.9, "none", True, "Good"))
+        db.save_screening_result(20012, ScreeningResult(0.9, "none", True, "Good"))
+
+        # Test get_selected_jobs filtering
+        jobs_py, count_py = db.get_selected_jobs(keyword_filter="python")
+        assert count_py == 1
+        assert jobs_py[0].job_id == 20011
+        assert jobs_py[0].search_keyword == "python"
+
+        jobs_js, count_js = db.get_selected_jobs(keyword_filter="javascript")
+        assert count_js == 1
+        assert jobs_js[0].job_id == 20012
+
+        # Test case-insensitive
+        jobs_caps, count_caps = db.get_selected_jobs(keyword_filter="PYTHON")
+        assert count_caps == 1
+
+        # Test get_all_jobs filtering
+        all_py, count_all_py = db.get_all_jobs(keyword_filter="python")
+        assert count_all_py == 1
+        assert all_py[0].job_id == 20011
+
+        # Test get_company_counts filtering
+        db.update_job_details(20011, {"company_name": "PyCorp"})
+        db.update_job_details(20012, {"company_name": "JsCorp"})
+        
+        counts = db.get_company_counts(selected_only=True, keyword_filter="python")
+        assert len(counts) == 1
+        assert counts[0][0] == "PyCorp"
+

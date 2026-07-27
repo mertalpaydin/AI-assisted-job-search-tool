@@ -8,7 +8,8 @@
 {% macro page_url(p=page, s=current_sort, d=current_dir,
                   st=status_filter, sq=search_query,
                   rm=remote_filter, cl=cl_filter,
-                  df=date_from, dt=date_to, ex=exclude_companies) -%}
+                  df=date_from, dt=date_to, ex=exclude_companies,
+                  kw=keyword_filter) -%}
   {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
@@ -16,6 +17,7 @@
   {%- if cl %}&cl_ready=1{% endif %}
   {%- if df %}&date_from={{ df }}{% endif %}
   {%- if dt %}&date_to={{ dt }}{% endif %}
+  {%- if kw %}&kw={{ kw | urlencode }}{% endif %}
   {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
 
@@ -38,7 +40,7 @@
     {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
     <span class="badge bg-secondary ms-2">{{ total }}</span>
   </h4>
-  {% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies %}
+  {% if status_filter or search_query or remote_filter or cl_filter or date_from or date_to or exclude_companies or keyword_filter %}
   <a href="{{ base_url }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear all filters
   </a>
@@ -84,6 +86,32 @@
     <input type="date" id="scraped-to" class="form-control form-control-sm"
            style="width:140px" value="{{ date_to }}">
   </div>
+
+  {# Keyword filter dropdown #}
+  {% if distinct_keywords %}
+  <div class="dropdown" id="keywordFilterDropdown">
+    <button class="btn btn-sm {% if keyword_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-tag-fill me-1"></i>Keywords
+      {% if keyword_filter %}<span class="badge bg-dark ms-1">{{ keyword_filter }}</span>{% endif %}
+    </button>
+    <ul class="dropdown-menu p-2 shadow" style="min-width:200px; max-height:350px; overflow-y:auto">
+      <li>
+        <a class="dropdown-item small {% if not keyword_filter %}active{% endif %}" href="{{ page_url(p=1, kw='') }}">
+          All Keywords
+        </a>
+      </li>
+      <li><hr class="dropdown-divider"></li>
+      {% for kw in distinct_keywords %}
+      <li>
+        <a class="dropdown-item small {% if keyword_filter == kw %}active{% endif %}" href="{{ page_url(p=1, kw=kw) }}">
+          {{ kw }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   {# Company filter dropdown #}
   {% if company_counts %}
@@ -181,7 +209,14 @@
       <tr>
         <td>
           <div class="fw-semibold">{{ job.title or "N/A" }}</div>
-          <div class="text-muted small">{{ job.company_name or "Unknown" }}</div>
+          <div class="text-muted small">
+            {{ job.company_name or "Unknown" }}
+            {% if job.search_keyword %}
+            <span class="badge bg-light text-secondary border ms-1" style="font-size:0.7rem;" title="Scraped with keyword">
+              <i class="bi bi-tag-fill me-1"></i>{{ job.search_keyword }}
+            </span>
+            {% endif %}
+          </div>
         </td>
         <td>
           <span class="small">{{ job.formattedLocation or "N/A" }}</span>

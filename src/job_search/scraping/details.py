@@ -194,7 +194,7 @@ class DetailsWorker:
 
         company_name: str | None = parsed.job_fields.get("company_name")
         if company_name and company_name.lower() in self._blocked_companies:
-            logger.info("Blocked company '{}' — deleting job {}", company_name, job_id)
+            logger.debug("Blocked company '{}' — deleting job {}", company_name, job_id)
             self._db.delete_job(job_id)
             return
 
