@@ -20,6 +20,7 @@ from job_search.core.database import DatabaseManager
 from job_search.core.state import ShutdownCoordinator
 from job_search.ai.prompt_manager import PromptManager
 from job_search.utils.api_rotation import GeminiAPIRotator
+from job_search.utils.formatting import clean_cover_letter_text
 
 
 class _RateLimitError(Exception):

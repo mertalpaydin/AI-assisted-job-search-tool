@@ -16,12 +16,19 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, url
 
 from job_search.core.config import Config, load_config
 from job_search.core.database import APPLICATION_STATUSES, DatabaseManager
+from job_search.utils.formatting import clean_cover_letter_text
 
 # Flask finds templates relative to this file's directory
 app = Flask(__name__, template_folder="templates")
 app.secret_key = "local-job-search-ui"
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+
+@app.template_filter("clean_cl")
+def clean_cl_filter(value: str | None) -> str:
+    """Clean cover letter text by normalizing line breaks for MS Word compatibility."""
+    return clean_cover_letter_text(value)
 
 
 @app.template_filter("short_date")

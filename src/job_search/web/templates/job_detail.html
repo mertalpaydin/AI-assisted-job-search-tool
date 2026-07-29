@@ -29,6 +29,8 @@
     padding: 1.25rem;
     width: 100%;
     resize: vertical;
+    overflow: hidden;
+    box-sizing: border-box;
   }
   .cl-textarea:focus {
     background-color: #0f172a;
@@ -175,7 +177,7 @@
       <div class="card-body p-4">
         {% if job.cover_letter_text %}
         <form method="post" action="/jobs/{{ job.job_id }}/cover-letter/update">
-          <textarea name="cover_letter_text" class="cl-textarea mb-3" rows="12" id="coverLetterText">{{ job.cover_letter_text }}</textarea>
+          <textarea name="cover_letter_text" class="cl-textarea mb-3" id="coverLetterText">{{ job.cover_letter_text }}</textarea>
           <div class="d-flex justify-content-between align-items-center">
             <span class="text-muted small"><i class="bi bi-pencil me-1"></i>Editable text area</span>
             <button type="submit" class="btn btn-sm btn-outline-primary">
@@ -327,9 +329,18 @@
 
 {% block scripts %}
 <script>
+function autoResizeTextarea() {
+  const textarea = document.getElementById("coverLetterText");
+  if (textarea) {
+    textarea.style.height = "auto";
+    textarea.style.height = (textarea.scrollHeight + 4) + "px";
+  }
+}
+
 function copyCoverLetter() {
   const textarea = document.getElementById("coverLetterText");
-  const text = textarea ? textarea.value : "";
+  if (!textarea) return;
+  const text = textarea.value.replace(/\r\n/g, "\n").replace(/\n\s*\n+/g, "\n").trim();
   navigator.clipboard.writeText(text).then(() => {
     const btn = document.getElementById("copyBtn");
     btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
@@ -340,5 +351,14 @@ function copyCoverLetter() {
     }, 2000);
   });
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+  autoResizeTextarea();
+  const textarea = document.getElementById("coverLetterText");
+  if (textarea) {
+    textarea.addEventListener("input", autoResizeTextarea);
+  }
+});
+window.addEventListener("resize", autoResizeTextarea);
 </script>
 {% endblock %}

@@ -43,3 +43,39 @@ def test_jobs_route_german_filter(db: DatabaseManager, client) -> None:
     html = response.get_data(as_text=True)
     assert "Python Eng" in html
     assert "Data Eng" not in html
+
+
+def test_clean_cover_letter_text() -> None:
+    from job_search.utils.formatting import clean_cover_letter_text
+
+    raw = "Dear Manager,\n\n\nI am writing to apply.\n\nThank you.\n\n"
+    expected = "Dear Manager,\nI am writing to apply.\nThank you."
+    assert clean_cover_letter_text(raw) == expected
+    assert clean_cover_letter_text(None) == ""
+
+
+def test_cover_letter_update_and_rendering(db: DatabaseManager, client) -> None:
+    db.insert_job(50001, "kw", "loc")
+    db.update_job_details(50001, {"title": "AI Engineer", "company_name": "AI Co"})
+    db.save_screening_result(50001, ScreeningResult(0.95, "none", True, "Great candidate"))
+    
+    # Post cover letter text with paragraph breaks
+    raw_cl = "Paragraph 1\n\nParagraph 2\n\nParagraph 3"
+    res = client.post(
+        "/jobs/50001/cover-letter/update",
+        data={"cover_letter_text": raw_cl},
+        follow_redirects=True,
+    )
+    assert res.status_code == 200
+
+    # Verify database retains original paragraph breaks for Web UI display
+    job = db.get_selected_job(50001)
+    assert job is not None
+    assert job.cover_letter_text == raw_cl
+
+    # Verify detail HTML includes non-scrollable textarea and JS formatting logic for copying to clipboard
+    html = res.get_data(as_text=True)
+    assert "overflow: hidden" in html
+    assert "textarea.value.replace(/\\r\\n/g, \"\\n\").replace(/\\n\\s*\\n+/g, \"\\n\")" in html
+    assert "Paragraph 1\n\nParagraph 2\n\nParagraph 3" in html
+
