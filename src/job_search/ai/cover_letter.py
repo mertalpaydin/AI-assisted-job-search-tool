@@ -134,85 +134,88 @@ class CoverLetterWorker:
         return count
 
     async def _generate_for_job(self, job_id: int) -> None:
-        # Idempotency guard: a job may arrive from both the screening worker and
-        # the DB poll (in "auto" mode).  Skip it if already done.
-        if self._db.has_successful_cover_letter(job_id):
-            logger.debug("Job {} already has a cover letter — skipping duplicate", job_id)
-            return
-
-        job = self._db.get_job_details(job_id)
-        if job is None:
-            logger.warning("Job {} not found — skipping cover letter", job_id)
-            return
-
-        cl_cfg = self._cl_cfg
-        max_retries = cl_cfg.rate_limits.max_retries
-        retry_delay = cl_cfg.rate_limits.retry_delay
-
         try:
-            system, user = self._prompts.format_cover_letter_prompt(
-                job_title=job.title or "",
-                company_name=job.company_name,
-                job_location=job.formattedLocation,
-                job_description=job.description,
-            )
+            # Idempotency guard: a job may arrive from both the screening worker and
+            # the DB poll (in "auto" mode).  Skip it if already done.
+            if self._db.has_successful_cover_letter(job_id):
+                logger.debug("Job {} already has a cover letter — skipping duplicate", job_id)
+                return
 
-            async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(max_retries),
-                wait=wait_exponential(multiplier=2, min=retry_delay, max=retry_delay * 8),
-                retry=retry_if_exception_type((_RateLimitError, _TemporaryError)),
-                reraise=True,
-            ):
-                with attempt:
-                    key_idx, api_key = self._rotator.get_next_available_key()
-                    try:
-                        text = await self._call_gemini(api_key, system, user)
-                        self._rotator.record_success(key_idx)
-                        self._db.log_api_usage(key_idx, "cover_letter", success=True)
-                    except Exception as exc:
-                        classified = _classify_exception(exc)
-                        self._rotator.record_error(key_idx, type(classified).__name__)
-                        self._db.log_api_usage(
-                            key_idx, "cover_letter", success=False,
-                            error_type=type(classified).__name__,
-                        )
-                        raise classified from exc
+            job = self._db.get_job_details(job_id)
+            if job is None:
+                logger.warning("Job {} not found — skipping cover letter", job_id)
+                return
 
-        except Exception as exc:
-            logger.error("Cover letter failed for job {} after {} retries: {}", job_id, max_retries, exc)
-            self._db.mark_cover_letter_error(job_id, str(exc), retry_count=max_retries)
-            return
+            cl_cfg = self._cl_cfg
+            max_retries = cl_cfg.rate_limits.max_retries
+            retry_delay = cl_cfg.rate_limits.retry_delay
 
-        if not text or not text.strip():
-            logger.error("Cover letter for job {} returned empty text — marking as error", job_id)
-            self._db.mark_cover_letter_error(job_id, "Empty response from API", retry_count=max_retries)
-            return
-
-        # Detect when the model outputs a raw search query instead of a cover letter.
-        # This can happen with search grounding enabled: the model emits the tool call
-        # as plain text rather than executing it and returning the finished letter.
-        stripped = text.strip()
-        if stripped.startswith("google:search{") or stripped.startswith("google:search("):
-            logger.error(
-                "Cover letter for job {} contains raw search query instead of text — marking as error",
-                job_id,
-            )
-            self._db.mark_cover_letter_error(
-                job_id,
-                "Model returned raw search query instead of cover letter text",
-                retry_count=max_retries,
-            )
-            return
-
-        self._db.save_cover_letter(job_id, text, cl_cfg.model, key_idx)
-        logger.info("Cover letter generated for job {} ({})", job_id, job.title)
-
-        if self._export_dir is not None:
             try:
-                from job_search.export.exporter import export_single_job
-                export_single_job(self._db, job_id, self._export_dir)
+                system, user = self._prompts.format_cover_letter_prompt(
+                    job_title=job.title or "",
+                    company_name=job.company_name,
+                    job_location=job.formattedLocation,
+                    job_description=job.description,
+                )
+
+                async for attempt in AsyncRetrying(
+                    stop=stop_after_attempt(max_retries),
+                    wait=wait_exponential(multiplier=2, min=retry_delay, max=retry_delay * 8),
+                    retry=retry_if_exception_type((_RateLimitError, _TemporaryError)),
+                    reraise=True,
+                ):
+                    with attempt:
+                        key_idx, api_key = self._rotator.get_next_available_key()
+                        try:
+                            text = await self._call_gemini(api_key, system, user)
+                            self._rotator.record_success(key_idx)
+                            self._db.log_api_usage(key_idx, "cover_letter", success=True)
+                        except Exception as exc:
+                            classified = _classify_exception(exc)
+                            self._rotator.record_error(key_idx, type(classified).__name__)
+                            self._db.log_api_usage(
+                                key_idx, "cover_letter", success=False,
+                                error_type=type(classified).__name__,
+                            )
+                            raise classified from exc
+
             except Exception as exc:
-                logger.warning("Auto-export failed for job {}: {}", job_id, exc)
+                logger.error("Cover letter failed for job {} after {} retries: {}", job_id, max_retries, exc)
+                self._db.mark_cover_letter_error(job_id, str(exc), retry_count=max_retries)
+                return
+
+            if not text or not text.strip():
+                logger.error("Cover letter for job {} returned empty text — marking as error", job_id)
+                self._db.mark_cover_letter_error(job_id, "Empty response from API", retry_count=max_retries)
+                return
+
+            # Detect when the model outputs a raw search query instead of a cover letter.
+            # This can happen with search grounding enabled: the model emits the tool call
+            # as plain text rather than executing it and returning the finished letter.
+            stripped = text.strip()
+            if stripped.startswith("google:search{") or stripped.startswith("google:search("):
+                logger.error(
+                    "Cover letter for job {} contains raw search query instead of text — marking as error",
+                    job_id,
+                )
+                self._db.mark_cover_letter_error(
+                    job_id,
+                    "Model returned raw search query instead of cover letter text",
+                    retry_count=max_retries,
+                )
+                return
+
+            self._db.save_cover_letter(job_id, text, cl_cfg.model, key_idx)
+            logger.info("Cover letter generated for job {} ({})", job_id, job.title)
+
+            if self._export_dir is not None:
+                try:
+                    from job_search.export.exporter import export_single_job
+                    export_single_job(self._db, job_id, self._export_dir)
+                except Exception as exc:
+                    logger.warning("Auto-export failed for job {}: {}", job_id, exc)
+        finally:
+            self._queued_ids.discard(job_id)
 
     async def _worker_loop(self) -> None:
         """Async loop: drain the queue until shutdown.

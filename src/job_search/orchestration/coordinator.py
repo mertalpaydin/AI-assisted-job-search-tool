@@ -348,22 +348,40 @@ class JobSearchCoordinator:
                 self._shutdown.request_shutdown()
                 break
 
-            # Shutdown condition 2: no new jobs for N minutes AND active queues empty
+            # Shutdown condition 2: no new jobs for N minutes AND active queues empty AND no non-queue workers running
             queues_empty = all(q.empty() for q in watched_queues)
-            if no_new_minutes >= idle_limit_minutes and queues_empty:
-                logger.info(
-                    "No new jobs for {:.1f} min and active queues empty — shutting down",
-                    no_new_minutes,
-                )
-                self._shutdown.request_shutdown()
-                break
+            # Check if any non-queue worker thread (like cleaner) is still running
+            cleaner_running = any(
+                t.is_alive() and t.name == "cleaner" for t in self._threads
+            )
+
+            if queues_empty and not cleaner_running:
+                # Before declaring idle shutdown, check if there are errored jobs to retry
+                if retry_interval > 0:
+                    requeued = self._retry_errors()
+                    if requeued > 0:
+                        logger.info(
+                            "Queues were empty, but auto-retry re-queued {} errored job(s) for processing.",
+                            requeued,
+                        )
+                        last_retry = time.monotonic()
+                        continue
+
+                if no_new_minutes >= idle_limit_minutes:
+                    logger.info(
+                        "No new jobs for {:.1f} min, active queues empty, and no active workers — shutting down",
+                        no_new_minutes,
+                    )
+                    self._shutdown.request_shutdown()
+                    break
 
         logger.info("Monitor loop exiting — waiting for workers to finish…")
         self._drain_queues(timeout=60)
 
-    def _retry_errors(self) -> None:
-        """Reset errored jobs and push them back onto the live queues."""
+    def _retry_errors(self) -> int:
+        """Reset errored jobs and push them back onto the live queues. Returns total requeued count."""
         stages = self._stages
+        requeued_total = 0
 
         if "details" in stages:
             job_ids = self._db.reset_detail_errors()
@@ -371,6 +389,7 @@ class JobSearchCoordinator:
                 self._details_queue.put(jid)
             if job_ids:
                 logger.info("Auto-retry: requeued {} detail-error job(s)", len(job_ids))
+                requeued_total += len(job_ids)
 
         if "screen" in stages:
             job_ids = self._db.reset_screening_errors()
@@ -378,6 +397,7 @@ class JobSearchCoordinator:
                 self._screening_queue.put(jid)
             if job_ids:
                 logger.info("Auto-retry: requeued {} screening-error job(s)", len(job_ids))
+                requeued_total += len(job_ids)
 
         if "cover-letter" in stages:
             cleared = self._db.purge_cover_letter_errors()
@@ -393,6 +413,9 @@ class JobSearchCoordinator:
                     "Auto-retry: requeued {}/{} cover-letter-error job(s)",
                     len(to_retry), len(cleared),
                 )
+                requeued_total += len(to_retry)
+
+        return requeued_total
 
     def _drain_queues(self, timeout: float) -> None:
         """Give workers up to `timeout` seconds to finish in-flight items.
