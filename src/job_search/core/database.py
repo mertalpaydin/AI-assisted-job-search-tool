@@ -1435,7 +1435,7 @@ class DatabaseManager:
             """)
             return [row[0] for row in cur.fetchall()]
 
-    def get_pending_jobs_for_cleaner(self, limit: int = 100, exclude_ids: set[int] | None = None) -> list[dict]:
+    def get_pending_jobs_for_cleaner(self, limit: int = 500, exclude_ids: set[int] | None = None) -> list[dict]:
         """Return pending jobs to inspect for expired status, prioritizing selected jobs and newest jobs first."""
         with self._cursor() as cur:
             if exclude_ids:

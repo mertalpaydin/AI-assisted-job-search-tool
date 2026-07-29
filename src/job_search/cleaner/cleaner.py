@@ -94,13 +94,13 @@ class JobCleaner:
 
         return False
 
-    def clean_pending_jobs(self, limit: int | None = None, batch_size: int = 100) -> dict[str, Any]:
-        """Scan pending jobs across batches using parallel worker threads until pending jobs are checked."""
+    def clean_pending_jobs(self, limit: int | None = None, batch_size: int = 500) -> dict[str, Any]:
+        """Scan pending jobs across batches using parallel worker threads in batches of 500 until pending jobs are checked."""
         checked_ids: set[int] = set()
         all_expired_ids: list[int] = []
         total_checked = 0
 
-        logger.info("Cleaner: Starting scan across pending jobs (5 parallel workers)...")
+        logger.info("Cleaner: Starting scan across pending jobs (5 parallel workers, batch size 500)...")
 
         def _check_single(job_id: int) -> tuple[int, bool]:
             return job_id, self.is_job_expired(job_id)
@@ -132,16 +132,12 @@ class JobCleaner:
             if batch_expired:
                 all_expired_ids.extend(batch_expired)
                 self._db.mark_jobs_expired_batch(batch_expired)
-                logger.info(
-                    "Cleaner: Found and marked {} expired job(s) in DB (total checked: {}).",
-                    len(batch_expired),
-                    total_checked,
-                )
-            elif total_checked % 500 == 0:
-                logger.info(
-                    "Cleaner progress: Checked {} pending jobs...",
-                    total_checked,
-                )
+
+            logger.info(
+                "Cleaner progress: Checked {} pending jobs — marked {} expired job(s) in DB so far.",
+                total_checked,
+                len(all_expired_ids),
+            )
 
         logger.info(
             "Cleaner complete: Processed {} total pending jobs — marked {} as expired.",

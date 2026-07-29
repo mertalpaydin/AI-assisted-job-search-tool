@@ -84,6 +84,17 @@
 <div class="row g-4">
   <!-- Left: details + cover letter -->
   <div class="col-md-8">
+    {% set st = job.application_status %}
+    {% if st == "expired" %}
+    <div class="alert alert-danger d-flex align-items-center mb-4 border-danger" role="alert">
+      <i class="bi bi-exclamation-octagon-fill me-3 fs-3 text-danger"></i>
+      <div>
+        <h6 class="alert-heading mb-1 fw-bold">Job Posting Expired</h6>
+        <div class="small">This job has been detected as closed or no longer accepting applications on LinkedIn.</div>
+      </div>
+    </div>
+    {% endif %}
+
     <!-- Executive Screening Summary Card -->
     <div class="card detail-summary-card shadow-sm mb-4">
       <div class="card-body p-4">
@@ -102,9 +113,9 @@
               {% endif %}
             </p>
           </div>
-          {% set st = job.application_status %}
           {% if st == "applied" %}<span class="badge bg-primary fs-6 px-3 py-2">Applied</span>
           {% elif st == "skipped" %}<span class="badge bg-secondary text-secondary-emphasis fs-6 px-3 py-2">Skipped</span>
+          {% elif st == "expired" %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle fs-6 px-3 py-2"><i class="bi bi-x-circle me-1"></i>Expired</span>
           {% else %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle fs-6 px-3 py-2">Pending</span>{% endif %}
         </div>
 
@@ -233,6 +244,7 @@
           Current Status:
           {% if st == "applied" %}<span class="badge bg-primary">applied</span>
           {% elif st == "skipped" %}<span class="badge bg-secondary text-secondary-emphasis">skipped</span>
+          {% elif st == "expired" %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle">expired</span>
           {% else %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">pending</span>{% endif %}
           {% if job.applied_at %}
           <span class="ms-2 text-muted">· {{ job.applied_at[:10] }}</span>
@@ -249,6 +261,11 @@
             {% if job.application_status != "skipped" %}
             <button name="status" value="skipped" class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-slash-circle me-1"></i>Skip (Not Applying)
+            </button>
+            {% endif %}
+            {% if job.application_status != "expired" %}
+            <button name="status" value="expired" class="btn btn-outline-danger btn-sm">
+              <i class="bi bi-x-circle me-1"></i>Mark Expired
             </button>
             {% endif %}
             {% if job.application_status %}
