@@ -24,7 +24,7 @@ class JobCleaner:
         self,
         db: DatabaseManager,
         session: requests.Session | None = None,
-        max_workers: int = 5,
+        max_workers: int = 3,
     ) -> None:
         self._db = db
         self._session = session
@@ -38,8 +38,14 @@ class JobCleaner:
             self._local.session = s
         return self._local.session
 
-    def is_job_expired(self, job_id: int) -> bool:
-        """Check whether a LinkedIn job is closed/expired."""
+    def is_job_expired(self, job_id: int) -> bool | None:
+        """Check whether a LinkedIn job is closed/expired.
+
+        Returns:
+            True: Job is closed/expired.
+            False: Job is active.
+            None: Rate-limited or blocked (429, 403, 999).
+        """
         session = self._session or self._get_thread_session()
 
         closed_keywords = (
@@ -59,6 +65,8 @@ class JobCleaner:
         api_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
         try:
             resp = session.get(api_url, timeout=8)
+            if resp.status_code in (429, 403, 999):
+                return None
             if resp.status_code == 200:
                 text_lower = resp.text.lower()
                 if any(k in text_lower for k in closed_keywords):
@@ -72,6 +80,8 @@ class JobCleaner:
         view_url = f"https://www.linkedin.com/jobs/view/{job_id}/"
         try:
             resp_view = session.get(view_url, allow_redirects=False, timeout=8)
+            if resp_view.status_code in (429, 403, 999):
+                return None
             if resp_view.status_code in (301, 302, 303, 307, 308):
                 location = resp_view.headers.get("Location", "")
                 if "expired" in location.lower() or "trk=expired_jd_redirect" in location.lower():
@@ -85,6 +95,8 @@ class JobCleaner:
 
             # If no redirect or text match yet, try following redirects
             resp_full = session.get(view_url, allow_redirects=True, timeout=8)
+            if resp_full.status_code in (429, 403, 999):
+                return None
             if "expired" in resp_full.url.lower() or "trk=expired_jd_redirect" in resp_full.url.lower():
                 return True
             if resp_full.status_code in (404, 410) or any(k in resp_full.text.lower() for k in closed_keywords):
@@ -99,10 +111,11 @@ class JobCleaner:
         checked_ids: set[int] = set()
         all_expired_ids: list[int] = []
         total_checked = 0
+        current_backoff = 2.0
 
-        logger.info("Cleaner: Starting scan across pending jobs (5 parallel workers, batch size 500)...")
+        logger.info("Cleaner: Starting scan across pending jobs ({} parallel workers, batch size 500)...", self._max_workers)
 
-        def _check_single(job_id: int) -> tuple[int, bool]:
+        def _check_single(job_id: int) -> tuple[int, bool | None]:
             return job_id, self.is_job_expired(job_id)
 
         while limit is None or limit <= 0 or total_checked < limit:
@@ -111,6 +124,8 @@ class JobCleaner:
                 break
 
             batch_expired: list[int] = []
+            rate_limited_count = 0
+
             with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
                 futures = {
                     executor.submit(_check_single, item["job_id"]): item["job_id"]
@@ -120,14 +135,20 @@ class JobCleaner:
                 for future in as_completed(futures):
                     job_id = futures[future]
                     try:
-                        j_id, expired = future.result()
-                        checked_ids.add(j_id)
-                        if expired:
+                        j_id, expired_status = future.result()
+                        if expired_status is True:
+                            checked_ids.add(j_id)
                             batch_expired.append(j_id)
+                        elif expired_status is False:
+                            checked_ids.add(j_id)
+                        else:
+                            # Rate limited (None) — do NOT add to checked_ids so it will be retried
+                            rate_limited_count += 1
                     except Exception as exc:
                         logger.warning("Cleaner error checking job {}: {}", job_id, exc)
 
-            total_checked += len(batch)
+            successfully_checked = len(batch) - rate_limited_count
+            total_checked += successfully_checked
 
             if batch_expired:
                 all_expired_ids.extend(batch_expired)
@@ -138,6 +159,17 @@ class JobCleaner:
                 total_checked,
                 len(all_expired_ids),
             )
+
+            if rate_limited_count > 0:
+                logger.warning(
+                    "Cleaner rate-limited on {} jobs in batch. Pausing for {:.1f}s before retrying...",
+                    rate_limited_count,
+                    current_backoff,
+                )
+                time.sleep(current_backoff)
+                current_backoff = min(current_backoff * 2.0, 60.0)
+            else:
+                current_backoff = 2.0
 
         logger.info(
             "Cleaner complete: Processed {} total pending jobs — marked {} as expired.",

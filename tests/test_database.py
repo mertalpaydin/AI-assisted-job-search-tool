@@ -327,3 +327,40 @@ def test_get_pending_jobs_for_cleaner_ordering(tmp_path):
     assert job_ids == [103, 102, 101]
 
 
+def test_get_jobs_pending_screening_ordering(tmp_path):
+    db = DatabaseManager(str(tmp_path / "screener_order.db"))
+    # Job 201: remote (1), scraped
+    db.insert_job(201, keyword="test", location_id="test")
+    db.update_job_details(201, {"scraped": 1, "workRemoteAllowed": 1})
+
+    # Job 202: non-remote (0), scraped later
+    db.insert_job(202, keyword="test", location_id="test")
+    db.update_job_details(202, {"scraped": 1, "workRemoteAllowed": 0})
+
+    pending = db.get_jobs_pending_screening()
+    # Non-remote job 202 should come first before remote job 201
+    assert pending == [202, 201]
+
+
+def test_easy_apply_cover_letter_exclusion(tmp_path):
+    db = DatabaseManager(str(tmp_path / "easy_apply.db"))
+    # Easy Apply job
+    db.insert_job(301, keyword="test", location_id="test")
+    db.update_job_details(301, {"scraped": 1, "applyMethod": '{"easyApplyUrl": "http://example.com"}'})
+    db.save_screening_result(301, ScreeningResult(0.9, "none", True, "Pass"))
+
+    # Company website job
+    db.insert_job(302, keyword="test", location_id="test")
+    db.update_job_details(302, {"scraped": 1, "applyMethod": '{"companyApplyUrl": "http://example.com"}'})
+    db.save_screening_result(302, ScreeningResult(0.9, "none", True, "Pass"))
+
+    # In auto mode by default, Easy Apply job 301 is skipped, only 302 included
+    pending_cl = db.get_jobs_pending_cover_letter(mode="auto")
+    assert pending_cl == [302]
+
+    # If user explicitly approves Easy Apply job 301, it is queued for CL generation in both modes
+    db.set_cl_approval(301, 1)
+    assert set(db.get_jobs_pending_cover_letter(mode="auto")) == {301, 302}
+    assert db.get_jobs_pending_cover_letter(mode="user_approval") == [301]
+
+

@@ -134,6 +134,7 @@ def jobs():
     exclude_companies = request.args.getlist("exc")
     keyword_filter = request.args.get("kw", "").strip()
     german_filter  = request.args.get("german", "").strip()
+    apply_type     = request.args.get("apply_type", "").strip()
     min_match_param = request.args.get("min_match", "").strip()
     try:
         min_match_val = float(min_match_param) if min_match_param else None
@@ -153,6 +154,7 @@ def jobs():
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_val,
+        apply_type=apply_type,
     )
     job_list, total = db.get_selected_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -165,6 +167,7 @@ def jobs():
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_val,
+        apply_type=apply_type,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -182,6 +185,7 @@ def jobs():
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_param,
+        apply_type=apply_type,
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )
@@ -201,6 +205,7 @@ def jobs_all():
     exclude_companies = request.args.getlist("exc")
     keyword_filter = request.args.get("kw", "").strip()
     german_filter  = request.args.get("german", "").strip()
+    apply_type     = request.args.get("apply_type", "").strip()
     min_match_param = request.args.get("min_match", "").strip()
     try:
         min_match_val = float(min_match_param) if min_match_param else None
@@ -220,6 +225,7 @@ def jobs_all():
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_val,
+        apply_type=apply_type,
         limit=200,
     )
     job_list, total = db.get_all_jobs(
@@ -233,6 +239,7 @@ def jobs_all():
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_val,
+        apply_type=apply_type,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -250,6 +257,7 @@ def jobs_all():
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_param,
+        apply_type=apply_type,
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )

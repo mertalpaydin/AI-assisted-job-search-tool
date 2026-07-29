@@ -153,6 +153,15 @@ class JobRow:
     jobPostingUrl: str | None
     company_name: str | None
     scraped: int
+    applyMethod: str | None = None
+
+    @property
+    def is_easy_apply(self) -> bool:
+        """Return True if job is an Easy Apply job on LinkedIn."""
+        if not self.applyMethod:
+            return False
+        val = str(self.applyMethod)
+        return "easyApplyUrl" in val or "OnsiteApply" in val
 
 
 @dataclass
@@ -185,6 +194,15 @@ class SelectedJobRow:
     created_at: str | None = None
     search_keyword: str | None = None
     user_notes: str | None = None
+    applyMethod: str | None = None
+
+    @property
+    def is_easy_apply(self) -> bool:
+        """Return True if job is an Easy Apply job on LinkedIn."""
+        if not self.applyMethod:
+            return False
+        val = str(self.applyMethod)
+        return "easyApplyUrl" in val or "OnsiteApply" in val
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +578,7 @@ class DatabaseManager:
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN screening_results sr ON j.job_id = sr.job_id
                 WHERE j.scraped = 1 AND sr.id IS NULL
-                ORDER BY j.created_at DESC, COALESCE(j.originalListedAt, j.listedAt, j.job_id) DESC
+                ORDER BY COALESCE(j.workRemoteAllowed, 0) ASC, j.created_at DESC, j.job_id DESC
             """)
             return [row[0] for row in cur.fetchall()]
 
@@ -570,7 +588,10 @@ class DatabaseManager:
         #   - a "success" row exists but text is empty/null (stuck from a prior empty-response bug)
         # Error rows (generation_status = -1) are intentionally excluded — use
         # purge_cover_letter_errors() to reset those before re-queuing.
+        # In auto mode, Easy Apply jobs are skipped by default unless user explicitly approved them (user_cl_approved = 1).
+        # In user_approval mode, any approved job (including Easy Apply) is queued.
         stuck_or_missing = "(cl.id IS NULL OR (cl.generation_status = 1 AND (cl.cover_letter_text IS NULL OR cl.cover_letter_text = '')))"
+        not_easy_apply = "(j.applyMethod IS NULL OR NOT (j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%'))"
         if mode == "user_approval":
             sql = f"""
                 SELECT j.job_id FROM jobs j
@@ -582,7 +603,7 @@ class DatabaseManager:
             sql = f"""
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE (j.is_selected = 1 OR j.user_cl_approved = 1) AND {stuck_or_missing}
+                WHERE (j.user_cl_approved = 1 OR (j.is_selected = 1 AND {not_easy_apply})) AND {stuck_or_missing}
                 ORDER BY j.created_at DESC, COALESCE(j.originalListedAt, j.listedAt, j.job_id) DESC
             """
         with self._cursor() as cur:
@@ -850,10 +871,12 @@ class DatabaseManager:
             """)
             cl_generated = cur.fetchone()[0]
 
+            not_easy_apply = "(j.applyMethod IS NULL OR NOT (j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%'))"
             cur.execute(f"""
                 SELECT COUNT(*) FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE j.is_selected = 1 AND cl.id IS NULL AND (j.application_status IS NULL OR j.application_status = '') {where_date}
+                WHERE (j.user_cl_approved = 1 OR (j.is_selected = 1 AND {not_easy_apply}))
+                  AND cl.id IS NULL AND (j.application_status IS NULL OR j.application_status = '') {where_date}
             """)
             cl_pending = cur.fetchone()[0]
 
@@ -1082,6 +1105,7 @@ class DatabaseManager:
         company_search: str = "",
         limit: int | None = None,
         min_match: float | None = None,
+        apply_type: str = "",
     ) -> list[tuple[str, int]]:
         """Return (company_name, job_count) sorted by count desc.
 
@@ -1119,6 +1143,11 @@ class DatabaseManager:
             conditions.append("j.workRemoteAllowed = 1")
         elif remote_filter == "-1":
             conditions.append("(j.workRemoteAllowed IS NULL OR j.workRemoteAllowed != 1)")
+
+        if apply_type == "easy":
+            conditions.append("(j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%')")
+        elif apply_type == "company":
+            conditions.append("(j.applyMethod IS NULL OR NOT (j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%'))")
 
         if date_from:
             conditions.append("DATE(j.created_at) >= ?")
@@ -1180,6 +1209,7 @@ class DatabaseManager:
         keyword_filter: str = "",
         german_filter: str = "",
         min_match: float | None = None,
+        apply_type: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated AI-selected jobs with optional filters.
 
@@ -1214,6 +1244,11 @@ class DatabaseManager:
             conditions.append("j.workRemoteAllowed = 1")
         elif remote_filter == "-1":
             conditions.append("(j.workRemoteAllowed IS NULL OR j.workRemoteAllowed != 1)")
+
+        if apply_type == "easy":
+            conditions.append("(j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%')")
+        elif apply_type == "company":
+            conditions.append("(j.applyMethod IS NULL OR NOT (j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%'))")
 
         if cl_ready:
             conditions.append("cl.cover_letter_text IS NOT NULL")
@@ -1265,7 +1300,8 @@ class DatabaseManager:
                     CASE WHEN cl.cover_letter_text IS NOT NULL THEN 'yes' ELSE NULL END
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
-                    j.user_cl_approved, j.created_at, j.search_keyword
+                    j.user_cl_approved, j.created_at, j.search_keyword,
+                    j.user_notes, j.applyMethod
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
@@ -1286,7 +1322,7 @@ class DatabaseManager:
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes
+                    j.user_notes, j.applyMethod
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -1332,6 +1368,7 @@ class DatabaseManager:
         keyword_filter: str = "",
         german_filter: str = "",
         min_match: float | None = None,
+        apply_type: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated scraped jobs (selected or not) with optional filters.
 
@@ -1365,6 +1402,11 @@ class DatabaseManager:
             conditions.append("j.workRemoteAllowed = 1")
         elif remote_filter == "-1":
             conditions.append("(j.workRemoteAllowed IS NULL OR j.workRemoteAllowed != 1)")
+
+        if apply_type == "easy":
+            conditions.append("(j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%')")
+        elif apply_type == "company":
+            conditions.append("(j.applyMethod IS NULL OR NOT (j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%'))")
 
         if cl_ready:
             conditions.append("cl.cover_letter_text IS NOT NULL")
@@ -1415,11 +1457,12 @@ class DatabaseManager:
                     CASE WHEN cl.cover_letter_text IS NOT NULL THEN 'yes' ELSE NULL END
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
-                    j.user_cl_approved, j.created_at, j.search_keyword
+                    j.user_cl_approved, j.created_at, j.search_keyword,
+                    j.user_notes, j.applyMethod
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
-                ORDER BY j.{sort_col} {sort_order} NULLS LAST
+                ORDER BY j.{sort_col} {sort_order}
                 LIMIT ? OFFSET ?
             """, params + [limit, offset])
             return [SelectedJobRow(**dict(row)) for row in cur.fetchall()], total

@@ -9,7 +9,7 @@
                   st=status_filter, sq=search_query,
                   rm=remote_filter, cl=cl_filter,
                   df=date_from, dt=date_to, ex=exclude_companies,
-                  kw=keyword_filter, ger=german_filter, mm=min_match) -%}
+                  kw=keyword_filter, ger=german_filter, mm=min_match, at=apply_type) -%}
   {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
@@ -20,6 +20,7 @@
   {%- if dt %}&date_to={{ dt }}{% endif %}
   {%- if kw %}&kw={{ kw | urlencode }}{% endif %}
   {%- if ger %}&german={{ ger }}{% endif %}
+  {%- if at %}&apply_type={{ at }}{% endif %}
   {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
 
@@ -98,6 +99,39 @@
     <label class="text-muted small mb-0">to</label>
     <input type="date" id="scraped-to" class="form-control form-control-sm"
            style="width:140px" value="{{ date_to }}">
+  </div>
+
+  {# Apply Type filter dropdown #}
+  <div class="dropdown" id="applyTypeFilterDropdown">
+    <button class="btn btn-sm {% if apply_type %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-box-arrow-up-right me-1"></i>Apply Type
+      {% if apply_type %}
+        <span class="badge bg-dark ms-1">
+          {% if apply_type == 'easy' %}⚡ Easy Apply
+          {% elif apply_type == 'company' %}🌐 Company Website
+          {% else %}{{ apply_type }}{% endif %}
+        </span>
+      {% endif %}
+    </button>
+    <ul class="dropdown-menu p-2 shadow" style="min-width:190px">
+      <li>
+        <a class="dropdown-item small {% if not apply_type %}active{% endif %}" href="{{ page_url(p=1, at='') }}">
+          All Apply Types
+        </a>
+      </li>
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <a class="dropdown-item small {% if apply_type == 'easy' %}active{% endif %}" href="{{ page_url(p=1, at='easy') }}">
+          <span class="badge bg-info-subtle text-info border border-info-subtle me-1">⚡ Easy Apply</span> Easy Apply
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item small {% if apply_type == 'company' %}active{% endif %}" href="{{ page_url(p=1, at='company') }}">
+          <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle me-1">🌐 Company</span> Company Website
+        </a>
+      </li>
+    </ul>
   </div>
 
   {# German level filter dropdown #}
@@ -337,7 +371,18 @@
           <input class="form-check-input job-select-cb" type="checkbox" value="{{ job.job_id }}">
         </td>
         <td>
-          <div class="fw-semibold text-light">{{ job.title or "N/A" }}</div>
+          <div class="fw-semibold text-light">
+            {{ job.title or "N/A" }}
+            {% if job.is_easy_apply %}
+            <span class="badge bg-info-subtle text-info border border-info-subtle ms-1" style="font-size:0.7rem;" title="LinkedIn Easy Apply">
+              <i class="bi bi-lightning-charge-fill me-1"></i>Easy Apply
+            </span>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle ms-1" style="font-size:0.7rem;" title="Company Website">
+              <i class="bi bi-globe me-1"></i>Company Website
+            </span>
+            {% endif %}
+          </div>
           <div class="text-muted small">
             {{ job.company_name or "Unknown" }}
             {% if job.search_keyword %}
