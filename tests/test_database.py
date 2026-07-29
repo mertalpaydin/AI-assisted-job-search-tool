@@ -306,3 +306,24 @@ class TestGermanFiltering:
         assert {c[0] for c in co_counts} == {"Co1", "Co2"}
 
 
+def test_get_pending_jobs_for_cleaner_ordering(tmp_path):
+    db = DatabaseManager(str(tmp_path / "cleaner_order.db"))
+    # Job 1: rejected, created earlier
+    db.insert_job(101, keyword="test", location_id="test")
+    db.save_screening_result(101, ScreeningResult(0.3, "none", False, "Rejected"))
+
+    # Job 2: selected, created earlier
+    db.insert_job(102, keyword="test", location_id="test")
+    db.save_screening_result(102, ScreeningResult(0.9, "none", True, "Selected 1"))
+
+    # Job 3: selected, created later
+    db.insert_job(103, keyword="test", location_id="test")
+    db.save_screening_result(103, ScreeningResult(0.95, "none", True, "Selected 2"))
+
+    pending = db.get_pending_jobs_for_cleaner(limit=10)
+    job_ids = [j["job_id"] for j in pending]
+
+    # Selected jobs (103, 102) should come before rejected job (101), with newest selected job (103) first
+    assert job_ids == [103, 102, 101]
+
+
