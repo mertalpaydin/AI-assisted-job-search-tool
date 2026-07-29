@@ -24,7 +24,7 @@ class JobCleaner:
         self,
         db: DatabaseManager,
         session: requests.Session | None = None,
-        max_workers: int = 3,
+        max_workers: int = 1,
     ) -> None:
         self._db = db
         self._session = session
@@ -111,9 +111,9 @@ class JobCleaner:
         checked_ids: set[int] = set()
         all_expired_ids: list[int] = []
         total_checked = 0
-        current_backoff = 2.0
+        current_backoff = 5.0
 
-        logger.info("Cleaner: Starting scan across pending jobs ({} parallel workers, batch size 500)...", self._max_workers)
+        logger.info("Cleaner: Starting scan across pending jobs ({} parallel workers, batch size {})...", self._max_workers, batch_size)
 
         def _check_single(job_id: int) -> tuple[int, bool | None]:
             return job_id, self.is_job_expired(job_id)
@@ -169,7 +169,7 @@ class JobCleaner:
                 time.sleep(current_backoff)
                 current_backoff = min(current_backoff * 2.0, 60.0)
             else:
-                current_backoff = 2.0
+                current_backoff = 5.0
 
         logger.info(
             "Cleaner complete: Processed {} total pending jobs — marked {} as expired.",

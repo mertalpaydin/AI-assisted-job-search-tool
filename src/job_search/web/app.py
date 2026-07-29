@@ -11,6 +11,7 @@ import re
 import threading
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
 
@@ -503,6 +504,12 @@ def _redirect_back(form, job_id: int):
 
 
 def _redirect_to_list(form) -> "Response":
+    referrer = request.referrer
+    if referrer:
+        parsed = urlparse(referrer)
+        if not parsed.netloc or parsed.netloc == request.host:
+            return redirect(referrer)
+
     status_filter = form.get("status_filter", "")
     show_all = form.get("show_all", "")
     if show_all:

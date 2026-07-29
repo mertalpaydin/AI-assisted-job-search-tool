@@ -146,6 +146,18 @@ def test_cover_letter_short_and_long_generation(db: DatabaseManager, tmp_path) -
     assert long_pdf.exists()
     assert len(PdfReader(long_pdf).pages) == 1
 
+def test_quick_action_redirect_preserves_referrer_filters(db: DatabaseManager, client) -> None:
+    db.insert_job(80001, "kw", "loc")
+    db.update_job_details(80001, {"title": "Dev Ops", "company_name": "Cloud Co", "applyMethod": '{"easyApplyUrl": "http://example.com"}'})
+    db.save_screening_result(80001, ScreeningResult(0.9, "none", True, "Pass"))
 
-
-
+    target_referrer = "/jobs?page=1&sort=created_at&dir=desc&status=pending&min_match=0.85&apply_type=easy"
+    
+    # POST quick-apply sending Referer header
+    res = client.post(
+        "/jobs/80001/quick-apply",
+        data={"status_filter": "pending"},
+        headers={"Referer": target_referrer},
+    )
+    assert res.status_code == 302
+    assert res.headers["Location"] == target_referrer
