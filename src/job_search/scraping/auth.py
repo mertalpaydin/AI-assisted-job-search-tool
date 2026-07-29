@@ -118,52 +118,89 @@ def _js_click_submit(driver: webdriver.Remote) -> bool:
     """
     Find and click the sign-in submit button via JavaScript.
 
-    Handles both the classic page (button[type='submit']) and the React page
-    (all buttons have type="button"; we match by text content in several
-    languages LinkedIn commonly uses).
+    Handles classic pages, multi-language React pages (Turkish, German, French,
+    Spanish, English, etc.), and layouts without a standard <form> tag.
+    Falls back to pressing ENTER on the password input if no button is matched.
     """
     clicked = driver.execute_script(
         """
-        // 1. Prefer an explicit type=submit button that is NOT an OAuth button
-        var submitBtns = document.querySelectorAll("button[type='submit']");
+        function isExcluded(el) {
+            var text = ((el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase();
+            if (text.indexOf('apple') !== -1 || text.indexOf('google') !== -1 || text.indexOf('microsoft') !== -1) return true;
+            if (text.indexOf('show') !== -1 || text.indexOf('hide') !== -1 || text.indexOf('göster') !== -1 || text.indexOf('gizle') !== -1) return true;
+            if (text.indexOf('forgot') !== -1 || text.indexOf('unuttunuz') !== -1 || text.indexOf('join') !== -1 || text.indexOf('katıl') !== -1) return true;
+            return false;
+        }
+
+        // 1. Prefer an explicit type=submit button or input that is NOT an OAuth button
+        var submitBtns = document.querySelectorAll("button[type='submit'], input[type='submit']");
         for (var b of submitBtns) {
-            var lbl = (b.getAttribute('aria-label') || '').toLowerCase();
-            if (lbl.indexOf('apple') === -1 && lbl.indexOf('google') === -1
-                    && lbl.indexOf('microsoft') === -1) {
+            if (!isExcluded(b)) {
                 b.click();
-                return 'submit:' + (b.textContent.trim() || b.getAttribute('aria-label'));
+                return 'submit:' + (b.textContent.trim() || b.getAttribute('aria-label') || b.value);
             }
         }
 
-        // 2. React pages use type="button" — find by visible text
+        // 2. React pages use type="button" — find by visible text across multiple localizations
         var keywords = [
-            'einloggen', 'anmelden', 'sign in', 'log in',
-            'continuar', 'connexion', 'acceder', 'ingresar'
+            'sign in', 'log in', 'einloggen', 'anmelden', 'continuar',
+            'connexion', 'acceder', 'ingresar', 'oturum aç', 'oturum açın',
+            'oturum ac', 'iniciar sesión', 'iniciar sesion', 'se connecter',
+            'accedi', 'inloggen', 'zaloguj się', 'zaloguj sie', '登录', '登錄', 'ログイン'
         ];
-        var allBtns = document.querySelectorAll('button');
+        var allBtns = document.querySelectorAll('button, input[type="button"], div[role="button"]');
         for (var b of allBtns) {
-            var t = b.textContent.trim().toLowerCase();
+            if (isExcluded(b)) continue;
+            var t = (b.textContent || b.value || '').replace(/\\s+/g, ' ').trim().toLowerCase();
             for (var kw of keywords) {
-                if (t === kw) {
+                if (t === kw || t.indexOf(kw) !== -1) {
                     b.click();
-                    return 'text:' + b.textContent.trim();
+                    return 'text:' + (b.textContent.trim() || b.value || kw);
                 }
             }
         }
 
-        // 3. Last resort: first visible button-looking element in a form
+        // 3. Form-first button
         var forms = document.querySelectorAll('form');
         for (var f of forms) {
-            var btn = f.querySelector("button");
-            if (btn) { btn.click(); return 'form-first:' + btn.textContent.trim(); }
+            var btn = f.querySelector("button, input[type='submit']");
+            if (btn && !isExcluded(btn)) {
+                btn.click();
+                return 'form-first:' + (btn.textContent.trim() || btn.value);
+            }
         }
+
+        // 4. Positional heuristic: non-excluded button following password field
+        var pwd = document.querySelector("input[type='password']");
+        if (pwd) {
+            var container = pwd.closest('form') || pwd.closest('main') || document.body;
+            var candidateBtns = container.querySelectorAll('button');
+            for (var cb of candidateBtns) {
+                if (!isExcluded(cb)) {
+                    cb.click();
+                    return 'heuristic:' + cb.textContent.trim();
+                }
+            }
+        }
+
         return null;
         """
     )
     if clicked:
         logger.debug("Submit clicked via JS: {}", clicked)
         return True
-    logger.warning("Could not find a submit button via JS")
+
+    # Backup: attempt sending ENTER on the password field
+    try:
+        from selenium.webdriver.common.keys import Keys
+        pwd = driver.find_element(By.CSS_SELECTOR, _PASSWORD_CSS)
+        pwd.send_keys(Keys.ENTER)
+        logger.debug("Submitted via ENTER key fallback on password field")
+        return True
+    except Exception as exc:
+        logger.debug("ENTER key fallback failed: {}", exc)
+
+    logger.warning("Could not find a submit button via JS or ENTER key")
     return False
 
 
