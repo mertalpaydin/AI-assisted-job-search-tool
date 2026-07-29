@@ -42,24 +42,33 @@ class JobCleaner:
         """Check whether a LinkedIn job is closed/expired."""
         session = self._session or self._get_thread_session()
 
+        closed_keywords = (
+            "no longer accepting applications",
+            "closed-job",
+            "job-closed",
+            "closed-job__flavor--closed",
+            "topcard__flavor--closed",
+            "job is no longer available",
+            "this job has expired",
+            "job listing has expired",
+            "job-unavailable",
+            'figure class="closed-job',
+        )
+
         # 1. Check guest API endpoint first
         api_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
         try:
             resp = session.get(api_url, timeout=8)
             if resp.status_code == 200:
                 text_lower = resp.text.lower()
-                if (
-                    "no longer accepting applications" in text_lower
-                    or "closed-job" in text_lower
-                    or "job-closed" in text_lower
-                ):
+                if any(k in text_lower for k in closed_keywords):
                     return True
-            elif resp.status_code == 404:
+            elif resp.status_code in (404, 410):
                 return True
         except Exception as exc:
             logger.debug("Guest API check error for job {}: {}", job_id, exc)
 
-        # 2. Check direct URL redirect header (allow_redirects=False)
+        # 2. Check direct URL view fallback
         view_url = f"https://www.linkedin.com/jobs/view/{job_id}/"
         try:
             resp_view = session.get(view_url, allow_redirects=False, timeout=8)
@@ -67,18 +76,31 @@ class JobCleaner:
                 location = resp_view.headers.get("Location", "")
                 if "expired" in location.lower() or "trk=expired_jd_redirect" in location.lower():
                     return True
+            elif resp_view.status_code == 200:
+                text_lower = resp_view.text.lower()
+                if any(k in text_lower for k in closed_keywords):
+                    return True
+            elif resp_view.status_code in (404, 410):
+                return True
+
+            # If no redirect or text match yet, try following redirects
+            resp_full = session.get(view_url, allow_redirects=True, timeout=8)
+            if "expired" in resp_full.url.lower() or "trk=expired_jd_redirect" in resp_full.url.lower():
+                return True
+            if resp_full.status_code in (404, 410) or any(k in resp_full.text.lower() for k in closed_keywords):
+                return True
         except Exception as exc:
             logger.debug("Direct URL check error for job {}: {}", job_id, exc)
 
         return False
 
     def clean_pending_jobs(self, limit: int | None = None, batch_size: int = 100) -> dict[str, Any]:
-        """Scan all pending jobs continuously across batches using parallel worker threads until all pending jobs are checked."""
+        """Scan pending jobs across batches using parallel worker threads until pending jobs are checked."""
         checked_ids: set[int] = set()
         all_expired_ids: list[int] = []
         total_checked = 0
 
-        logger.info("Cleaner: Starting scan across all pending jobs (5 parallel workers)...")
+        logger.info("Cleaner: Starting scan across pending jobs (5 parallel workers)...")
 
         def _check_single(job_id: int) -> tuple[int, bool]:
             return job_id, self.is_job_expired(job_id)
@@ -111,15 +133,13 @@ class JobCleaner:
                 all_expired_ids.extend(batch_expired)
                 self._db.mark_jobs_expired_batch(batch_expired)
                 logger.info(
-                    "Cleaner: Batch complete — marked {} expired job(s) in DB. (Total checked: {}/{})",
+                    "Cleaner: Found and marked {} expired job(s) in DB (total checked: {}).",
                     len(batch_expired),
                     total_checked,
-                    total_checked + len(batch),
                 )
-            else:
+            elif total_checked % 500 == 0:
                 logger.info(
-                    "Cleaner: Batch complete — checked {} jobs (total: {}). No expired jobs in this batch.",
-                    len(batch),
+                    "Cleaner progress: Checked {} pending jobs...",
                     total_checked,
                 )
 

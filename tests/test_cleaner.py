@@ -40,6 +40,24 @@ def test_is_job_expired_301_redirect(tmp_path):
     assert cleaner.is_job_expired(4423912764) is True
 
 
+def test_is_job_expired_direct_view_text(tmp_path):
+    db = DatabaseManager(str(tmp_path / "test.db"))
+    cleaner = JobCleaner(db)
+
+    mock_session = MagicMock(spec=requests.Session)
+    mock_guest_resp = MagicMock()
+    mock_guest_resp.status_code = 500  # Guest API fails
+
+    mock_view_resp = MagicMock()
+    mock_view_resp.status_code = 200
+    mock_view_resp.text = '<figure class="closed-job closed-job__flavor topcard__flavor-row"><figcaption class="closed-job__flavor--closed">No longer accepting applications</figcaption></figure>'
+
+    mock_session.get.side_effect = [mock_guest_resp, mock_view_resp]
+    cleaner._session = mock_session
+
+    assert cleaner.is_job_expired(4439226671) is True
+
+
 def test_clean_pending_jobs(tmp_path):
     db_path = tmp_path / "test.db"
     db = DatabaseManager(str(db_path))
