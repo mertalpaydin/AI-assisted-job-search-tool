@@ -1,16 +1,17 @@
 # AI-Assisted Job Search Tool
 
-Automates LinkedIn job discovery, AI screening against your CV, cover letter generation, and application tracking — all from your local machine.
+Automates LinkedIn job discovery, AI screening against your CV, cover letter generation, 1-page LaTeX PDF exports, and application tracking — all from your local machine.
 
 ## Features
 
 - **Automated job scraping** — LinkedIn search + full details extraction with pagination (up to 500 results per keyword/location)
 - **AI screening** — Gemini API (default, multi-worker) or local GGUF model (via llama-cpp-python) scores each job against your CV and filters by German language requirement and location; backend is configurable per run
 - **Cover letter generation** — Gemini API with multi-key rotation and exponential backoff retries
+- **1-Page LaTeX Cover Letter PDF Exporter** — Automated single-page LaTeX cover letter PDF compiler using local MiKTeX (`xelatex` / `pdflatex`). Includes an executive centered header, custom tagline (`DATA SCIENCE & AI/ML SPECIALIST | STRATEGIC PROCUREMENT`), transparent signature image, dynamic "a/an" grammar selection, and an auto-fitting font-size algorithm to guarantee a 1-page fit
+- **Customizable export locations** — Separate configurable output directories in `config/config.yaml` for CSV index/text exports (`export.output_dir`) and PDF cover letters (`export.pdf_dir`)
 - **Concurrent pipeline** — parallel search, details, screening, and cover letter workers with graceful shutdown and resume
-- **Export** — self-contained text files (job info + cover letter) and a CSV index ready for applications
 - **Application tracking** — mark jobs as applied / interviewing / offered / rejected
-- **Web UI** — local Flask dashboard to review jobs, read cover letters, and track status
+- **Web UI Dashboard** — local Flask dashboard to review jobs, edit title/company/cover letters live, generate PDFs with instant local file saving, copy cleaned MS Word text, and track application status
 
 ## Project Status
 
@@ -61,14 +62,14 @@ GEMINI_API_KEY_2=          # optional, for rotation
 GEMINI_API_KEY_3=          # optional, for rotation
 ```
 
-### 3. Configure your search
+### 3. Configure your search & export paths
 
 ```bash
 cp config/config.yaml.example config/config.yaml
 cp config/cv.yaml.example     config/cv.yaml
 ```
 
-- **`config/config.yaml`** — set your keywords, locations, and screening thresholds
+- **`config/config.yaml`** — set keywords, locations, screening thresholds, and export paths (`export.output_dir` and `export.pdf_dir`)
 - **`config/cv.yaml`** — fill in your real CV data (used by the AI screener and cover letter generator)
 
 > Both files are gitignored and will never be committed.
@@ -93,31 +94,6 @@ Set `screening.backend` in `config/config.yaml`:
 |-------|----------|---------|-------|
 | `"gemini"` (default) | Gemini API keys in `.env` | Multiple (configurable) | Fast API calls; no GPU needed |
 | `"local"` | GGUF model file + llama-cpp-python with CUDA | 1 (GPU-bound) | Fully offline |
-
-**Gemini backend** (default):
-```yaml
-screening:
-  backend: "gemini"
-  gemini:
-    model: "gemini-3.1-flash-lite-preview"    # verify at ai.google.dev/gemini-api/docs/models
-    temperature: 0.1
-    max_tokens: 512
-    requests_per_minute: 15           # per API key
-
-concurrency:
-  max_screening_workers: 3            # set to number of API keys or higher
-```
-
-**Local GGUF backend**:
-```yaml
-screening:
-  backend: "local"
-  model:
-    path: "data/models/your-model.gguf"
-
-concurrency:
-  max_screening_workers: 1            # GPU-bound; keep at 1
-```
 
 ---
 
@@ -157,64 +133,7 @@ uv run job-search run -s screen -s cover-letter
 uv run job-search run -s search -s details
 ```
 
-Omitting `-s` runs all four stages (default).
-
-### Clear pipeline errors and retry
-
-```bash
-# Reset all error types (detail errors, screening errors, cover letter errors)
-uv run job-search reset-errors
-
-# Reset only screening errors
-uv run job-search reset-errors --stage screening
-
-# Reset only detail-scraping errors
-uv run job-search reset-errors --stage details
-```
-
-Or use the standalone script (no CLI setup needed):
-
-```bash
-python scripts/cleanup_errors.py
-python scripts/cleanup_errors.py --stage screening
-```
-
-After clearing, run `uv run job-search run --resume` to retry.
-
-### All CLI commands
-
-```bash
-# Run pipeline (all stages)
-uv run job-search run [--config config/config.yaml] [--resume] [--log-level DEBUG]
-
-# Run specific stages only
-uv run job-search run -s screen -s cover-letter
-
-# Clear pipeline errors and retry
-uv run job-search reset-errors [--stage details|screening|cover-letter]
-
-# Export cover letters to data/export/
-uv run job-search export
-uv run job-search export --all          # include jobs without cover letters yet
-uv run job-search export --output-dir path/to/folder
-
-# Track application status
-uv run job-search track <job_id> applied
-uv run job-search track <job_id> interviewing
-uv run job-search track <job_id> offered
-uv run job-search track <job_id> rejected
-uv run job-search track <job_id> clear
-
-# List selected jobs in the terminal
-uv run job-search list
-uv run job-search list --status pending
-
-# Start the web UI
-uv run job-search web                   # http://127.0.0.1:5000/
-uv run job-search web --port 8080
-```
-
-### Web UI
+### Web UI & Live PDF Generator
 
 ```bash
 uv run job-search web
@@ -222,32 +141,21 @@ uv run job-search web
 
 Open `http://127.0.0.1:5000/` in your browser:
 
-> **Quick DB viewer** — browse results without starting the pipeline:
-> ```bash
-> python scripts/view_db.py                # opens browser automatically
-> python scripts/view_db.py --port 8080
-> python scripts/view_db.py --no-browser
-> ```
-
-| Page | What you see |
-|------|-------------|
+| Page | Features |
+|------|----------|
 | Dashboard | Pipeline stats, application tracking counts |
-| Selected Jobs | Table with match score, German req, cover letter status |
+| Selected Jobs | Match score, German requirement, cover letter status |
 | All Jobs | Every scraped job regardless of screening outcome |
-| Search Stats | Per keyword + location: found / screened / selected counts, selection rate %, avg match score |
-| Job Detail | Full cover letter with copy button, LinkedIn apply link, status update buttons |
+| Search Stats | Per keyword + location stats and selection rates |
+| Job Detail | Live editable Job Title, Company Name, Cover Letter Body, MS Word Copy, and instant **1-Page "Generate PDF"** button |
+
+> **Live Unsaved Edits & PDF Generation:** Typing changes in the Job Title, Company Name, or Cover Letter body fields in the Web UI immediately feeds into the LaTeX PDF compiler upon clicking "Generate PDF", while auto-saving a live draft to the database.
 
 ### Export format
 
-Each selected job with a generated cover letter gets its own file in `data/export/`:
-
-```
-Acme_Corp_Senior_Python_Developer_3827392.txt
-```
-
-The file contains the job header (title, company, URL, match score, screening notes) followed by the full cover letter — everything you need to apply in one place.
-
-An `index.csv` is also written listing all selected jobs with their links and statuses.
+1. **LaTeX PDFs**: Generated on demand or via pipeline, saved directly to `export.pdf_dir` (e.g. `<your repo dir>\Desktop\CV\CL_saver\Applicant_Name_CoverLetter_Company.pdf`).
+2. **Text Files**: Each selected job with a generated cover letter gets a `.txt` summary file in `export.output_dir`.
+3. **Index CSV**: `index.csv` listing all selected jobs with their links and statuses.
 
 ---
 
@@ -257,7 +165,7 @@ An `index.csv` is also written listing all selected jobs with their links and st
 uv run pytest tests/ -v
 ```
 
-71 unit tests covering config loading, database CRUD, API key rotation, prompt rendering, and pipeline state management. No external services required.
+87 unit tests covering config loading, database CRUD, API key rotation, prompt rendering, Web UI routes, and 1-page LaTeX PDF compilation. No external services required.
 
 ---
 
@@ -265,9 +173,10 @@ uv run pytest tests/ -v
 
 ```
 ├── config/
-│   ├── config.yaml.example     # Search keywords, locations, screening thresholds
+│   ├── config.yaml.example     # Search keywords, locations, export paths
 │   ├── cv.yaml.example         # CV template — copy to cv.yaml and fill in
 │   ├── prompts.yaml            # AI prompt templates
+│   ├── cover_letter_template.tex # Executive LaTeX cover letter template
 │   └── .env.example            # Credentials template — copy to .env
 ├── data/
 │   ├── models/                 # Place GGUF model files here (gitignored)
@@ -276,31 +185,17 @@ uv run pytest tests/ -v
 ├── docs/
 │   └── project-summary.md      # CV-ready one-page project summary
 ├── scripts/
-│   ├── view_db.py              # Standalone web UI — browse DB without running the pipeline
+│   ├── view_db.py              # Standalone web UI — browse DB without running pipeline
 │   ├── export_db.py            # Export all DB tables to CSV
-│   └── phase0_discovery/       # LinkedIn API discovery scripts (reference)
+│   └── fix_incomplete_cover_letters.py # Fix truncated cover letter entries
 ├── src/
 │   └── job_search/
 │       ├── core/               # Config (Pydantic), database (SQLite), state management
 │       ├── scraping/           # LinkedIn auth (Selenium), search + details workers
-│       ├── ai/                 # Gemini screener + local GGUF screener, cover letter generator, prompt manager
-│       ├── export/             # Cover letter export to files + CSV
+│       ├── ai/                 # Gemini screener + local GGUF screener, cover letter generator
+│       ├── export/             # Text/CSV exporter + LaTeX 1-page PDF exporter
 │       ├── web/                # Flask dashboard (templates + routes)
 │       ├── orchestration/      # Pipeline coordinator — wires all workers together
 │       └── utils/              # Logging (loguru), Gemini API key rotation
-└── tests/                      # pytest test suite
+└── tests/                      # pytest test suite (87 tests)
 ```
-
----
-
-## Phase 0 Discoveries
-
-LinkedIn API analysis of 3 sample job postings revealed:
-
-- **136 unique fields** across job and company data
-- **87 fields** selected for the database schema
-- **6 tables**: `jobs`, `companies`, `screening_results`, `cover_letters`, `processing_state`, `api_usage`
-
-Key findings: `workRemoteAllowed` for remote filtering, rich company data in the `included` array, salary fields present but inconsistently populated.
-
-Deliverables in `data/samples/`: `field_catalog.yaml`, `final_schema.sql`, `field_mappings.json`, `discovery_report.md`, `schema_summary.md`, and 3 raw sample API responses.
