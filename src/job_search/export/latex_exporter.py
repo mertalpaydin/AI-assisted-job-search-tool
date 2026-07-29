@@ -186,6 +186,24 @@ def generate_cover_letter_pdf(
     formatted_paras = [format_markdown_to_latex(p) for p in body_paras]
     formatted_body = "\\noindent " + salutation + "\\\\[0.3cm]\n\n" + "\n\n".join(formatted_paras)
 
+    # Calculate automated vertical spacing based on body text length
+    text_len = len(raw_cl_text.strip())
+    if text_len < 1100:  # Short cover letter
+        top_space = "0.7cm"
+        subject_space = "0.6cm"
+        body_space = "0.5cm"
+        bottom_space = "1.2cm"
+    elif text_len < 1600:  # Medium cover letter
+        top_space = "0.5cm"
+        subject_space = "0.4cm"
+        body_space = "0.4cm"
+        bottom_space = "0.7cm"
+    else:  # Long cover letter
+        top_space = "0.35cm"
+        subject_space = "0.3cm"
+        body_space = "0.3cm"
+        bottom_space = "0.3cm"
+
     # Auto-fit configurations (Body Font Command, Margin) to guarantee 1 page
     # Header Name (18pt), Contact (9pt), Date/Subject (12pt) remain fixed
     configs = [
@@ -218,6 +236,10 @@ def generate_cover_letter_pdf(
             content = content.replace("VAR_COMPANY_NAME", company_name)
             content = content.replace("VAR_BODY_CONTENT", formatted_body)
             content = content.replace("VAR_SIGNATURE_BLOCK", signature_block)
+            content = content.replace("VAR_TOP_SPACE", top_space)
+            content = content.replace("VAR_SUBJECT_SPACE", subject_space)
+            content = content.replace("VAR_BODY_SPACE", body_space)
+            content = content.replace("VAR_BOTTOM_SPACE", bottom_space)
 
             tex_file.write_text(content, encoding="utf-8")
 

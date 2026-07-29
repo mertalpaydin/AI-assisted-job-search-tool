@@ -122,4 +122,30 @@ def test_cover_letter_pdf_route(db: DatabaseManager, client, tmp_path) -> None:
         assert json_data["success"] is True
 
 
+def test_cover_letter_short_and_long_generation(db: DatabaseManager, tmp_path) -> None:
+    from pypdf import PdfReader
+    from job_search.export.latex_exporter import generate_cover_letter_pdf
+
+    db.insert_job(70001, "kw", "loc")
+    db.update_job_details(70001, {"title": "AI Engineer", "company_name": "Test Co"})
+    db.save_screening_result(70001, ScreeningResult(0.9, "none", True, "Reason"))
+
+    # 1. Short cover letter
+    short_text = "Dear Hiring Manager,\n\nShort cover letter test body.\n\nSincerely,\nApplicant Name"
+    short_pdf = generate_cover_letter_pdf(
+        70001, db, ".", output_pdf_path=tmp_path / "short.pdf", override_cl_text=short_text
+    )
+    assert short_pdf.exists()
+    assert len(PdfReader(short_pdf).pages) == 1
+
+    # 2. Long cover letter
+    long_text = "Dear Hiring Manager,\n\n" + ("Paragraph text detailing machine learning projects and AI pipeline architectures. " * 8 + "\n\n") * 3 + "Sincerely,\nApplicant Name"
+    long_pdf = generate_cover_letter_pdf(
+        70001, db, ".", output_pdf_path=tmp_path / "long.pdf", override_cl_text=long_text
+    )
+    assert long_pdf.exists()
+    assert len(PdfReader(long_pdf).pages) == 1
+
+
+
 

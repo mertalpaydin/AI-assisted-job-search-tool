@@ -32,27 +32,29 @@
 
 \vspace{0.15cm}
 \hrule height 0.8pt
-\vspace{0.4cm}
+\vspace{VAR_TOP_SPACE}
 
 % Right-aligned Date (font 12)
 {\fontsize{12}{14}\selectfont \hfill \textbf{VAR_CITY, VAR_DATE}}
 
-\vspace{0.4cm}
+\vspace{VAR_SUBJECT_SPACE}
 
 % Bold Subject Line (font 12)
 \noindent {\fontsize{12}{14}\selectfont \textbf{Application as VAR_ARTICLE VAR_JOB_TITLE at VAR_COMPANY_NAME}}
 
-\vspace{0.3cm}
+\vspace{VAR_BODY_SPACE}
 
 % Body Content (Left aligned, customizable body font size)
 VAR_BODY_FONT_CMD
 VAR_BODY_CONTENT
 
-\vspace{0.3cm}
+\vspace{0.4cm}
 
-% Closing & Signature
+% Closing & Signature (Tightly glued to main body text)
 \noindent Sincerely,\\[0.15cm]
 VAR_SIGNATURE_BLOCK
 \noindent VAR_CANDIDATE_NAME
+
+\vspace{VAR_BOTTOM_SPACE}
 
 \end{document}
