@@ -16,6 +16,7 @@ dependencies = [
     "click>=8.1.7",
     "llama-cpp-python>=0.3.0",
     "flask>=3.0.0",
+    "pypdf>=3.0.0",
 ]
 
 [project.optional-dependencies]

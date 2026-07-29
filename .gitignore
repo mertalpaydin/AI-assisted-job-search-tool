@@ -233,3 +233,6 @@ docs/improvement-plan.md
 
 # Login debug snapshots (screenshots/HTML saved on auth failures)
 debug/
+
+# assets
+config/assets/*

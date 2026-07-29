@@ -12,7 +12,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
 
 from job_search.core.config import Config, load_config
 from job_search.core.database import APPLICATION_STATUSES, DatabaseManager
@@ -316,6 +316,83 @@ def update_cover_letter(job_id: int):
         abort(404)
     db.save_cover_letter(job_id, cl_text, model="manual-edit", api_key_index=0)
     return redirect(url_for("job_detail", job_id=job_id))
+
+
+@app.route("/jobs/<int:job_id>/cover-letter/pdf", methods=["GET", "POST"])
+def download_cover_letter_pdf(job_id: int):
+    db = get_db()
+    job = db.get_selected_job(job_id)
+    if job is None and request.method == "GET":
+        abort(404)
+    
+    # Read live unsaved inputs from form / json / args with robust key fallbacks
+    override_title = (
+        request.form.get("job_title")
+        or request.form.get("pdf_job_title")
+        or request.args.get("job_title")
+        or request.args.get("pdf_job_title")
+    )
+    override_company = (
+        request.form.get("company_name")
+        or request.form.get("pdf_company_name")
+        or request.args.get("company_name")
+        or request.args.get("pdf_company_name")
+    )
+    override_cl_text = (
+        request.form.get("cover_letter_text")
+        or request.args.get("cover_letter_text")
+    )
+
+    # Workaround / Auto-save live draft to DB so edits are preserved persistently
+    if override_cl_text and override_cl_text.strip():
+        try:
+            db.save_cover_letter(job_id, override_cl_text.strip(), model="live-draft", api_key_index=0)
+        except Exception as e:
+            from loguru import logger
+            logger.warning("Could not auto-save cover letter live draft: {}", e)
+
+    if (override_title and override_title.strip()) or (override_company and override_company.strip()):
+        updates = {}
+        if override_title and override_title.strip():
+            updates["title"] = override_title.strip()
+        if override_company and override_company.strip():
+            updates["company_name"] = override_company.strip()
+        try:
+            db.update_job_details(job_id, updates)
+        except Exception as e:
+            from loguru import logger
+            logger.warning("Could not auto-save job title/company live draft: {}", e)
+
+    try:
+        from job_search.export.latex_exporter import generate_cover_letter_pdf
+        # Project root directory containing config/ and data/
+        project_root = Path(app.root_path).parents[2]
+        pdf_path = generate_cover_letter_pdf(
+            job_id,
+            db,
+            project_root,
+            override_title=override_title,
+            override_company=override_company,
+            override_cl_text=override_cl_text,
+        )
+        
+        rel_path = str(pdf_path.resolve())
+
+        # Return JSON confirmation for POST/AJAX requests instead of forcing file download
+        if request.method == "POST" or request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json:
+            return jsonify({
+                "success": True,
+                "pdf_path": str(pdf_path.resolve()),
+                "relative_path": rel_path,
+                "filename": pdf_path.name,
+                "message": f"PDF generated successfully at {rel_path}",
+            })
+
+        return send_file(pdf_path, as_attachment=False)
+    except Exception as exc:
+        from loguru import logger
+        logger.error("Failed to generate PDF cover letter for job {}: {}", job_id, exc)
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/stats")

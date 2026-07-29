@@ -117,6 +117,7 @@ class WebUIConfig(BaseModel):
 
 class ExportConfig(BaseModel):
     output_dir: str = "data/export"
+    pdf_dir: str = "data/export"
 
 
 class Config(BaseModel):

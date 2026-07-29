@@ -27,7 +27,20 @@ if Path.cwd() != _PROJECT_ROOT:
     os.chdir(_PROJECT_ROOT)
 sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
-EXPECTED_ENDING = "Test Applicant"
+def get_expected_ending() -> str:
+    cv_path = _PROJECT_ROOT / "config" / "cv.yaml"
+    if cv_path.exists():
+        import yaml
+        try:
+            cv_data = yaml.safe_load(cv_path.read_text(encoding="utf-8")) or {}
+            name = cv_data.get("cv", {}).get("personal_info", {}).get("name")
+            if name:
+                return name.strip()
+        except Exception:
+            pass
+    return "Applicant Name"
+
+EXPECTED_ENDING = get_expected_ending()
 
 
 def last_nonempty_line(text: str) -> str:

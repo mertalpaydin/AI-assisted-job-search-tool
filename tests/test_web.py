@@ -73,9 +73,53 @@ def test_cover_letter_update_and_rendering(db: DatabaseManager, client) -> None:
     assert job is not None
     assert job.cover_letter_text == raw_cl
 
-    # Verify detail HTML includes non-scrollable textarea and JS formatting logic for copying to clipboard
+    # Verify detail HTML includes non-scrollable textarea, JS formatting logic, and Generate PDF button
     html = res.get_data(as_text=True)
     assert "overflow: hidden" in html
     assert "textarea.value.replace(/\\r\\n/g, \"\\n\").replace(/\\n\\s*\\n+/g, \"\\n\")" in html
     assert "Paragraph 1\n\nParagraph 2\n\nParagraph 3" in html
+    assert "Generate PDF" in html
+
+
+def test_get_a_or_an_article() -> None:
+    from job_search.export.latex_exporter import get_a_or_an
+    assert get_a_or_an("AI Engineer") == "an"
+    assert get_a_or_an("ERP Specialist") == "an"
+    assert get_a_or_an("Data Scientist") == "a"
+    assert get_a_or_an("ML Engineer") == "an"
+    assert get_a_or_an("Procurement Manager") == "a"
+
+
+def test_cover_letter_pdf_route(db: DatabaseManager, client, tmp_path) -> None:
+    from unittest.mock import patch
+    db.insert_job(60001, "kw", "loc")
+    db.update_job_details(60001, {"title": "Data Engineer", "company_name": "Tech Corp"})
+    db.save_screening_result(60001, ScreeningResult(0.9, "none", True, "Reason"))
+    db.save_cover_letter(60001, "Dear Hiring Manager,\n\nI am writing to express my interest in the role.\n\nSincerely,\nTest Applicant", "model", 0)
+
+    # Use isolated tmp_path for test PDF output so real export directories are not affected
+    dummy_pdf = tmp_path / "Applicant_Name_CoverLetter_Tech_Corp.pdf"
+    dummy_pdf.write_bytes(b"%PDF-1.4 header test content " + b"0" * 1000)
+
+    with patch("job_search.export.latex_exporter.generate_cover_letter_pdf", return_value=dummy_pdf):
+        # Test direct GET download
+        res = client.get("/jobs/60001/cover-letter/pdf")
+        assert res.status_code == 200
+        assert res.mimetype == "application/pdf"
+        assert len(res.data) > 1000
+
+        # Test POST with live unsaved overrides returning JSON status
+        post_res = client.post(
+            "/jobs/60001/cover-letter/pdf",
+            data={
+                "job_title": "AI Architect",
+                "company_name": "Live Corp",
+                "cover_letter_text": "Dear Hiring Manager,\n\nLive unsaved edit text.\n\nSincerely,\nTest Applicant",
+            },
+        )
+        assert post_res.status_code == 200
+        json_data = post_res.get_json()
+        assert json_data["success"] is True
+
+
 

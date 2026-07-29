@@ -1,0 +1,60 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman,english]{babel}
+\usepackage{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage[margin=VAR_MARGIN]{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{setspace}
+\usepackage{parskip}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+}
+
+\pagestyle{empty}
+\raggedright
+
+\begin{document}
+
+% Candidate Header (Centered Executive Style)
+\begin{center}
+    {\fontsize{18}{22}\selectfont \bfseries VAR_CANDIDATE_NAME}\\[0.15cm]
+    {\fontsize{9.5}{12}\selectfont \textbf{DATA SCIENCE \& AI/ML SPECIALIST \ \ $|$ \ \ STRATEGIC PROCUREMENT}}\\[0.2cm]
+    {\fontsize{9}{11}\selectfont VAR_CANDIDATE_ADDRESS \ \ $|$ \ \ VAR_CANDIDATE_PHONE \ \ $|$ \ \ \href{mailto:VAR_CANDIDATE_EMAIL}{VAR_CANDIDATE_EMAIL}}
+\end{center}
+
+\vspace{0.15cm}
+\hrule height 0.8pt
+\vspace{0.4cm}
+
+% Right-aligned Date (font 12)
+{\fontsize{12}{14}\selectfont \hfill \textbf{VAR_CITY, VAR_DATE}}
+
+\vspace{0.4cm}
+
+% Bold Subject Line (font 12)
+\noindent {\fontsize{12}{14}\selectfont \textbf{Application as VAR_ARTICLE VAR_JOB_TITLE at VAR_COMPANY_NAME}}
+
+\vspace{0.3cm}
+
+% Body Content (Left aligned, customizable body font size)
+VAR_BODY_FONT_CMD
+VAR_BODY_CONTENT
+
+\vspace{0.3cm}
+
+% Closing & Signature
+\noindent {\fontsize{10.5}{13}\selectfont
+Sincerely,\\[0.15cm]
+VAR_SIGNATURE_BLOCK
+\noindent VAR_CANDIDATE_NAME
+}
+
+\end{document}
