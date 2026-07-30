@@ -161,3 +161,21 @@ def test_quick_action_redirect_preserves_referrer_filters(db: DatabaseManager, c
     )
     assert res.status_code == 302
     assert res.headers["Location"] == target_referrer
+
+
+def test_company_inclusion_filter_web(db: DatabaseManager, client) -> None:
+    db.insert_job(90001, "kw", "loc1")
+    db.insert_job(90002, "kw", "loc2")
+    db.update_job_details(90001, {"title": "Frontend Dev", "company_name": "Web Corp"})
+    db.update_job_details(90002, {"title": "Backend Dev", "company_name": "Server Corp"})
+    db.save_screening_result(90001, ScreeningResult(0.9, "none", True, "Pass"))
+    db.save_screening_result(90002, ScreeningResult(0.85, "none", True, "Pass"))
+
+    # Test inc parameter in web route
+    res = client.get("/jobs?inc=Web+Corp")
+    assert res.status_code == 200
+    html = res.get_data(as_text=True)
+    assert "Frontend Dev" in html
+    assert "Backend Dev" not in html
+    assert "1 selected" in html
+

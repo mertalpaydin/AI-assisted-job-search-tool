@@ -1115,6 +1115,7 @@ class DatabaseManager:
         search: str = "",
         cl_ready: bool = False,
         exclude_companies: list[str] | None = None,
+        include_companies: list[str] | None = None,
         keyword_filter: str = "",
         german_filter: str = "",
         company_search: str = "",
@@ -1175,7 +1176,11 @@ class DatabaseManager:
         if cl_ready:
             conditions.append("cl.cover_letter_text IS NOT NULL")
 
-        if exclude_companies:
+        if include_companies:
+            placeholders = ",".join("?" * len(include_companies))
+            conditions.append(f"LOWER(j.company_name) IN ({placeholders})")
+            params.extend(c.lower() for c in include_companies)
+        elif exclude_companies:
             placeholders = ",".join("?" * len(exclude_companies))
             conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
             params.extend(c.lower() for c in exclude_companies)
@@ -1219,6 +1224,7 @@ class DatabaseManager:
         date_from: str = "",
         date_to: str = "",
         exclude_companies: list[str] | None = None,
+        include_companies: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
         keyword_filter: str = "",
@@ -1276,7 +1282,11 @@ class DatabaseManager:
             conditions.append("DATE(j.created_at) <= ?")
             params.append(date_to)
 
-        if exclude_companies:
+        if include_companies:
+            placeholders = ",".join("?" * len(include_companies))
+            conditions.append(f"LOWER(j.company_name) IN ({placeholders})")
+            params.extend(c.lower() for c in include_companies)
+        elif exclude_companies:
             placeholders = ",".join("?" * len(exclude_companies))
             conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
             params.extend(c.lower() for c in exclude_companies)
@@ -1378,6 +1388,7 @@ class DatabaseManager:
         date_from: str = "",
         date_to: str = "",
         exclude_companies: list[str] | None = None,
+        include_companies: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
         keyword_filter: str = "",
@@ -1434,7 +1445,11 @@ class DatabaseManager:
             conditions.append("DATE(j.created_at) <= ?")
             params.append(date_to)
 
-        if exclude_companies:
+        if include_companies:
+            placeholders = ",".join("?" * len(include_companies))
+            conditions.append(f"LOWER(j.company_name) IN ({placeholders})")
+            params.extend(c.lower() for c in include_companies)
+        elif exclude_companies:
             placeholders = ",".join("?" * len(exclude_companies))
             conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
             params.extend(c.lower() for c in exclude_companies)

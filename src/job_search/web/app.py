@@ -133,6 +133,7 @@ def jobs():
     date_from      = request.args.get("date_from", "")
     date_to        = request.args.get("date_to", "")
     exclude_companies = request.args.getlist("exc")
+    include_companies = request.args.getlist("inc")
     keyword_filter = request.args.get("kw", "").strip()
     german_filter  = request.args.get("german", "").strip()
     apply_type     = request.args.get("apply_type", "").strip()
@@ -145,6 +146,7 @@ def jobs():
     offset         = (page - 1) * _PAGE_SIZE
 
     all_excluded = list(dict.fromkeys(exclude_companies))
+    all_included = list(dict.fromkeys(include_companies))
 
     company_counts = db.get_company_counts(
         selected_only=True,
@@ -152,6 +154,7 @@ def jobs():
         date_from=date_from, date_to=date_to,
         search=search, cl_ready=bool(cl_filter),
         exclude_companies=all_excluded or None,
+        include_companies=all_included or None,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_val,
@@ -164,6 +167,7 @@ def jobs():
         cl_ready=bool(cl_filter),
         date_from=date_from, date_to=date_to,
         exclude_companies=all_excluded or None,
+        include_companies=all_included or None,
         limit=_PAGE_SIZE, offset=offset,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
@@ -183,6 +187,7 @@ def jobs():
         date_from=date_from, date_to=date_to,
         company_counts=company_counts,
         exclude_companies=exclude_companies,
+        include_companies=include_companies,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_param,
@@ -204,6 +209,7 @@ def jobs_all():
     date_from      = request.args.get("date_from", "")
     date_to        = request.args.get("date_to", "")
     exclude_companies = request.args.getlist("exc")
+    include_companies = request.args.getlist("inc")
     keyword_filter = request.args.get("kw", "").strip()
     german_filter  = request.args.get("german", "").strip()
     apply_type     = request.args.get("apply_type", "").strip()
@@ -216,6 +222,7 @@ def jobs_all():
     offset         = (page - 1) * _PAGE_SIZE
 
     all_excluded = list(dict.fromkeys(exclude_companies))
+    all_included = list(dict.fromkeys(include_companies))
 
     company_counts = db.get_company_counts(
         selected_only=False,
@@ -223,6 +230,7 @@ def jobs_all():
         date_from=date_from, date_to=date_to,
         search=search, cl_ready=bool(cl_filter),
         exclude_companies=all_excluded or None,
+        include_companies=all_included or None,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_val,
@@ -236,6 +244,7 @@ def jobs_all():
         cl_ready=bool(cl_filter),
         date_from=date_from, date_to=date_to,
         exclude_companies=all_excluded or None,
+        include_companies=all_included or None,
         limit=_PAGE_SIZE, offset=offset,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
@@ -255,6 +264,7 @@ def jobs_all():
         date_from=date_from, date_to=date_to,
         company_counts=company_counts,
         exclude_companies=exclude_companies,
+        include_companies=include_companies,
         keyword_filter=keyword_filter,
         german_filter=german_filter,
         min_match=min_match_param,

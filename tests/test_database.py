@@ -259,6 +259,33 @@ class TestKeywordFiltering:
         assert len(counts) == 1
         assert counts[0][0] == "PyCorp"
 
+    def test_include_companies_filtering(self, db: DatabaseManager) -> None:
+        db.insert_job(25001, "kw", "loc1")
+        db.insert_job(25002, "kw", "loc2")
+        db.insert_job(25003, "kw", "loc3")
+        db.update_job_details(25001, {"title": "Job A", "company_name": "Alpha Co"})
+        db.update_job_details(25002, {"title": "Job B", "company_name": "Beta Co"})
+        db.update_job_details(25003, {"title": "Job C", "company_name": "Gamma Co"})
+        db.save_screening_result(25001, ScreeningResult(0.9, "none", True, "Pass"))
+        db.save_screening_result(25002, ScreeningResult(0.85, "none", True, "Pass"))
+        db.save_screening_result(25003, ScreeningResult(0.8, "none", True, "Pass"))
+
+        # Filter by inclusion
+        inc_jobs, count = db.get_selected_jobs(include_companies=["Alpha Co"])
+        assert count == 1
+        assert inc_jobs[0].company_name == "Alpha Co"
+
+        # Filter by multiple inclusion
+        inc_jobs_multi, count_multi = db.get_selected_jobs(include_companies=["Alpha Co", "Gamma Co"])
+        assert count_multi == 2
+        company_names = {j.company_name for j in inc_jobs_multi}
+        assert company_names == {"Alpha Co", "Gamma Co"}
+
+        # Filter by none
+        inc_jobs_none, count_none = db.get_selected_jobs(include_companies=["__none__"])
+        assert count_none == 0
+        assert len(inc_jobs_none) == 0
+
 
 class TestGermanFiltering:
     def test_jobs_filter_by_german_level(self, db: DatabaseManager) -> None:

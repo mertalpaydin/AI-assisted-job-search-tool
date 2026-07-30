@@ -217,11 +217,17 @@
   {# Company filter dropdown #}
   {% if company_counts %}
   {% set exc_count = exclude_companies | length %}
+  {% set inc_count = include_companies | length %}
+  {% set has_filter = exc_count > 0 or inc_count > 0 %}
   <div class="dropdown" id="companyFilterDropdown">
-    <button class="btn btn-sm {% if exc_count > 0 %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+    <button class="btn btn-sm {% if has_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
             type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
       <i class="bi bi-building me-1"></i>Companies
-      {% if exc_count > 0 %}<span class="badge bg-dark ms-1">{{ exc_count }} hidden</span>{% endif %}
+      {% if inc_count > 0 %}
+        <span class="badge bg-dark ms-1">{% if include_companies == ['__none__'] %}0 selected{% else %}{{ inc_count }} selected{% endif %}</span>
+      {% elif exc_count > 0 %}
+        <span class="badge bg-dark ms-1">{{ exc_count }} hidden</span>
+      {% endif %}
     </button>
     <div class="dropdown-menu p-2 shadow" style="min-width:320px; z-index:1050">
       <div class="d-flex gap-1 mb-2">
@@ -239,7 +245,13 @@
           <div class="form-check mb-0 flex-fill">
             <input class="form-check-input company-cb" type="checkbox"
                    value="{{ company }}" id="co_{{ loop.index }}"
-                   {% if company not in exclude_companies %}checked{% endif %}>
+                   {% if inc_count > 0 %}
+                     {% if company in include_companies %}checked{% endif %}
+                   {% elif exc_count > 0 %}
+                     {% if company not in exclude_companies %}checked{% endif %}
+                   {% else %}
+                     checked
+                   {% endif %}>
             <label class="form-check-label small text-truncate d-block" for="co_{{ loop.index }}"
                    style="max-width:220px" title="{{ company }}">{{ company }}</label>
           </div>
@@ -251,7 +263,7 @@
         <button type="button" class="btn btn-primary btn-sm flex-fill" id="applyCompanyFilter">
           <i class="bi bi-funnel me-1"></i>Apply
         </button>
-        {% if exc_count > 0 %}
+        {% if has_filter %}
         <button type="button" class="btn btn-outline-secondary btn-sm" id="clearCompanyFilter">
           <i class="bi bi-x"></i>
         </button>
@@ -613,13 +625,28 @@
 
   if (applyBtn) {
     applyBtn.addEventListener('click', () => {
-      const unchecked = Array.from(document.querySelectorAll('.company-cb'))
-        .filter(cb => !cb.checked)
-        .map(cb => cb.value);
+      const allCbs = Array.from(document.querySelectorAll('.company-cb'));
+      const checked = allCbs.filter(cb => cb.checked).map(cb => cb.value);
+      const unchecked = allCbs.filter(cb => !cb.checked).map(cb => cb.value);
+
       const url = new URL(window.location.href);
       url.searchParams.delete('page');
       url.searchParams.delete('exc');
-      unchecked.forEach(c => url.searchParams.append('exc', c));
+      url.searchParams.delete('inc');
+
+      if (checked.length === 0) {
+        // Deselected all companies
+        url.searchParams.append('inc', '__none__');
+      } else if (unchecked.length === 0) {
+        // Selected all companies (no filter needed)
+      } else if (checked.length <= unchecked.length) {
+        // Inclusion mode: fewer checked than unchecked
+        checked.forEach(c => url.searchParams.append('inc', c));
+      } else {
+        // Exclusion mode: fewer unchecked than checked
+        unchecked.forEach(c => url.searchParams.append('exc', c));
+      }
+
       window.location.href = url.toString();
     });
   }
@@ -628,6 +655,7 @@
     clearBtn.addEventListener('click', () => {
       const url = new URL(window.location.href);
       url.searchParams.delete('exc');
+      url.searchParams.delete('inc');
       url.searchParams.delete('page');
       window.location.href = url.toString();
     });
