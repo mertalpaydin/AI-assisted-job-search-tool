@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,9 +34,29 @@ class JobCleaner:
 
     def _get_thread_session(self) -> requests.Session:
         if not hasattr(self._local, "session") or self._local.session is None:
-            s = requests.Session()
-            s.headers.update({"User-Agent": _USER_AGENT})
-            self._local.session = s
+            if self._session is not None:
+                cookies = getattr(self._session, "cookies", None)
+                headers = getattr(self._session, "headers", None)
+                if cookies is not None and "Mock" not in type(cookies).__name__ and hasattr(cookies, "items"):
+                    s = requests.Session()
+                    try:
+                        s.cookies.update(cookies)
+                    except Exception:
+                        pass
+                    if headers is not None and "Mock" not in type(headers).__name__ and hasattr(headers, "items"):
+                        try:
+                            s.headers.update(headers)
+                        except Exception:
+                            pass
+                    if "User-Agent" not in s.headers:
+                        s.headers.update({"User-Agent": _USER_AGENT})
+                    self._local.session = s
+                else:
+                    self._local.session = self._session
+            else:
+                s = requests.Session()
+                s.headers.update({"User-Agent": _USER_AGENT})
+                self._local.session = s
         return self._local.session
 
     def is_job_expired(self, job_id: int) -> bool | None:
@@ -46,7 +67,10 @@ class JobCleaner:
             False: Job is active.
             None: Rate-limited or blocked (429, 403, 999).
         """
-        session = self._session or self._get_thread_session()
+        # Pacing delay with random jitter (0.3s to 0.8s) to prevent bursting
+        time.sleep(random.uniform(0.3, 0.8))
+
+        session = self._get_thread_session()
 
         closed_keywords = (
             "no longer accepting applications",
@@ -107,11 +131,11 @@ class JobCleaner:
         return False
 
     def clean_pending_jobs(self, limit: int | None = None, batch_size: int = 500) -> dict[str, Any]:
-        """Scan pending jobs across batches using parallel worker threads in batches of 500 until pending jobs are checked."""
+        """Scan pending jobs across batches using parallel worker threads until pending jobs are checked."""
         checked_ids: set[int] = set()
         all_expired_ids: list[int] = []
         total_checked = 0
-        current_backoff = 5.0
+        current_backoff = 15.0
 
         logger.info("Cleaner: Starting scan across pending jobs ({} parallel workers, batch size {})...", self._max_workers, batch_size)
 
@@ -124,6 +148,7 @@ class JobCleaner:
                 break
 
             batch_expired: list[int] = []
+            batch_active: list[int] = []
             rate_limited_count = 0
 
             with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
@@ -141,8 +166,10 @@ class JobCleaner:
                             batch_expired.append(j_id)
                         elif expired_status is False:
                             checked_ids.add(j_id)
+                            batch_active.append(j_id)
                         else:
-                            # Rate limited (None) — do NOT add to checked_ids so it will be retried
+                            # Rate limited (None) — add to checked_ids for this run so cleaner doesn't spin infinitely on the exact same blocked jobs
+                            checked_ids.add(j_id)
                             rate_limited_count += 1
                     except Exception as exc:
                         logger.warning("Cleaner error checking job {}: {}", job_id, exc)
@@ -154,6 +181,9 @@ class JobCleaner:
                 all_expired_ids.extend(batch_expired)
                 self._db.mark_jobs_expired_batch(batch_expired)
 
+            if batch_active:
+                self._db.mark_jobs_cleaned_batch(batch_active)
+
             logger.info(
                 "Cleaner progress: Checked {} pending jobs — marked {} expired job(s) in DB so far.",
                 total_checked,
@@ -162,14 +192,14 @@ class JobCleaner:
 
             if rate_limited_count > 0:
                 logger.warning(
-                    "Cleaner rate-limited on {} jobs in batch. Pausing for {:.1f}s before retrying...",
+                    "Cleaner rate-limited on {} jobs in batch. Aggressive pause for {:.1f}s (max 300s) before retrying...",
                     rate_limited_count,
                     current_backoff,
                 )
                 time.sleep(current_backoff)
-                current_backoff = min(current_backoff * 2.0, 60.0)
+                current_backoff = min(current_backoff * 2.0, 300.0)
             else:
-                current_backoff = 5.0
+                current_backoff = 15.0
 
         logger.info(
             "Cleaner complete: Processed {} total pending jobs — marked {} as expired.",

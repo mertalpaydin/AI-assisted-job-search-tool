@@ -155,9 +155,9 @@ class JobSearchCoordinator:
         # --- Prompt manager (shared by screening and cover letter workers) ---
         prompt_manager = PromptManager()
 
-        # --- LinkedIn auth (only needed for scraping stages) ---
+        # --- LinkedIn auth (needed for scraping & clean stages) ---
         session = None
-        if stages & {"search", "details"}:
+        if stages & {"search", "details", "clean"}:
             _MAX_LOGIN_ATTEMPTS = 5
             _LOGIN_RETRY_DELAY  = 15  # seconds between attempts
             for attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
@@ -271,7 +271,7 @@ class JobSearchCoordinator:
         if "clean" in stages:
             def run_cleaner():
                 from job_search.cleaner.cleaner import JobCleaner
-                cleaner = JobCleaner(self._db)
+                cleaner = JobCleaner(self._db, session=session)
                 cleaner.clean_pending_jobs()
             self._spawn("cleaner", run_cleaner)
 

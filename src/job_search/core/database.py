@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 
     application_status TEXT,
     applied_at TIMESTAMP,
-    user_cl_approved INTEGER DEFAULT NULL
+    user_cl_approved INTEGER DEFAULT NULL,
+    last_cleaned_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS screening_results (
@@ -304,6 +305,20 @@ class DatabaseManager:
         self._migrate_v3(conn)
         self._migrate_v4(conn)
         self._migrate_v5(conn)
+        self._migrate_v6(conn)
+
+    def _migrate_v6(self, conn: sqlite3.Connection) -> None:
+        """Add last_cleaned_at column and index to jobs table."""
+        try:
+            conn.execute("ALTER TABLE jobs ADD COLUMN last_cleaned_at TIMESTAMP")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_last_cleaned ON jobs(last_cleaned_at)")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     def _migrate_v5(self, conn: sqlite3.Connection) -> None:
         """Add user_notes column to jobs table."""
@@ -1478,24 +1493,32 @@ class DatabaseManager:
             """)
             return [row[0] for row in cur.fetchall()]
 
-    def get_pending_jobs_for_cleaner(self, limit: int = 500, exclude_ids: set[int] | None = None) -> list[dict]:
-        """Return pending jobs to inspect for expired status, prioritizing selected jobs and newest jobs first."""
+    def get_pending_jobs_for_cleaner(
+        self,
+        limit: int = 500,
+        exclude_ids: set[int] | None = None,
+        min_clean_interval_days: int = 3,
+    ) -> list[dict]:
+        """Return pending jobs to inspect for expired status, skipping jobs checked in the last N days."""
         with self._cursor() as cur:
             if exclude_ids:
                 placeholders = ",".join("?" * len(exclude_ids))
                 sql = f"""
                     SELECT job_id, jobPostingUrl
                     FROM jobs
-                    WHERE application_status IS NULL AND job_id NOT IN ({placeholders})
+                    WHERE application_status IS NULL
+                      AND (last_cleaned_at IS NULL OR last_cleaned_at < datetime('now', '-{min_clean_interval_days} days'))
+                      AND job_id NOT IN ({placeholders})
                     ORDER BY CASE WHEN is_selected = 1 THEN 0 WHEN is_selected IS NULL THEN 1 ELSE 2 END, created_at DESC, job_id DESC
                     LIMIT ?
                 """
                 params = list(exclude_ids) + [limit]
             else:
-                sql = """
+                sql = f"""
                     SELECT job_id, jobPostingUrl
                     FROM jobs
                     WHERE application_status IS NULL
+                      AND (last_cleaned_at IS NULL OR last_cleaned_at < datetime('now', '-{min_clean_interval_days} days'))
                     ORDER BY CASE WHEN is_selected = 1 THEN 0 WHEN is_selected IS NULL THEN 1 ELSE 2 END, created_at DESC, job_id DESC
                     LIMIT ?
                 """
@@ -1503,14 +1526,26 @@ class DatabaseManager:
             cur.execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
 
-    def mark_jobs_expired_batch(self, job_ids: list[int]) -> int:
-        """Batch update application_status = 'expired' for specified job_ids."""
+    def mark_jobs_cleaned_batch(self, job_ids: list[int]) -> int:
+        """Batch update last_cleaned_at = CURRENT_TIMESTAMP for specified job_ids."""
         if not job_ids:
             return 0
         with self._cursor() as cur:
             placeholders = ",".join("?" * len(job_ids))
             cur.execute(
-                f"UPDATE jobs SET application_status = 'expired' WHERE job_id IN ({placeholders})",
+                f"UPDATE jobs SET last_cleaned_at = CURRENT_TIMESTAMP WHERE job_id IN ({placeholders})",
+                job_ids,
+            )
+            return cur.rowcount
+
+    def mark_jobs_expired_batch(self, job_ids: list[int]) -> int:
+        """Batch update application_status = 'expired' and last_cleaned_at = CURRENT_TIMESTAMP for specified job_ids."""
+        if not job_ids:
+            return 0
+        with self._cursor() as cur:
+            placeholders = ",".join("?" * len(job_ids))
+            cur.execute(
+                f"UPDATE jobs SET application_status = 'expired', last_cleaned_at = CURRENT_TIMESTAMP WHERE job_id IN ({placeholders})",
                 job_ids,
             )
             return cur.rowcount
