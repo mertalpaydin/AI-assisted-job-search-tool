@@ -279,9 +279,9 @@
   <div class="d-flex flex-wrap gap-2">
     {% set filters = [
       ("",        "All",     "secondary"),
-      ("pending", "Pending", "secondary"),
+      ("pending", "Pending", "warning"),
       ("applied", "Applied", "primary"),
-      ("skipped", "Skipped", "dark"),
+      ("skipped", "Skipped", "secondary"),
       ("expired", "Expired", "danger"),
     ] %}
     {% for val, label, color in filters %}
@@ -476,7 +476,7 @@
           {% elif st == "interviewing" %}<span class="badge bg-info text-dark status-badge">interviewing</span>
           {% elif st == "offered" %}<span class="badge bg-success status-badge">offered</span>
           {% elif st == "rejected" %}<span class="badge bg-danger status-badge">rejected</span>
-          {% elif st == "skipped" %}<span class="badge bg-secondary text-secondary-emphasis status-badge">skipped</span>
+          {% elif st == "skipped" %}<span class="badge bg-secondary text-light status-badge">skipped</span>
           {% elif st == "expired" %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle status-badge">expired</span>
           {% else %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle status-badge">pending</span>{% endif %}
         </td>
