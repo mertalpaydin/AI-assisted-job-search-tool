@@ -724,6 +724,25 @@ class DatabaseManager:
                 VALUES (?, ?, ?, ?, 1)
             """, (job_id, text, model, api_key_index))
 
+    def delete_cover_letter_record(self, job_id: int) -> None:
+        """Delete cover letter row for job_id and mark user_cl_approved=0 and application_status='skipped'."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM cover_letters WHERE job_id = ?", (job_id,))
+            cur.execute(
+                "UPDATE jobs SET user_cl_approved = 0, application_status = 'skipped', updated_at = CURRENT_TIMESTAMP WHERE job_id = ?",
+                (job_id,),
+            )
+
+    def prepare_cover_letter_regeneration(self, job_id: int) -> None:
+        """Delete cover letter row for job_id and set user_cl_approved=1 for re-queuing."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM cover_letters WHERE job_id = ?", (job_id,))
+            cur.execute(
+                "UPDATE jobs SET user_cl_approved = 1, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?",
+                (job_id,),
+            )
+
+
     def mark_cover_letter_error(self, job_id: int, error: str, retry_count: int = 0) -> None:
         with self._cursor() as cur:
             # Replace any existing row to avoid accumulating duplicate error rows.

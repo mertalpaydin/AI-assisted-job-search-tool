@@ -235,6 +235,17 @@
 
     <!-- Main content -->
     <main class="col-md-10 py-4 px-4">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show mb-3 shadow-sm" role="alert">
+              <i class="bi {% if category == 'success' %}bi-check-circle-fill{% elif category == 'info' %}bi-info-circle-fill{% else %}bi-exclamation-triangle-fill{% endif %} me-2"></i>
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
       {% block content %}{% endblock %}
     </main>
   </div>

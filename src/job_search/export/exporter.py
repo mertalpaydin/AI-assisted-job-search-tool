@@ -184,3 +184,61 @@ def export_cover_letters(
         exported, skipped, out,
     )
     return {"exported": exported, "skipped": skipped, "total": len(jobs)}
+
+
+def delete_cover_letter_export(
+    db: DatabaseManager,
+    job_id: int,
+    output_dir: str = "data/export",
+) -> bool:
+    """
+    Remove exported text files and PDFs for a job, and update index.csv.
+
+    Thread-safe via _csv_lock. Returns True if any file or index entry was removed/updated.
+    """
+    out = Path(output_dir)
+    deleted_any = False
+
+    if out.exists():
+        # Unlink matching export text and PDF files
+        matching_files = (
+            list(out.glob(f"*_{job_id}.txt"))
+            + list(out.glob(f"*_{job_id}.pdf"))
+            + list(out.glob(f"*{job_id}*.pdf"))
+        )
+        for p in matching_files:
+            if p.is_file():
+                try:
+                    p.unlink()
+                    deleted_any = True
+                    logger.info("Deleted export file: {}", p)
+                except Exception as e:
+                    logger.warning("Could not delete export file {}: {}", p, e)
+
+        # Update index.csv under lock
+        index_path = out / "index.csv"
+        if index_path.exists():
+            with _csv_lock:
+                try:
+                    job = db.get_selected_job(job_id)
+                    existing: list[list] = []
+                    modified = False
+                    with index_path.open(newline="", encoding="utf-8") as f:
+                        for row in csv.reader(f):
+                            if row and str(row[0]) == str(job_id):
+                                modified = True
+                                # If job is still selected in DB, update row to reflect no cover letter
+                                if job and job.is_selected == 1:
+                                    existing.append(_make_csv_row(job, ""))
+                                # If job is skipped/unselected, remove row from index.csv
+                            else:
+                                existing.append(row)
+                    if modified:
+                        with index_path.open("w", newline="", encoding="utf-8") as f:
+                            csv.writer(f).writerows(existing)
+                        deleted_any = True
+                except Exception as e:
+                    logger.warning("Could not update index.csv for job {}: {}", job_id, e)
+
+    return deleted_any
+

@@ -179,3 +179,44 @@ def test_company_inclusion_filter_web(db: DatabaseManager, client) -> None:
     assert "Backend Dev" not in html
     assert "1 selected" in html
 
+
+def test_cover_letter_delete_route(db: DatabaseManager, client) -> None:
+    db.insert_job(95001, "kw", "loc")
+    db.update_job_details(95001, {"title": "Fullstack Dev", "company_name": "Tech Corp"})
+    db.save_screening_result(95001, ScreeningResult(0.9, "none", True, "Pass"))
+    db.save_cover_letter(95001, "Original Cover Letter", "gemini-3-flash", 0)
+
+    # Verify cover letter exists before delete
+    assert db.has_successful_cover_letter(95001)
+
+    # Post to delete cover letter
+    res = client.post("/jobs/95001/cover-letter/delete", follow_redirects=True)
+    assert res.status_code == 200
+
+    # Verify DB state: cover letter row removed, user_cl_approved=0, application_status='skipped'
+    assert not db.has_successful_cover_letter(95001)
+    job = db.get_selected_job(95001)
+    assert job is not None
+    assert job.user_cl_approved == 0
+    assert job.application_status == "skipped"
+
+
+def test_cover_letter_regenerate_route(db: DatabaseManager, client) -> None:
+    db.insert_job(95002, "kw", "loc")
+    db.update_job_details(95002, {"title": "ML Engineer", "company_name": "AI Corp"})
+    db.save_screening_result(95002, ScreeningResult(0.95, "none", True, "Pass"))
+    db.save_cover_letter(95002, "Old Cover Letter", "gemini-3-flash", 0)
+
+    # Post to regenerate cover letter
+    res = client.post("/jobs/95002/cover-letter/regenerate", follow_redirects=True)
+    assert res.status_code == 200
+
+    # Verify DB state: cover letter row removed, user_cl_approved=1, job is in get_jobs_pending_cover_letter
+    assert not db.has_successful_cover_letter(95002)
+    job = db.get_selected_job(95002)
+    assert job is not None
+    assert job.user_cl_approved == 1
+    pending = db.get_jobs_pending_cover_letter(mode="user_approval")
+    assert 95002 in pending
+
+

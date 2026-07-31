@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from job_search.core.config import Config, load_config
 from job_search.core.database import APPLICATION_STATUSES, DatabaseManager
@@ -335,6 +335,56 @@ def update_cover_letter(job_id: int):
         abort(404)
     db.save_cover_letter(job_id, cl_text, model="manual-edit", api_key_index=0)
     return redirect(url_for("job_detail", job_id=job_id))
+
+
+@app.route("/jobs/<int:job_id>/cover-letter/delete", methods=["POST"])
+def delete_cover_letter(job_id: int):
+    db = get_db()
+    if db.get_selected_job(job_id) is None:
+        abort(404)
+
+    # 1. Clear database cover letter record and update status
+    db.delete_cover_letter_record(job_id)
+
+    # 2. Delete export files (.txt, .pdf) and update index.csv
+    from job_search.export.exporter import delete_cover_letter_export
+    project_root = Path(app.root_path).parents[2]
+    delete_cover_letter_export(db, job_id, output_dir=str(project_root / "data" / "export"))
+
+    flash(f"Cover letter deleted for job #{job_id}. Status updated in DB.", "success")
+    return _redirect_back(request.form, job_id)
+
+
+@app.route("/jobs/<int:job_id>/cover-letter/regenerate", methods=["POST"])
+def regenerate_cover_letter(job_id: int):
+    db = get_db()
+    if db.get_selected_job(job_id) is None:
+        abort(404)
+
+    # 1. Clear existing cover letter record & export files
+    db.prepare_cover_letter_regeneration(job_id)
+    from job_search.export.exporter import delete_cover_letter_export
+    project_root = Path(app.root_path).parents[2]
+    delete_cover_letter_export(db, job_id, output_dir=str(project_root / "data" / "export"))
+
+    # 2. Push job into live runner queue if active
+    global _runner_coordinator, _runner_thread
+    enqueued = False
+    if _runner_coordinator is not None and _runner_thread is not None and _runner_thread.is_alive():
+        try:
+            _runner_coordinator._cover_letter_queue.put(job_id)
+            enqueued = True
+        except Exception as exc:
+            from loguru import logger
+            logger.warning("Could not push job {} to live queue: {}", job_id, exc)
+
+    if enqueued:
+        flash(f"Cover letter reset for job #{job_id} and pushed to live generation queue!", "success")
+    else:
+        flash(f"Cover letter reset for job #{job_id} and marked approved for generation. Start the runner to generate.", "info")
+
+    return _redirect_back(request.form, job_id)
+
 
 
 @app.route("/jobs/<int:job_id>/cover-letter/pdf", methods=["GET", "POST"])
