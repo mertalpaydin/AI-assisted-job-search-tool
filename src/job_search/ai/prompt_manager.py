@@ -70,6 +70,14 @@ class PromptManager:
                 f"\nEducation: {edu.get('degree')} — {edu.get('institution')} ({edu.get('year')})"
             )
 
+        projects = cv.get("projects", [])
+        if projects:
+            lines.append("\nProjects:")
+            for proj in projects:
+                name = proj.get("name", "")
+                desc = (proj.get("description") or "").strip()
+                lines.append(f"- {name}: {desc}" if desc else f"- {name}")
+
         prefs = cv.get("preferences", {})
         if prefs.get("desired_roles"):
             lines.append(f"\nDesired Roles: {', '.join(prefs['desired_roles'])}")
@@ -91,7 +99,11 @@ class PromptManager:
         info = cv.get("personal_info", {})
         summary = cv.get("summary", "").strip()
         skills = ", ".join(cv.get("skills", {}).get("technical", []))
-        return f"{info.get('name', '')} — {summary}\nKey skills: {skills}"
+        projects = ", ".join(p.get("name", "") for p in cv.get("projects", []))
+        out = f"{info.get('name', '')} - {summary}\nKey skills: {skills}"
+        if projects:
+            out += f"\nProjects: {projects}"
+        return out
 
     def format_screening_prompt(
         self,

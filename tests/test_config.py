@@ -13,9 +13,47 @@ class TestLoadConfig:
     def test_loads_minimal_yaml(self, config_dir: Path) -> None:
         cfg = load_config(str(config_dir / "config.yaml"))
         assert isinstance(cfg, Config)
-        assert cfg.search.keywords == ["Python Developer"]
+        assert [k.term for k in cfg.search.keywords] == ["Python Developer"]
+        # bare strings coerce to tier 1 with no per-term page override
+        assert cfg.search.keywords[0].tier == 1
+        assert cfg.search.keywords[0].max_pages is None
         assert cfg.search.locations[0].geo_id == "102713980"
         assert cfg.search.locations[0].name == "Frankfurt am Main"
+
+    def test_keywords_accept_mapping_form(self, tmp_path: Path) -> None:
+        """Tiered mapping entries and bare strings can be mixed in one list."""
+        path = tmp_path / "config.yaml"
+        path.write_text(
+            "search:\n"
+            "  keywords:\n"
+            '    - {term: "AI Transformation", tier: 1, max_pages: 10}\n'
+            '    - {term: "Data Scientist", tier: 3, max_pages: 3}\n'
+            '    - "Procurement"\n'
+            "  locations:\n"
+            '    - geo_id: "102713980"\n'
+            '      name: "Frankfurt am Main"\n',
+            encoding="utf-8",
+        )
+        cfg = load_config(str(path))
+        assert [k.term for k in cfg.search.keywords] == [
+            "AI Transformation", "Data Scientist", "Procurement",
+        ]
+        assert [k.tier for k in cfg.search.keywords] == [1, 3, 1]
+        assert [k.max_pages for k in cfg.search.keywords] == [10, 3, None]
+
+    def test_keyword_tier_must_be_positive(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.yaml"
+        path.write_text(
+            "search:\n"
+            "  keywords:\n"
+            '    - {term: "AI", tier: 0}\n'
+            "  locations:\n"
+            '    - geo_id: "1"\n'
+            '      name: "X"\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(Exception):
+            load_config(str(path))
 
     def test_rate_limits_loaded(self, config_dir: Path) -> None:
         cfg = load_config(str(config_dir / "config.yaml"))

@@ -3,12 +3,11 @@ from __future__ import annotations
 import queue
 import re
 import time
-from itertools import cycle
 
 import requests
 from loguru import logger
 
-from job_search.core.config import Config, LocationConfig, TitleFilterConfig
+from job_search.core.config import Config, KeywordConfig, LocationConfig, TitleFilterConfig
 from job_search.core.database import DatabaseManager
 from job_search.core.state import ShutdownCoordinator, StateManager
 from job_search.scraping.auth import make_headers
@@ -109,70 +108,87 @@ class SearchWorker:
         self._shutdown = shutdown
         self._details_queue = details_queue
 
-        # Build cycling iterator over (keyword, location) pairs
-        pairs = [
+        self._keywords: list[KeywordConfig] = config.search.keywords
+        self._locations = config.search.locations
+        self._default_max_pages = config.search.max_pages
+        self._cycle_index = 0
+
+    def _pairs_for_cycle(self, index: int) -> list[tuple[KeywordConfig, LocationConfig]]:
+        """Keyword/location pairs due in this cycle, honouring each term's tier."""
+        return [
             (kw, loc)
-            for kw in config.search.keywords
-            for loc in config.search.locations
+            for kw in self._keywords
+            if index % kw.tier == 0
+            for loc in self._locations
         ]
-        self._pairs: cycle = cycle(pairs)
-        self._cycle_size = len(pairs)
-        self._max_pages = config.search.max_pages
 
     def run(self) -> None:
         logger.info("Search worker started")
+        if not self._keywords:
+            logger.warning("No search keywords configured - search worker exiting")
+            return
         rate_limits = self._config.search.rate_limits
         delay = rate_limits.delay_between_requests
         idle_delay = rate_limits.idle_cycle_delay
 
-        cycle_pos = 0
-        cycle_new = 0
-
         while not self._shutdown.should_shutdown():
-            keyword, location = next(self._pairs)
-            try:
-                new_jobs = self._search_once(keyword, location)
-                cycle_new += new_jobs
-            except Exception as exc:
-                logger.warning("Search error for '{}' / {}: {}", keyword, location.name, exc)
+            pairs = self._pairs_for_cycle(self._cycle_index)
+            self._cycle_index += 1
 
-            cycle_pos += 1
-            if cycle_pos >= self._cycle_size:
-                if cycle_new == 0:
-                    logger.debug(
-                        "Full cycle complete — no new jobs found, cooling down for {}s",
-                        idle_delay,
-                    )
-                    if self._shutdown.wait(timeout=idle_delay):
-                        break
-                cycle_pos = 0
-                cycle_new = 0
+            if not pairs:
+                # Nothing due this cycle (all remaining terms are higher-tier).
+                if self._shutdown.wait(timeout=delay):
+                    break
                 continue
 
-            if self._shutdown.wait(timeout=delay):
-                break
+            logger.debug(
+                "Search cycle {}: {} keyword/location pair(s) due",
+                self._cycle_index, len(pairs),
+            )
+
+            cycle_new = 0
+            for keyword, location in pairs:
+                if self._shutdown.should_shutdown():
+                    break
+                try:
+                    cycle_new += self._search_once(keyword, location)
+                except Exception as exc:
+                    logger.warning(
+                        "Search error for '{}' / {}: {}", keyword.term, location.name, exc
+                    )
+                if self._shutdown.wait(timeout=delay):
+                    break
+
+            if cycle_new == 0:
+                logger.debug(
+                    "Cycle {} complete, no new jobs found, cooling down for {}s",
+                    self._cycle_index, idle_delay,
+                )
+                if self._shutdown.wait(timeout=idle_delay):
+                    break
 
         logger.info("Search worker stopped")
 
-    def _search_once(self, keyword: str, location: LocationConfig) -> int:
+    def _search_once(self, keyword: KeywordConfig, location: LocationConfig) -> int:
         total_new = 0
         total_seen = 0
         consecutive_empty = 0
 
         wt_code = _WORK_TYPE_CODES.get(location.work_type or "", None)
         wt_filter = f"&f_WT={wt_code}" if wt_code else ""
+        max_pages = keyword.max_pages or self._default_max_pages
 
-        for page in range(self._max_pages):
+        for page in range(max_pages):
             start = page * 100
             url = _SEARCH_URL_BASE.format(
-                keyword=keyword, geo_id=location.geo_id, start=start, wt_filter=wt_filter
+                keyword=keyword.term, geo_id=location.geo_id, start=start, wt_filter=wt_filter
             )
             resp = self._session.get(url, headers=self._headers, timeout=15)
 
             if resp.status_code != 200:
                 logger.warning(
                     "Search HTTP {} for '{}' @ {} (page {}): {}",
-                    resp.status_code, keyword, location.name, page, resp.text,
+                    resp.status_code, keyword.term, location.name, page, resp.text,
                 )
                 break
 
@@ -188,7 +204,7 @@ class SearchWorker:
                 if stub.title and not _title_passes_filter(stub.title, title_filter):
                     logger.debug("Title filter blocked: {}", stub.title)
                     continue
-                self._db.insert_job(stub.job_id, keyword, location.geo_id)
+                self._db.insert_job(stub.job_id, keyword.term, location.geo_id)
                 self._details_queue.put(stub.job_id)
                 self._state.record_new_job()
                 new_in_page += 1
@@ -204,13 +220,13 @@ class SearchWorker:
                 consecutive_empty = 0
 
             # Respect rate limits between pages
-            if page < self._max_pages - 1 and not self._shutdown.should_shutdown():
+            if page < max_pages - 1 and not self._shutdown.should_shutdown():
                 delay = self._config.search.rate_limits.delay_between_requests
                 self._shutdown.wait(timeout=delay)
 
         logger.info(
             "Search '{}' @ {} — {}/{} new jobs ({}p)",
-            keyword, location.name, total_new, total_seen,
-            min(self._max_pages, (total_seen // 100) + 1),
+            keyword.term, location.name, total_new, total_seen,
+            min(max_pages, (total_seen // 100) + 1),
         )
         return total_new

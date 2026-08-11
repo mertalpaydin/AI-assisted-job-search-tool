@@ -37,6 +37,12 @@ cv:
       institution: "University Name"
       year: 2021
 
+  projects:
+    # Included in the screening and cover letter prompts. Name the frameworks
+    # used; the screener weighs these as evidence of hands-on skill.
+    - name: "Project Name"
+      description: "One or two sentences: the problem, the approach, the stack."
+
   preferences:
     desired_roles:
       - "Backend Developer"

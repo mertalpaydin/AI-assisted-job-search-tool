@@ -1,11 +1,15 @@
 # Job Search Configuration
 
 search:
+  # Search terms. Each entry is {term, tier, max_pages}; a bare string also works
+  # and defaults to tier 1 with the global max_pages below.
+  #   tier 1 = searched every cycle, tier 2 = every 2nd cycle, tier 3 = every 3rd.
+  #   max_pages overrides the global max_pages for that term only.
   keywords:
-    - "Python Developer"
+    - {term: "Machine Learning Engineer", tier: 1, max_pages: 10}
+    - {term: "Data Engineer",             tier: 2, max_pages: 5}
+    - "Python Developer"          # bare string = tier 1, global max_pages
     - "Backend Engineer"
-    - "Machine Learning Engineer"
-    - "Data Engineer"
 
   locations:
     - geo_id: "106150090"

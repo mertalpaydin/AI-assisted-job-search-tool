@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,17 +25,38 @@ class RateLimitConfig(BaseModel):
     idle_cycle_delay: float = 60.0  # seconds to wait after a full cycle with 0 new jobs
 
 
+class KeywordConfig(BaseModel):
+    """A single search term with its polling cadence and pagination depth.
+
+    tier controls how often the term is searched: a term is included in cycle N
+    only when N % tier == 0. tier 1 = every cycle, tier 2 = every second cycle,
+    and so on. max_pages overrides SearchConfig.max_pages for this term only.
+    """
+
+    term: str
+    tier: int = Field(default=1, ge=1)
+    max_pages: int | None = None
+
+
 class TitleFilterConfig(BaseModel):
     require_any: list[str] = []  # at least one must match (word-boundary, case-insensitive); empty = disabled
 
 
 class SearchConfig(BaseModel):
-    keywords: list[str]
+    keywords: list[KeywordConfig]
     locations: list[LocationConfig]
     rate_limits: RateLimitConfig = Field(default_factory=RateLimitConfig)
     max_pages: int = 5  # pages of 100 results each, per keyword+location
     title_filter: TitleFilterConfig = Field(default_factory=TitleFilterConfig)
     blocked_companies: list[str] = []  # company names to skip entirely (case-insensitive)
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def _coerce_keywords(cls, value: Any) -> Any:
+        """Accept plain strings as well as mappings, so older configs keep working."""
+        if not isinstance(value, list):
+            return value
+        return [{"term": v} if isinstance(v, str) else v for v in value]
 
 
 class ScreeningModelConfig(BaseModel):
