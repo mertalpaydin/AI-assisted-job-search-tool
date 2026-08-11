@@ -237,6 +237,61 @@ def clean(config: str, limit: int | None) -> None:
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# purge-blocked: delete jobs from companies that are on the block list
+# ---------------------------------------------------------------------------
+
+@main.command("purge-blocked")
+@click.option("--config", default="config/config.yaml", show_default=True)
+@click.option("--dry-run", is_flag=True, default=False,
+              help="List matching jobs without deleting them")
+def purge_blocked(config: str, dry_run: bool) -> None:
+    """Delete jobs whose company is on search.blocked_companies.
+
+    DetailsWorker already discards blocked companies at scrape time, but jobs
+    scraped *before* a company was added to the list stay in the database.
+    Run this after extending the block list.
+    """
+    from collections import Counter
+
+    from job_search.core.database import DatabaseManager
+
+    cfg = load_config(config)
+    db = DatabaseManager(cfg.database.path)
+    try:
+        blocked = cfg.search.blocked_companies
+        rows = db.find_jobs_by_company_names(blocked)
+
+        if not rows:
+            click.echo(f"No jobs found for the {len(blocked)} blocked companies.")
+            return
+
+        by_company = Counter(company for _, company, _, _ in rows)
+        click.echo(f"{len(rows)} job(s) from {len(by_company)} blocked company/companies:")
+        for company, n in by_company.most_common():
+            click.echo(f"  {n:>4}  {company}")
+
+        applied = [r for r in rows if r[3] == "applied"]
+        if applied:
+            click.echo("")
+            click.echo(f"WARNING: {len(applied)} of these are marked 'applied'. "
+                       f"Deleting loses that history.")
+            for job_id, company, title, _ in applied:
+                click.echo(f"  {job_id}  {company}  |  {title}")
+
+        if dry_run:
+            click.echo("")
+            click.echo("Dry run: nothing deleted. Re-run without --dry-run to delete.")
+            return
+
+        for job_id, _, _, _ in rows:
+            db.delete_job(job_id)
+        click.echo("")
+        click.echo(f"Deleted {len(rows)} job(s) and their screening/cover-letter rows.")
+    finally:
+        db.close()
+
+
 @main.command()
 @click.option("--config", default="config/config.yaml", show_default=True)
 @click.option("--host", default="127.0.0.1", show_default=True)

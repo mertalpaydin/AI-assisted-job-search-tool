@@ -575,6 +575,29 @@ class DatabaseManager:
                 (job_id,),
             )
 
+    def find_jobs_by_company_names(self, names) -> list[tuple[int, str, str | None, str | None]]:
+        """Return (job_id, company_name, title, application_status) for matching companies.
+
+        Matching is case-insensitive, mirroring the DetailsWorker block-list check.
+        """
+        lowered = sorted({n.strip().lower() for n in names if n and n.strip()})
+        if not lowered:
+            return []
+        out: list[tuple[int, str, str | None, str | None]] = []
+        with self._cursor() as cur:
+            # Chunked to stay under SQLite's bound-parameter limit.
+            for i in range(0, len(lowered), 500):
+                chunk = lowered[i:i + 500]
+                placeholders = ",".join("?" * len(chunk))
+                cur.execute(
+                    f"SELECT job_id, company_name, title, application_status FROM jobs "
+                    f"WHERE LOWER(company_name) IN ({placeholders}) "
+                    f"ORDER BY company_name, job_id",
+                    chunk,
+                )
+                out.extend((r[0], r[1], r[2], r[3]) for r in cur.fetchall())
+        return out
+
     def delete_job(self, job_id: int) -> None:
         with self._cursor() as cur:
             cur.execute("DELETE FROM cover_letters WHERE job_id = ?", (job_id,))
