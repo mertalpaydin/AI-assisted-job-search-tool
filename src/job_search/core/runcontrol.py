@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -53,10 +54,41 @@ class LockInfo:
         return (_now() - started).total_seconds() / 60.0
 
 
+def _pid_alive_windows(pid: int) -> bool:
+    """Liveness check for Windows.
+
+    ``os.kill(pid, 0)`` is unusable here: on Windows it routes through
+    ``TerminateProcess``, so a live pid would be killed and a dead one raises a
+    generic ``OSError`` that is indistinguishable from other failures. We ask
+    the OS directly with ``OpenProcess`` instead.
+    """
+    import ctypes
+
+    ERROR_ACCESS_DENIED = 5
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        # Access denied means the process exists but is owned by someone else;
+        # anything else (typically "invalid parameter") means no such process.
+        return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+    try:
+        exit_code = ctypes.c_ulong()
+        if kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return exit_code.value == STILL_ACTIVE
+        return True
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _pid_alive(pid: int) -> bool:
     """Best-effort liveness check that works on Windows and POSIX."""
     if pid <= 0:
         return False
+    if sys.platform == "win32":
+        return _pid_alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
