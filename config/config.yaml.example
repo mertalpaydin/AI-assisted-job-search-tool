@@ -411,6 +411,14 @@ execution:
   pickup_on_restart: true
   checkpoint_interval_minutes: 5
 
+# Screening mode. Batch costs half as much and does not need the laptop awake,
+# at the price of up to 24h latency. "auto" keeps the daily delta instant and
+# switches to batch for a backlog, which is usually what you want.
+#   screening:
+#     mode: "auto"              # instant | batch | auto
+#     batch_threshold: 500      # pending jobs before auto picks batch
+#     batch_stale_after_hours: 36
+
 # LinkedIn session persistence. The stored session removes the need for a 2FA
 # approval on every run, which is what makes scheduling possible.
 auth:

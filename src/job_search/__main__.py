@@ -243,6 +243,121 @@ def list_jobs(config: str, status: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+# batch — submit and collect asynchronous screening batches
+# ---------------------------------------------------------------------------
+
+def _batch_screener(cfg):
+    from job_search.ai.batch_screener import BatchScreener
+    from job_search.core.config import load_secrets
+    from job_search.core.database import DatabaseManager
+
+    keys = load_secrets().gemini_api_keys
+    if not keys:
+        raise click.ClickException("No Gemini API keys configured in config/.env")
+    db = DatabaseManager(cfg.database.path)
+    return BatchScreener(cfg, db, api_key=keys[0]), db
+
+
+@main.group()
+def batch() -> None:
+    """Asynchronous screening: half price, results within 24h."""
+
+
+@batch.command("submit")
+@click.option("--config", default="config/config.yaml", show_default=True)
+@click.option("--limit", default=None, type=int, help="Cap how many pending jobs to submit")
+def batch_submit(config: str, limit: int | None) -> None:
+    """Submit pending screening work as a batch and exit.
+
+    The process does not wait. Results are picked up by any later run, by the
+    hourly collect task, or by 'job-search batch collect'.
+    """
+    cfg = load_config(config)
+    setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)
+    screener, db = _batch_screener(cfg)
+    try:
+        pending = db.get_jobs_pending_screening()
+        if limit:
+            pending = pending[:limit]
+        if not pending:
+            click.echo("Nothing pending. (Jobs already out with a batch are skipped.)")
+            return
+        batch_id = screener.submit(pending)
+        if batch_id is None:
+            click.echo("Nothing eligible to submit.")
+        else:
+            click.echo(f"Submitted batch {batch_id} with {len(pending)} job(s).")
+            click.echo("Collect later with: uv run job-search batch collect")
+    finally:
+        db.close()
+
+
+@batch.command("collect")
+@click.option("--config", default="config/config.yaml", show_default=True)
+def batch_collect(config: str) -> None:
+    """Poll open batches and write back any that have finished."""
+    cfg = load_config(config)
+    setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)
+    screener, db = _batch_screener(cfg)
+    try:
+        summary = screener.collect_all(
+            stale_after_hours=cfg.screening.batch_stale_after_hours
+        )
+        click.echo(
+            f"Batches checked: {summary['checked']}  |  results written: {summary['collected']}"
+            f"  |  still running: {summary['still_running']}  |  failed: {summary['failed']}"
+        )
+    finally:
+        db.close()
+
+
+@batch.command("list")
+@click.option("--config", default="config/config.yaml", show_default=True)
+def batch_list(config: str) -> None:
+    """Show recent batches and their state."""
+    from job_search.core.database import DatabaseManager
+
+    cfg = load_config(config)
+    db = DatabaseManager(cfg.database.path)
+    try:
+        rows = db.get_recent_batch_jobs()
+        if not rows:
+            click.echo("No batches submitted yet.")
+            return
+        click.echo(f"\n{'ID':>4}  {'STATE':<10}  {'JOBS':>5}  {'GOT':>5}  {'AGE':>7}  SUBMITTED")
+        click.echo("-" * 70)
+        for r in rows:
+            click.echo(
+                f"{r['id']:>4}  {r['state']:<10}  {r['request_count']:>5}  "
+                f"{r['collected_count']:>5}  {r['age_hours']:>6.1f}h  {r['submitted_at']}"
+            )
+        click.echo()
+    finally:
+        db.close()
+
+
+@batch.command("abandon")
+@click.argument("batch_id", type=int)
+@click.option("--config", default="config/config.yaml", show_default=True)
+def batch_abandon(batch_id: int, config: str) -> None:
+    """Give up on a batch and release its jobs for immediate screening.
+
+    You will pay for those requests twice: the batch may still complete on the
+    provider's side. Any result that arrives afterwards is discarded.
+    """
+    from job_search.core.database import DatabaseManager
+
+    cfg = load_config(config)
+    db = DatabaseManager(cfg.database.path)
+    try:
+        released = db.abandon_batch_job(batch_id)
+        click.echo(f"Batch {batch_id} abandoned, {released} job(s) released for screening.")
+        click.echo("Note: those requests will be billed twice if the batch completes.")
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # login — refresh the stored LinkedIn session (the one interactive step)
 # ---------------------------------------------------------------------------
 

@@ -18,6 +18,7 @@ $tasks = @(
     @{ Name = "$prefix-Scrape";      Mode = "scrape";       Trigger = "Daily 06:30" },
     @{ Name = "$prefix-Screen";      Mode = "screen";       Trigger = "Daily 07:30" },
     @{ Name = "$prefix-CoverLetter"; Mode = "cover-letter"; Trigger = "Daily 08:00" },
+    @{ Name = "$prefix-Collect";     Mode = "collect";      Trigger = "Hourly" },
     @{ Name = "$prefix-Clean";       Mode = "clean";        Trigger = "Weekly Sunday 03:00" }
 )
 
@@ -41,6 +42,15 @@ function New-Trigger($spec) {
     switch ($parts[0]) {
         "Daily"  { return New-ScheduledTaskTrigger -Daily -At $parts[1] }
         "Weekly" { return New-ScheduledTaskTrigger -Weekly -DaysOfWeek $parts[1] -At $parts[2] }
+        "Hourly" {
+            # Batch results land within 24h; hourly polling is cheap and keeps
+            # collection independent of when you happen to open the app.
+            $t = New-ScheduledTaskTrigger -Once -At (Get-Date)
+            $t.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
+                -RepetitionInterval (New-TimeSpan -Hours 1) `
+                -RepetitionDuration (New-TimeSpan -Days 3650)).Repetition
+            return $t
+        }
     }
 }
 

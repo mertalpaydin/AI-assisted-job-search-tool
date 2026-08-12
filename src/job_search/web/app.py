@@ -719,21 +719,107 @@ def import_jobs():
 @app.route("/runner")
 def runner_dashboard():
     global _runner_thread, _runner_coordinator
-    is_running = _runner_thread is not None and _runner_thread.is_alive()
-    
+    from job_search.core import runcontrol
+    from job_search.core.session_store import load_session, session_saved_at
+
+    db = get_db()
+    in_process = _runner_thread is not None and _runner_thread.is_alive()
+
     active_stages = []
-    if is_running and _runner_coordinator is not None:
+    if in_process and _runner_coordinator is not None:
         active_stages = list(_runner_coordinator._stages)
     else:
         _runner_thread = None
         _runner_coordinator = None
         active_stages = ["search", "details", "screen", "cover-letter"]
 
+    # The lock is the only thing that can see a scheduled run in another process.
+    lock = runcontrol.is_locked(
+        _config.execution.lock_file, _config.execution.lock_stale_after_minutes
+    ) if _config else None
+    is_running = in_process or lock is not None
+
+    session_saved = session_saved_at(_config.auth.session_file) if _config else None
     return render_template(
         "runner.html",
         is_running=is_running,
         active_stages=active_stages,
+        lock=lock,
+        stopping=runcontrol.stop_requested(_config.execution.stop_file) if _config else False,
+        pause_remaining=runcontrol.pause_remaining(_config.schedule.pause_file) if _config else None,
+        session_saved_at=session_saved,
+        open_batches=db.get_open_batch_jobs(),
+        recent_batches=db.get_recent_batch_jobs(limit=8),
     )
+
+
+@app.route("/runner/stop", methods=["POST"])
+def runner_stop():
+    """Ask the running pipeline to stop, whichever process owns it."""
+    from job_search.core import runcontrol
+
+    runcontrol.request_stop(_config.execution.stop_file, reason="requested from web UI")
+    flash("Stop requested. The run will finish its current item and exit.", "warning")
+    return redirect(url_for("runner_dashboard"))
+
+
+@app.route("/runner/force-stop", methods=["POST"])
+def runner_force_stop():
+    """Terminate the run by pid and clear the lock. Blunt, but it is your machine."""
+    import signal
+
+    from job_search.core import runcontrol
+
+    lock = runcontrol.read_lock(_config.execution.lock_file)
+    if lock is None:
+        flash("Nothing is running.", "info")
+        return redirect(url_for("runner_dashboard"))
+    try:
+        os.kill(lock.pid, signal.SIGTERM)
+        flash(f"Sent SIGTERM to pid {lock.pid}.", "warning")
+    except OSError as exc:
+        flash(f"Could not terminate pid {lock.pid}: {exc}", "danger")
+    runcontrol.release_lock(_config.execution.lock_file)
+    runcontrol.clear_stop(_config.execution.stop_file)
+    return redirect(url_for("runner_dashboard"))
+
+
+@app.route("/runner/pause", methods=["POST"])
+def runner_pause():
+    from job_search.core import runcontrol
+
+    preset = request.form.get("preset", _config.schedule.default_pause)
+    resume_at = runcontrol.pause_schedule(
+        _config.schedule.pause_file, preset=preset,
+        morning_hour=_config.schedule.morning_resume_hour,
+    )
+    flash(
+        f"Scheduled runs paused until {resume_at:%a %H:%M}." if resume_at
+        else "Scheduled runs paused indefinitely. Remember to resume them.",
+        "warning" if resume_at else "danger",
+    )
+    return redirect(url_for("runner_dashboard"))
+
+
+@app.route("/runner/resume", methods=["POST"])
+def runner_resume():
+    from job_search.core import runcontrol
+
+    runcontrol.resume_schedule(_config.schedule.pause_file)
+    flash("Scheduled runs resumed.", "success")
+    return redirect(url_for("runner_dashboard"))
+
+
+@app.route("/runner/batch/<int:batch_id>/abandon", methods=["POST"])
+def runner_abandon_batch(batch_id: int):
+    """Release a batch's jobs so they can be screened immediately."""
+    released = get_db().abandon_batch_job(batch_id)
+    flash(
+        f"Batch {batch_id} abandoned, {released} job(s) released. "
+        f"Those requests will be billed twice if the batch still completes.",
+        "warning",
+    )
+    return redirect(url_for("runner_dashboard"))
 
 
 @app.route("/runner/start", methods=["POST"])

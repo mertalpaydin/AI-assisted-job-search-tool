@@ -49,6 +49,142 @@
 {% endblock %}
 
 {% block content %}
+
+{# Unattended-running control: session health, schedule pause, stop, batches. #}
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card border-0 h-100" style="background:#1e293b;">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3"><i class="bi bi-calendar-check me-2 text-primary"></i>Unattended running</h6>
+
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="small text-muted">LinkedIn session</span>
+          {% if session_saved_at %}
+            <span class="badge bg-success-subtle text-success border border-success-subtle"
+                  title="Saved {{ session_saved_at }}">stored</span>
+          {% else %}
+            <span class="badge bg-danger-subtle text-danger border border-danger-subtle"
+                  title="Run: uv run job-search login">none</span>
+          {% endif %}
+        </div>
+        {% if not session_saved_at %}
+        <div class="alert alert-danger border-0 small py-2 mb-3">
+          No stored session. Scheduled scrapes will skip LinkedIn and run only
+          screening and cover letters. Fix with <code>uv run job-search login</code>.
+        </div>
+        {% endif %}
+
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="small text-muted">Schedule</span>
+          {% if pause_remaining %}
+            <span class="badge bg-warning text-dark">paused, {{ pause_remaining }} left</span>
+          {% else %}
+            <span class="badge bg-success-subtle text-success border border-success-subtle">active</span>
+          {% endif %}
+        </div>
+
+        {% if pause_remaining %}
+          <form method="post" action="/runner/resume">
+            <button class="btn btn-sm btn-outline-success w-100">
+              <i class="bi bi-play me-1"></i>Resume scheduled runs
+            </button>
+          </form>
+        {% else %}
+          <form method="post" action="/runner/pause" class="d-flex gap-2">
+            <select name="preset" class="form-select form-select-sm bg-dark text-light border-secondary">
+              <option value="tomorrow_morning" selected>Until tomorrow morning</option>
+              <option value="12h">For 12 hours</option>
+              <option value="24h">For 24 hours</option>
+              <option value="indefinite">Until I resume it</option>
+            </select>
+            <button class="btn btn-sm btn-outline-warning text-nowrap">
+              <i class="bi bi-pause me-1"></i>Pause
+            </button>
+          </form>
+        {% endif %}
+
+        {% if lock %}
+        <hr class="border-secondary opacity-25">
+        <div class="small text-muted mb-2">
+          A <strong>{{ lock.origin }}</strong> run is in progress
+          (pid {{ lock.pid }}, {{ lock.age_minutes|round|int }} min, stages: {{ lock.stages or "all" }}).
+        </div>
+        <div class="d-flex gap-2">
+          <form method="post" action="/runner/stop" class="flex-fill">
+            <button class="btn btn-sm btn-outline-warning w-100" {% if stopping %}disabled{% endif %}>
+              <i class="bi bi-stop-circle me-1"></i>{{ "Stopping..." if stopping else "Stop run" }}
+            </button>
+          </form>
+          <form method="post" action="/runner/force-stop" class="flex-fill">
+            <button class="btn btn-sm btn-outline-danger w-100"
+                    onclick="return confirm('Terminate pid {{ lock.pid }} immediately?')">
+              <i class="bi bi-x-octagon me-1"></i>Force stop
+            </button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card border-0 h-100" style="background:#1e293b;">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3"><i class="bi bi-layers me-2 text-primary"></i>Screening batches</h6>
+        {% if open_batches %}
+          <div class="alert alert-warning border-0 small py-2">
+            {{ open_batches | sum(attribute='request_count') }} job(s) are awaiting batch
+            results and are skipped by any run until they arrive.
+          </div>
+        {% endif %}
+        {% if recent_batches %}
+        <div class="table-responsive">
+          <table class="table table-sm table-dark table-borderless align-middle mb-0 small">
+            <thead class="text-muted"><tr>
+              <th>ID</th><th>State</th><th class="text-end">Jobs</th>
+              <th class="text-end">Got</th><th class="text-end">Age</th><th></th>
+            </tr></thead>
+            <tbody>
+            {% for b in recent_batches %}
+              <tr>
+                <td>{{ b.id }}</td>
+                <td>
+                  {% if b.state == 'submitted' %}<span class="badge bg-info text-dark">running</span>
+                  {% elif b.state == 'succeeded' %}<span class="badge bg-success">done</span>
+                  {% elif b.state == 'partial' %}<span class="badge bg-warning text-dark">partial</span>
+                  {% elif b.state == 'abandoned' %}<span class="badge bg-secondary">abandoned</span>
+                  {% else %}<span class="badge bg-danger">{{ b.state }}</span>{% endif %}
+                </td>
+                <td class="text-end">{{ b.request_count }}</td>
+                <td class="text-end">{{ b.collected_count }}</td>
+                <td class="text-end">{{ b.age_hours|round(1) }}h</td>
+                <td class="text-end">
+                  {% if b.state == 'submitted' %}
+                  <form method="post" action="/runner/batch/{{ b.id }}/abandon" class="d-inline">
+                    <button class="btn btn-link btn-sm p-0 text-warning"
+                            title="Release these jobs for immediate screening. They will be billed twice if the batch completes."
+                            onclick="return confirm('Abandon batch {{ b.id }}? Those requests will be paid for twice.')">
+                      abandon
+                    </button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+          <p class="small text-muted mb-0">
+            No batches yet. Screening runs instantly until the pending count passes
+            the configured threshold, then switches to batch automatically.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
         <h4 class="mb-0 fw-bold">Pipeline Runner</h4>

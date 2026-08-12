@@ -22,6 +22,9 @@ from job_search.scraping.search import SearchWorker
 
 ALL_STAGES = ("search", "details", "screen", "cover-letter", "clean")
 
+# Stages that never touch LinkedIn, so they still run without a valid session.
+OFFLINE_STAGES = ("screen", "cover-letter", "collect-batches")
+
 
 class JobSearchCoordinator:
     """
@@ -97,6 +100,12 @@ class JobSearchCoordinator:
 
         logger.info("=== AI Job Search Tool starting (stages: {}) ===", ", ".join(active))
 
+        # Collect finished batches before anything else. This is what makes
+        # pressing Start enough: yesterday's results land, their jobs stop being
+        # in flight, and the run proceeds with what is genuinely outstanding.
+        if "screen" in self._stages:
+            self._collect_batches()
+
         if resume:
             self._cleanup_errors_on_start()
             queues = PipelineQueues(
@@ -122,6 +131,39 @@ class JobSearchCoordinator:
             runcontrol.clear_stop(self._config.execution.stop_file)
         logger.info("=== Shutdown complete ===")
         self._state.log_stats()
+
+    def _collect_batches(self) -> None:
+        """Write back any finished screening batches. Never fatal."""
+        try:
+            from job_search.ai.batch_screener import BatchScreener
+
+            api_keys = self._secrets.gemini_api_keys
+            if not api_keys:
+                return
+            open_batches = self._db.get_open_batch_jobs()
+            if not open_batches:
+                return
+
+            logger.info("Checking {} open screening batch(es) before starting",
+                        len(open_batches))
+            screener = BatchScreener(self._config, self._db, api_key=api_keys[0])
+            summary = screener.collect_all(
+                stale_after_hours=self._config.screening.batch_stale_after_hours
+            )
+            if summary["collected"]:
+                logger.info("Collected {} screening result(s) from batches",
+                            summary["collected"])
+            if summary["still_running"]:
+                in_flight = sum(
+                    b["request_count"] for b in self._db.get_open_batch_jobs()
+                )
+                logger.info(
+                    "{} job(s) are still awaiting batch results and will be "
+                    "skipped this run. Abandon the batch if you want them now.",
+                    in_flight,
+                )
+        except Exception as exc:
+            logger.warning("Batch collection skipped: {}", exc)
 
     def _cleanup_errors_on_start(self) -> None:
         """Reset all stage errors before resume so they are re-queued naturally.
@@ -256,6 +298,17 @@ class JobSearchCoordinator:
         screening_backend = cfg.screening.backend
         api_keys = self._secrets.gemini_api_keys
 
+        # Batch mode submits and exits rather than spawning screening workers.
+        screening_mode = getattr(cfg.screening, "mode", "instant")
+        if "screen" in stages and screening_backend == "gemini" and api_keys:
+            pending = self._db.get_jobs_pending_screening()
+            use_batch = screening_mode == "batch" or (
+                screening_mode == "auto" and len(pending) >= cfg.screening.batch_threshold
+            )
+            if use_batch and pending:
+                self._submit_batch(pending, api_keys[0])
+                stages = self._stages = self._stages - {"screen"}
+
         if "screen" in stages and screening_backend == "gemini":
             if not api_keys:
                 raise RuntimeError(
@@ -324,6 +377,23 @@ class JobSearchCoordinator:
             screening_backend,
             len(api_keys) if api_keys else 0,
         )
+
+    def _submit_batch(self, pending: list[int], api_key: str) -> None:
+        """Send pending screening work to the Batch API and move on."""
+        try:
+            from job_search.ai.batch_screener import BatchScreener
+
+            screener = BatchScreener(self._config, self._db, api_key=api_key)
+            batch_id = screener.submit(pending)
+            if batch_id is not None:
+                logger.info(
+                    "Screening submitted as batch {} ({} jobs). Results arrive within "
+                    "24h and are collected by the next run or the collect task.",
+                    batch_id, len(pending),
+                )
+        except Exception as exc:
+            logger.error("Batch submission failed, falling back to instant screening: {}", exc)
+            self._stages.add("screen")
 
     def _spawn(self, name: str, target) -> None:
         t = threading.Thread(target=target, name=name, daemon=True)

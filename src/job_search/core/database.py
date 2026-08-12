@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     screening_reasoning TEXT,
     archetype TEXT,
     prefilter_reason TEXT,
+    batch_job_id INTEGER,
 
     workRemoteAllowed INTEGER,
     workplaceTypes TEXT,
@@ -136,6 +137,18 @@ CREATE INDEX IF NOT EXISTS idx_screening_status ON screening_results(screening_s
 CREATE INDEX IF NOT EXISTS idx_screening_selected ON screening_results(is_selected);
 CREATE INDEX IF NOT EXISTS idx_cover_letter_status ON cover_letters(generation_status);
 CREATE INDEX IF NOT EXISTS idx_processing_state_stage ON processing_state(stage, status);
+CREATE TABLE IF NOT EXISTS batch_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider_job_name TEXT NOT NULL UNIQUE,
+    stage TEXT NOT NULL,
+    request_count INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    collected_count INTEGER DEFAULT 0,
+    error_message TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(request_timestamp);
 """
 
@@ -331,6 +344,34 @@ class DatabaseManager:
         self._migrate_v6(conn)
         self._migrate_v7(conn)
         self._migrate_v8(conn)
+        self._migrate_v9(conn)
+
+    def _migrate_v9(self, conn: sqlite3.Connection) -> None:
+        """Add batch screening support: the batch_jobs table and the in-flight link.
+
+        jobs.batch_job_id is the guard that stops an on-demand run re-screening
+        work already sitting in a submitted batch.
+        """
+        for stmt in (
+            "ALTER TABLE jobs ADD COLUMN batch_job_id INTEGER",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_batch ON jobs(batch_job_id)",
+            """CREATE TABLE IF NOT EXISTS batch_jobs (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   provider_job_name TEXT NOT NULL UNIQUE,
+                   stage TEXT NOT NULL,
+                   request_count INTEGER NOT NULL,
+                   state TEXT NOT NULL,
+                   submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                   completed_at TIMESTAMP,
+                   collected_count INTEGER DEFAULT 0,
+                   error_message TEXT
+               )""",
+        ):
+            try:
+                conn.execute(stmt)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     def _migrate_v8(self, conn: sqlite3.Connection) -> None:
         """Add prefilter_reason to jobs.
@@ -708,6 +749,7 @@ class DatabaseManager:
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN screening_results sr ON j.job_id = sr.job_id
                 WHERE j.scraped = 1 AND sr.id IS NULL AND j.prefilter_reason IS NULL
+                  AND j.batch_job_id IS NULL
                 ORDER BY COALESCE(j.workRemoteAllowed, 0) ASC, j.created_at DESC, j.job_id DESC
             """)
             return [row[0] for row in cur.fetchall()]
@@ -1660,6 +1702,95 @@ class DatabaseManager:
                 LIMIT ? OFFSET ?
             """, params + [limit, offset])
             return [SelectedJobRow(**dict(row)) for row in cur.fetchall()], total
+
+    # ------------------------------------------------------------------
+    # Batch screening
+    # ------------------------------------------------------------------
+
+    def create_batch_job(self, provider_job_name: str, stage: str,
+                         job_ids: list[int]) -> int:
+        """Record a submitted batch and mark its jobs as in flight."""
+        with self._cursor() as cur:
+            cur.execute(
+                "INSERT INTO batch_jobs (provider_job_name, stage, request_count, state) "
+                "VALUES (?, ?, ?, 'submitted')",
+                (provider_job_name, stage, len(job_ids)),
+            )
+            batch_id = int(cur.lastrowid)
+            cur.executemany(
+                "UPDATE jobs SET batch_job_id = ? WHERE job_id = ?",
+                [(batch_id, jid) for jid in job_ids],
+            )
+        return batch_id
+
+    def get_open_batch_jobs(self) -> list[dict]:
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT id, provider_job_name, stage, request_count, state,
+                       submitted_at, collected_count,
+                       CAST((julianday('now') - julianday(submitted_at)) * 24 AS REAL) AS age_hours
+                FROM batch_jobs
+                WHERE state = 'submitted'
+                ORDER BY submitted_at
+            """)
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_recent_batch_jobs(self, limit: int = 20) -> list[dict]:
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT id, provider_job_name, stage, request_count, state,
+                       submitted_at, completed_at, collected_count, error_message,
+                       CAST((julianday('now') - julianday(submitted_at)) * 24 AS REAL) AS age_hours
+                FROM batch_jobs
+                ORDER BY submitted_at DESC
+                LIMIT ?
+            """, (limit,))
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_batch_job_ids(self, batch_id: int) -> list[int]:
+        with self._cursor() as cur:
+            cur.execute("SELECT job_id FROM jobs WHERE batch_job_id = ?", (batch_id,))
+            return [r[0] for r in cur.fetchall()]
+
+    def job_belongs_to_batch(self, job_id: int, batch_id: int) -> bool:
+        """True when the job still points at this batch.
+
+        This is the ordering guarantee for the whole batch design: a result is
+        only written if the job has not since been abandoned or re-submitted,
+        so a late arrival can never overwrite a fresher answer.
+        """
+        with self._cursor() as cur:
+            cur.execute("SELECT batch_job_id FROM jobs WHERE job_id = ?", (job_id,))
+            row = cur.fetchone()
+            return row is not None and row[0] == batch_id
+
+    def clear_batch_link(self, job_ids: list[int]) -> None:
+        """Release jobs from a batch so the normal screening path can take them."""
+        with self._cursor() as cur:
+            cur.executemany(
+                "UPDATE jobs SET batch_job_id = NULL WHERE job_id = ?",
+                [(jid,) for jid in job_ids],
+            )
+
+    def finish_batch_job(self, batch_id: int, state: str, collected: int = 0,
+                         error_message: str | None = None) -> None:
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE batch_jobs SET state = ?, collected_count = ?, "
+                "error_message = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (state, collected, error_message, batch_id),
+            )
+
+    def abandon_batch_job(self, batch_id: int) -> int:
+        """Give up on a batch and release its jobs for immediate screening.
+
+        Any result that arrives later is discarded, because job_belongs_to_batch
+        will no longer match.
+        """
+        job_ids = self.get_batch_job_ids(batch_id)
+        self.clear_batch_link(job_ids)
+        self.finish_batch_job(batch_id, "abandoned", error_message="abandoned by user")
+        return len(job_ids)
 
     def get_archetype_counts(self, selected_only: bool = False) -> list[dict]:
         """Return per-archetype counts for the stats page and filter dropdowns.

@@ -101,6 +101,9 @@ class GeminiScreeningConfig(BaseModel):
 
 class ScreeningConfig(BaseModel):
     backend: str = "local"                # "local" | "gemini"
+    mode: str = "auto"                    # instant | batch | auto
+    batch_threshold: int = 500            # pending jobs before auto picks batch
+    batch_stale_after_hours: float = 36.0 # warn about a batch open longer than this
     model: ScreeningModelConfig = Field(default_factory=ScreeningModelConfig)
     gemini: GeminiScreeningConfig = Field(default_factory=GeminiScreeningConfig)
     criteria: ScreeningCriteriaConfig = Field(default_factory=ScreeningCriteriaConfig)
