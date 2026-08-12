@@ -26,20 +26,27 @@ ALL_STAGES = ("search", "details", "screen", "cover-letter", "clean")
 OFFLINE_STAGES = ("screen", "cover-letter", "collect-batches")
 
 
-def should_use_batch(mode: str, origin: str, pending_count: int,
-                     threshold: int) -> bool:
-    """Decide between batch and instant screening for one run.
+def batch_routed(mode: str, origin: str, pending_count: int,
+                 threshold: int) -> bool:
+    """Decide whether this run screens via batch rather than instantly.
 
     "auto" routes on who is waiting rather than on volume, because volume says
     nothing about whether anyone is watching. A scheduled run has nobody in
     front of it, so batch latency costs nothing and the 50% saving is free. A
-    run started by hand should return answers now, at any size.
+    run started by hand should return answers now, at any size. The threshold
+    is a narrow override for the one case where that breaks down: a manual run
+    against a backlog too large to sit through synchronously.
 
-    The threshold is a narrow override for the one case where that breaks down:
-    a manual run against a backlog too large to sit through synchronously.
+    The count is read as "how big is this backlog", never as "is there work
+    right now". An empty queue does not make a run instant: a scheduled run
+    usually starts with nothing pending and goes on to scrape thousands of
+    jobs, and it should batch every one of them. Whether there is anything to
+    send is a separate question, asked at each submission.
+
+    A run is either a batch run or an instant run for its whole life. Switching
+    mid-run would mean submitting jobs that live screening workers are already
+    holding, and paying for both.
     """
-    if pending_count <= 0:
-        return False
     if mode == "batch":
         return True
     if mode == "instant":
@@ -88,6 +95,11 @@ class JobSearchCoordinator:
         self._lock_held = False
         # Set when LinkedIn stages were skipped because no valid session exists.
         self.linkedin_session_invalid = False
+        # True once this run has committed to batch screening. Screening
+        # workers are never spawned in that case, so the monitor loop is the
+        # only thing that moves screening work forward.
+        self._batch_routed = False
+        self._last_batch_poll = 0.0
 
         # Queues
         self._details_queue: queue.Queue = queue.Queue()
@@ -322,28 +334,36 @@ class JobSearchCoordinator:
         screening_backend = cfg.screening.backend
         api_keys = self._secrets.gemini_api_keys
 
-        # Batch mode submits and exits rather than spawning screening workers.
+        # A batch run never spawns screening workers. The monitor loop submits
+        # and collects for it instead, so work that arrives later in the run is
+        # still screened without a restart.
         screening_mode = getattr(cfg.screening, "mode", "instant")
         if "screen" in stages and screening_backend == "gemini" and api_keys:
             pending = self._db.get_jobs_pending_screening()
-            use_batch = should_use_batch(
+            self._batch_routed = batch_routed(
                 screening_mode, self._origin, len(pending), cfg.screening.batch_threshold
             )
-            if use_batch:
+            if self._batch_routed:
                 logger.info(
-                    "Screening {} job(s) via BATCH (mode={}, {} run)",
-                    len(pending), screening_mode, self._origin,
+                    "Screening via BATCH this run (mode={}, {} run, {} pending now)",
+                    screening_mode, self._origin, len(pending),
                 )
+                # An empty queue is not a failure: a scheduled run often starts
+                # with nothing pending and fills up as it scrapes.
+                if pending and not self._submit_batch(pending, api_keys[0]):
+                    logger.warning(
+                        "First batch was rejected, falling back to instant "
+                        "screening for this run"
+                    )
+                    self._batch_routed = False
+                else:
+                    self._last_batch_poll = time.monotonic()
+                    stages = self._stages = self._stages - {"screen"}
             elif pending:
                 logger.info(
                     "Screening {} job(s) INSTANTLY (mode={}, {} run)",
                     len(pending), screening_mode, self._origin,
                 )
-            if use_batch:
-                # Only drop the screening stage if the submission actually
-                # succeeded, otherwise the run would silently screen nothing.
-                if self._submit_batch(pending, api_keys[0]):
-                    stages = self._stages = self._stages - {"screen"}
 
         if "screen" in stages and screening_backend == "gemini":
             if not api_keys:
@@ -458,6 +478,11 @@ class JobSearchCoordinator:
         start_time = time.monotonic()
         retry_interval = cfg.retry_errors_interval_minutes * 60
         last_retry = time.monotonic() if retry_interval > 0 else None
+        batch_poll_interval = max(
+            60.0, getattr(self._config.screening, "batch_poll_minutes", 10.0) * 60
+        )
+        if not self._last_batch_poll:
+            self._last_batch_poll = time.monotonic()
 
         # When search is not active there are no new jobs being discovered,
         # so use a short idle timeout to shut down promptly after queues drain.
@@ -502,6 +527,14 @@ class JobSearchCoordinator:
                 self._retry_errors()
                 last_retry = time.monotonic()
 
+            # Batch upkeep: collect anything that finished, and submit another
+            # batch once enough new work has accumulated. Both were previously
+            # startup-only, which is why a long run could neither pick up its
+            # own results nor screen anything it scraped after the first batch.
+            if (time.monotonic() - self._last_batch_poll) >= batch_poll_interval:
+                self._last_batch_poll = time.monotonic()
+                self._batch_upkeep()
+
             # Shutdown condition 1: max runtime
             if elapsed >= max_runtime:
                 logger.info("Max runtime reached ({:.1f}h) — shutting down", elapsed / 3600)
@@ -537,6 +570,40 @@ class JobSearchCoordinator:
 
         logger.info("Monitor loop exiting — waiting for workers to finish…")
         self._drain_queues(timeout=60)
+
+    def _batch_upkeep(self) -> None:
+        """Collect finished batches, and submit another if enough work waits.
+
+        Runs on the monitor loop's tick. Deliberately never fatal: a screening
+        batch is an optimisation, and a provider hiccup should not take down a
+        run that is otherwise scraping happily.
+        """
+        try:
+            if self._db.get_open_batch_jobs():
+                # Worth doing even on an instant run: an older batch may still
+                # be open from a previous one, and its jobs are excluded from
+                # the pending queue until its results land.
+                self._collect_batches()
+
+            if not self._batch_routed:
+                return
+
+            api_keys = self._secrets.gemini_api_keys
+            if not api_keys:
+                return
+
+            pending = self._db.get_jobs_pending_screening()
+            threshold = self._config.screening.batch_threshold
+            if len(pending) < threshold:
+                return
+
+            logger.info(
+                "{} job(s) have accumulated since the last batch, submitting another",
+                len(pending),
+            )
+            self._submit_batch(pending, api_keys[0])
+        except Exception as exc:
+            logger.warning("Batch upkeep skipped this tick: {}", exc)
 
     def _retry_errors(self) -> int:
         """Reset errored jobs and push them back onto the live queues. Returns total requeued count."""

@@ -848,6 +848,55 @@ def runner_resume():
     return redirect(url_for("runner_dashboard"))
 
 
+@app.route("/runner/batch/collect", methods=["POST"])
+def runner_collect_batches():
+    """Poll every open batch now and write back whatever has finished.
+
+    Safe to press at any time, including mid-run: a result is only written if
+    the job still points at the batch it came from, so nothing here can
+    overwrite a fresher answer.
+    """
+    if _config is None:
+        abort(500, "Configuration not loaded")
+
+    from job_search.ai.batch_screener import BatchScreener
+    from job_search.core.config import load_secrets
+
+    api_keys = load_secrets().gemini_api_keys
+    if not api_keys:
+        flash("No Gemini API key configured, cannot reach the Batch API.", "danger")
+        return redirect(url_for("runner_dashboard"))
+
+    if not get_db().get_open_batch_jobs():
+        flash("No open batches to collect.", "info")
+        return redirect(url_for("runner_dashboard"))
+
+    try:
+        screener = BatchScreener(_config, get_db(), api_key=api_keys[0])
+        summary = screener.collect_all(
+            stale_after_hours=_config.screening.batch_stale_after_hours
+        )
+    except Exception as exc:
+        flash(f"Could not collect batches: {exc}", "danger")
+        return redirect(url_for("runner_dashboard"))
+
+    if summary["collected"]:
+        flash(
+            f"Collected {summary['collected']} screening result(s) from "
+            f"{summary['checked']} batch(es).",
+            "success",
+        )
+    elif summary["still_running"]:
+        flash(
+            f"{summary['still_running']} batch(es) are still running at the "
+            f"provider. Nothing to write back yet.",
+            "info",
+        )
+    else:
+        flash(f"Checked {summary['checked']} batch(es), nothing new.", "info")
+    return redirect(url_for("runner_dashboard"))
+
+
 @app.route("/runner/batch/<int:batch_id>/abandon", methods=["POST"])
 def runner_abandon_batch(batch_id: int):
     """Release a batch's jobs so they can be screened immediately."""

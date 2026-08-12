@@ -130,11 +130,22 @@
   <div class="col-md-6">
     <div class="card border-0 h-100" style="background:#1e293b;">
       <div class="card-body">
-        <h6 class="fw-bold mb-3"><i class="bi bi-layers me-2 text-primary"></i>Screening batches</h6>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="fw-bold mb-0"><i class="bi bi-layers me-2 text-primary"></i>Screening batches</h6>
+          {% if open_batches %}
+          <form method="post" action="/runner/batch/collect" class="d-inline">
+            <button class="btn btn-sm btn-outline-info"
+                    title="Poll the provider now and write back anything that has finished">
+              <i class="bi bi-cloud-download me-1"></i>Collect now
+            </button>
+          </form>
+          {% endif %}
+        </div>
         {% if open_batches %}
           <div class="alert alert-warning border-0 small py-2">
             {{ open_batches | sum(attribute='request_count') }} job(s) are awaiting batch
-            results and are skipped by any run until they arrive.
+            results and are skipped by any run until they arrive. A running pipeline
+            checks for them on its own; this button just asks now.
           </div>
         {% endif %}
         {% if recent_batches %}
@@ -176,8 +187,10 @@
         </div>
         {% else %}
           <p class="small text-muted mb-0">
-            No batches yet. Screening runs instantly until the pending count passes
-            the configured threshold, then switches to batch automatically.
+            No batches yet. Scheduled runs always batch; a run you start by hand
+            batches only when more jobs are already waiting than the configured
+            threshold. A batch run keeps submitting as more work accumulates, and
+            collects finished results while it goes.
           </p>
         {% endif %}
       </div>
