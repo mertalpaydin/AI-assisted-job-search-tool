@@ -101,8 +101,13 @@ class GeminiScreeningConfig(BaseModel):
 
 class ScreeningConfig(BaseModel):
     backend: str = "local"                # "local" | "gemini"
+    # auto routes on who is waiting: a scheduled run batches (nobody is
+    # watching, so the 24h latency is free and the 50% saving is pure gain),
+    # a manual run screens instantly.
     mode: str = "auto"                    # instant | batch | auto
-    batch_threshold: int = 500            # pending jobs before auto picks batch
+    # Only applies to MANUAL runs under auto: a backlog too large to sit
+    # through goes to batch even though you started it by hand.
+    batch_threshold: int = 2000
     batch_stale_after_hours: float = 36.0 # warn about a batch open longer than this
     model: ScreeningModelConfig = Field(default_factory=ScreeningModelConfig)
     gemini: GeminiScreeningConfig = Field(default_factory=GeminiScreeningConfig)

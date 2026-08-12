@@ -755,8 +755,19 @@ def runner_dashboard():
 
 @app.route("/runner/stop", methods=["POST"])
 def runner_stop():
-    """Ask the running pipeline to stop, whichever process owns it."""
+    """Ask the running pipeline to stop, whichever process owns it.
+
+    Two mechanisms, because a run may live in this process (started from the
+    web UI) or in a separate scheduled process. Signalling the in-process
+    coordinator is immediate; the stop file is what a scheduled run sees.
+    Threads are deliberately not joined here, the background run_pipeline()
+    thread owns cleanup and joining would block the browser.
+    """
+    global _runner_coordinator
     from job_search.core import runcontrol
+
+    if _runner_coordinator is not None:
+        _runner_coordinator._shutdown.request_shutdown()
 
     runcontrol.request_stop(_config.execution.stop_file, reason="requested from web UI")
     flash("Stop requested. The run will finish its current item and exit.", "warning")
@@ -854,17 +865,6 @@ def runner_start():
     _runner_thread = threading.Thread(target=run_pipeline, name="runner-ui-thread", daemon=True)
     _runner_thread.start()
 
-    return redirect(url_for("runner_dashboard"))
-
-
-@app.route("/runner/stop", methods=["POST"])
-def runner_stop():
-    global _runner_coordinator
-    if _runner_coordinator is not None:
-        # Only signal shutdown — do NOT join threads here.
-        # The background run_pipeline() thread owns cleanup() and will call it
-        # when workers finish. Joining in a request handler would block the browser.
-        _runner_coordinator._shutdown.request_shutdown()
     return redirect(url_for("runner_dashboard"))
 
 

@@ -416,8 +416,13 @@ execution:
 # switches to batch for a backlog, which is usually what you want.
 #   screening:
 #     mode: "auto"              # instant | batch | auto
-#     batch_threshold: 500      # pending jobs before auto picks batch
+#     batch_threshold: 2000     # manual runs only: backlog size that forces batch
 #     batch_stale_after_hours: 36
+#
+# Under "auto":
+#   scheduled run  -> batch    (nobody waiting, 24h latency is free, 50% cheaper)
+#   manual run     -> instant  (you are watching), unless the backlog exceeds
+#                              batch_threshold, which you would not sit through
 
 # LinkedIn session persistence. The stored session removes the need for a 2FA
 # approval on every run, which is what makes scheduling possible.

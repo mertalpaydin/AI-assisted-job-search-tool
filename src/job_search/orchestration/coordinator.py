@@ -26,6 +26,30 @@ ALL_STAGES = ("search", "details", "screen", "cover-letter", "clean")
 OFFLINE_STAGES = ("screen", "cover-letter", "collect-batches")
 
 
+def should_use_batch(mode: str, origin: str, pending_count: int,
+                     threshold: int) -> bool:
+    """Decide between batch and instant screening for one run.
+
+    "auto" routes on who is waiting rather than on volume, because volume says
+    nothing about whether anyone is watching. A scheduled run has nobody in
+    front of it, so batch latency costs nothing and the 50% saving is free. A
+    run started by hand should return answers now, at any size.
+
+    The threshold is a narrow override for the one case where that breaks down:
+    a manual run against a backlog too large to sit through synchronously.
+    """
+    if pending_count <= 0:
+        return False
+    if mode == "batch":
+        return True
+    if mode == "instant":
+        return False
+    # auto
+    if origin == "scheduled":
+        return True
+    return pending_count >= threshold
+
+
 class JobSearchCoordinator:
     """
     Main orchestrator. Initialises all queues and workers, then monitors
@@ -302,10 +326,20 @@ class JobSearchCoordinator:
         screening_mode = getattr(cfg.screening, "mode", "instant")
         if "screen" in stages and screening_backend == "gemini" and api_keys:
             pending = self._db.get_jobs_pending_screening()
-            use_batch = screening_mode == "batch" or (
-                screening_mode == "auto" and len(pending) >= cfg.screening.batch_threshold
+            use_batch = should_use_batch(
+                screening_mode, self._origin, len(pending), cfg.screening.batch_threshold
             )
-            if use_batch and pending:
+            if use_batch:
+                logger.info(
+                    "Screening {} job(s) via BATCH (mode={}, {} run)",
+                    len(pending), screening_mode, self._origin,
+                )
+            elif pending:
+                logger.info(
+                    "Screening {} job(s) INSTANTLY (mode={}, {} run)",
+                    len(pending), screening_mode, self._origin,
+                )
+            if use_batch:
                 # Only drop the screening stage if the submission actually
                 # succeeded, otherwise the run would silently screen nothing.
                 if self._submit_batch(pending, api_keys[0]):
