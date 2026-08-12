@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Cover Letter Prompt{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h5 class="mb-0 fw-bold"><i class="bi bi-braces me-2 text-warning"></i>Cover Letter Prompt</h5>
+    <span class="text-muted small">
+      {{ job.title or "Untitled" }} &middot; {{ job.company_name or "Unknown" }}
+      {% if job.archetype and job.archetype != 'none' %}
+        &middot; role family <span class="badge bg-primary">{{ job.archetype }}</span>
+        {{ archetype_labels.get(job.archetype, "") }}
+      {% else %}
+        &middot; <span class="text-muted">unclassified, generic guidance</span>
+      {% endif %}
+    </span>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-secondary" onclick="copyBox('combinedBox', this)">
+      <i class="bi bi-clipboard me-1"></i>Copy everything
+    </button>
+    <a class="btn btn-sm btn-outline-success" href="/jobs/{{ job.job_id }}/cover-letter/prompt?download=1">
+      <i class="bi bi-download me-1"></i>Download .txt
+    </a>
+    <a class="btn btn-sm btn-outline-light" href="/jobs/{{ job.job_id }}">
+      <i class="bi bi-arrow-left me-1"></i>Back to job
+    </a>
+  </div>
+</div>
+
+<div class="alert alert-secondary border-0 small" style="background:#1e293b;">
+  This is the exact prompt the generator would send for this job, including the CV
+  rendering and the guidance block for its role family. Paste it into any other model
+  to compare output. Changing it here changes nothing; edit
+  <code>config/prompts.yaml</code> for that.
+</div>
+
+<div class="card shadow-sm border-0 mb-3" style="background:#1e293b;">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span class="fw-semibold text-light small">System prompt
+      <span class="text-muted">({{ system_prompt | length }} chars)</span></span>
+    <button class="btn btn-sm btn-outline-secondary py-0" onclick="copyBox('systemBox', this)">
+      <i class="bi bi-clipboard"></i></button>
+  </div>
+  <div class="card-body p-2">
+    <textarea id="systemBox" class="form-control bg-dark text-light border-0 font-monospace"
+              style="font-size:0.78rem" rows="14" readonly>{{ system_prompt }}</textarea>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-3" style="background:#1e293b;">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span class="fw-semibold text-light small">User prompt
+      <span class="text-muted">({{ user_prompt | length }} chars)</span></span>
+    <button class="btn btn-sm btn-outline-secondary py-0" onclick="copyBox('userBox', this)">
+      <i class="bi bi-clipboard"></i></button>
+  </div>
+  <div class="card-body p-2">
+    <textarea id="userBox" class="form-control bg-dark text-light border-0 font-monospace"
+              style="font-size:0.78rem" rows="18" readonly>{{ user_prompt }}</textarea>
+  </div>
+</div>
+
+<textarea id="combinedBox" class="d-none">{{ combined }}</textarea>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyBox(id, btn) {
+  const el = document.getElementById(id);
+  navigator.clipboard.writeText(el.value).then(() => {
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2"></i> Copied';
+    setTimeout(() => { btn.innerHTML = original; }, 1500);
+  });
+}
+</script>
+{% endblock %}

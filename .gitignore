@@ -222,6 +222,8 @@ config/.env
 config/cv.yaml
 config/config.yaml
 config/cover_letter_draft.txt
+config/prompts.yaml
+config/narrative.yaml
 data/*.db
 logs/
 
@@ -236,3 +238,7 @@ debug/
 
 # assets
 config/assets/*
+# Pre-scrub history backups. These contain the ORIGINAL history including every
+# personal detail removed by the rewrite. Never commit them.
+*.bundle
+job-search-backup-*

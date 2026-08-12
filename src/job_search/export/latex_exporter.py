@@ -177,7 +177,13 @@ def generate_cover_letter_pdf(
 
     # Strip duplicate closing or signature name if present at the end of body_paras
     closings = ("sincerely", "kind regards", "best regards", "yours sincerely", "regards", "warm regards")
-    while body_paras and body_paras[-1].strip().lower() in (candidate_name.lower(), "test applicant", "test applicant", "applicant name"):
+    # Variants of the configured name, so a middle name in cv.yaml still matches
+    # a two-word sign-off. Nothing here is hardcoded to a particular person.
+    name_parts = candidate_name.lower().split()
+    name_variants = {candidate_name.lower(), "applicant name"}
+    if len(name_parts) > 2:
+        name_variants.add(f"{name_parts[0]} {name_parts[-1]}")
+    while body_paras and body_paras[-1].strip().lower() in name_variants:
         body_paras.pop()
 
     if body_paras and any(body_paras[-1].strip().lower().startswith(c) for c in closings):

@@ -13,7 +13,10 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
+from flask import (
+    Flask, Response, abort, flash, jsonify, redirect, render_template, request,
+    send_file, url_for,
+)
 
 from job_search.core.config import Config, load_config
 from job_search.core.database import (
@@ -486,6 +489,49 @@ def download_cover_letter_pdf(job_id: int):
         from loguru import logger
         logger.error("Failed to generate PDF cover letter for job {}: {}", job_id, exc)
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/jobs/<int:job_id>/cover-letter/prompt")
+def cover_letter_prompt(job_id: int):
+    """Show the exact cover letter prompt for a job, ready to paste elsewhere.
+
+    Useful for trying the same prompt against a different model without
+    re-implementing the archetype selection or the CV rendering.
+    """
+    from job_search.ai.prompt_manager import PromptManager
+
+    db = get_db()
+    job = db.get_selected_job(job_id)
+    if job is None:
+        abort(404)
+
+    prompts = PromptManager()
+    system, user = prompts.format_cover_letter_prompt(
+        job_title=job.title or "",
+        company_name=job.company_name,
+        job_location=job.formattedLocation,
+        job_description=job.description,
+        archetype=job.archetype,
+    )
+    combined = (
+        "===== SYSTEM PROMPT =====\n\n" + system
+        + "\n\n===== USER PROMPT =====\n\n" + user + "\n"
+    )
+
+    if request.args.get("download"):
+        safe = re.sub(r"[^\w\-]", "_", (job.company_name or "job"))[:40]
+        return Response(
+            combined,
+            mimetype="text/plain; charset=utf-8",
+            headers={"Content-Disposition":
+                     f'attachment; filename="cover_letter_prompt_{safe}_{job_id}.txt"'},
+        )
+
+    return render_template(
+        "prompt_export.html", job=job, system_prompt=system,
+        user_prompt=user, combined=combined,
+        archetype_labels=ARCHETYPE_LABELS,
+    )
 
 
 @app.route("/stats")
