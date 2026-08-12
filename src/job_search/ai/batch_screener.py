@@ -31,6 +31,11 @@ _SUCCESS_STATES = ("JOB_STATE_SUCCEEDED",)
 _FAILURE_STATES = ("JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED")
 
 
+# Inline batch input is capped at 20MB; leave room for the envelope.
+_MAX_INLINE_BYTES = 18 * 1024 * 1024
+_MAX_INLINE_REQUESTS = 1000
+
+
 class BatchScreener:
     """Submits and collects screening batches."""
 
@@ -46,7 +51,13 @@ class BatchScreener:
     # ------------------------------------------------------------------
 
     def build_request(self, job_id: int) -> dict | None:
-        """Build one batch request, keyed by job_id so results map back trivially."""
+        """Build one inlined batch request.
+
+        The shape here is types.InlinedRequest, not the raw REST envelope: the
+        SDK validates every entry and rejects unknown keys, so "key"/"request"
+        wrappers are not allowed. The job id travels in ``metadata``, which the
+        API echoes back on the matching response, which is how results map home.
+        """
         job = self._db.get_job_details(job_id)
         if job is None:
             return None
@@ -60,21 +71,48 @@ class BatchScreener:
         )
         gemini_cfg = self._config.screening.gemini
         return {
-            "key": str(job_id),
-            "request": {
-                "contents": [{"parts": [{"text": user}], "role": "user"}],
-                "system_instruction": {"parts": [{"text": system}]},
-                "generation_config": {
-                    "temperature": gemini_cfg.temperature,
-                    "max_output_tokens": gemini_cfg.max_tokens,
-                },
+            "contents": [{"parts": [{"text": user}], "role": "user"}],
+            "metadata": {"job_id": str(job_id)},
+            "config": {
+                "system_instruction": system,
+                "temperature": gemini_cfg.temperature,
+                "max_output_tokens": gemini_cfg.max_tokens,
             },
         }
 
+    def _chunk(self, requests: list[dict], job_ids: list[int]):
+        """Split requests into batches that stay under the inline size ceiling.
+
+        Inline batch input is capped at 20MB. Job descriptions are long, so a
+        thousand-job run would otherwise be rejected in one go. Measuring the
+        serialised size is cheap next to the API call and beats guessing a
+        request count.
+        """
+        budget = _MAX_INLINE_BYTES
+        chunk_reqs: list[dict] = []
+        chunk_ids: list[int] = []
+        size = 0
+        for req, job_id in zip(requests, job_ids):
+            req_size = len(json.dumps(req, ensure_ascii=False).encode("utf-8"))
+            too_big = size + req_size > budget
+            too_many = len(chunk_reqs) >= _MAX_INLINE_REQUESTS
+            if chunk_reqs and (too_big or too_many):
+                yield chunk_reqs, chunk_ids
+                chunk_reqs, chunk_ids, size = [], [], 0
+            chunk_reqs.append(req)
+            chunk_ids.append(job_id)
+            size += req_size
+        if chunk_reqs:
+            yield chunk_reqs, chunk_ids
+
     def submit(self, job_ids: list[int]) -> int | None:
-        """Submit a batch and return the local batch id, or None if nothing to do."""
-        requests = []
-        submitted_ids = []
+        """Submit pending work as one or more batches.
+
+        Returns the first batch id, or None when nothing was accepted. Several
+        batches can be open at once; ``collect_all`` polls all of them.
+        """
+        requests: list[dict] = []
+        submitted_ids: list[int] = []
         for job_id in job_ids:
             req = self.build_request(job_id)
             if req is not None:
@@ -86,24 +124,35 @@ class BatchScreener:
             return None
 
         model = self._config.screening.gemini.model
-        logger.info("Submitting batch of {} screening requests to {}", len(requests), model)
+        first_id: int | None = None
+        errors: list[str] = []
 
-        try:
-            batch = self._client.batches.create(
-                model=model,
-                src=requests,
-                config={"display_name": f"screening-{len(requests)}"},
+        for chunk_reqs, chunk_ids in self._chunk(requests, submitted_ids):
+            logger.info("Submitting batch of {} screening requests to {}",
+                        len(chunk_reqs), model)
+            try:
+                batch = self._client.batches.create(
+                    model=model,
+                    src=chunk_reqs,
+                    config={"display_name": f"screening-{len(chunk_reqs)}"},
+                )
+            except Exception as exc:
+                # Keep whatever already went out rather than losing it to a
+                # later chunk failing: those jobs are genuinely in flight.
+                logger.error("Batch submission failed: {}", exc)
+                errors.append(str(exc))
+                continue
+
+            batch_id = self._db.create_batch_job(batch.name, "screen", chunk_ids)
+            first_id = first_id if first_id is not None else batch_id
+            logger.info(
+                "Batch {} submitted as {} ({} jobs). Results are collected by a later run.",
+                batch_id, batch.name, len(chunk_ids),
             )
-        except Exception as exc:
-            logger.error("Batch submission failed: {}", exc)
-            raise
 
-        batch_id = self._db.create_batch_job(batch.name, "screen", submitted_ids)
-        logger.info(
-            "Batch {} submitted as {} ({} jobs). Results are collected by a later run.",
-            batch_id, batch.name, len(submitted_ids),
-        )
-        return batch_id
+        if first_id is None:
+            raise RuntimeError("no batch was accepted: " + "; ".join(errors[:1]))
+        return first_id
 
     # ------------------------------------------------------------------
     # Collect
@@ -148,17 +197,21 @@ class BatchScreener:
 
     def _collect_one(self, batch_id: int, batch) -> int:
         written = 0
+        unmapped = 0
         for entry in self._iter_responses(batch):
-            key = entry.get("key")
-            if key is None:
-                continue
-            try:
-                job_id = int(key)
-            except ValueError:
+            job_id = _entry_job_id(entry)
+            if job_id is None:
+                # No positional fallback on purpose: guessing here would write
+                # one job's screening verdict onto another job's row.
+                unmapped += 1
                 continue
 
             if self._write_result(batch_id, job_id, entry):
                 written += 1
+
+        if unmapped:
+            logger.warning("Batch {}: {} response(s) carried no job id and were skipped",
+                           batch_id, unmapped)
 
         remaining = self._db.get_batch_job_ids(batch_id)
         if remaining:
@@ -195,8 +248,7 @@ class BatchScreener:
         self._db.clear_batch_link([job_id])
         return True
 
-    @staticmethod
-    def _iter_responses(batch):
+    def _iter_responses(self, batch):
         """Yield response entries as plain dicts, whichever shape the SDK returns."""
         dest = getattr(batch, "dest", None)
         inlined = getattr(dest, "inlined_responses", None) if dest else None
@@ -205,10 +257,25 @@ class BatchScreener:
                 yield item if isinstance(item, dict) else _to_dict(item)
             return
 
-        # File-based results arrive as JSONL, one object per line.
-        raw = getattr(dest, "file_name", None) if dest else None
-        if raw:
-            logger.info("Batch results are in file {}; download and re-run collect", raw)
+        # Large batches come back as a JSONL file instead of inline responses.
+        name = getattr(dest, "file_name", None) if dest else None
+        if not name:
+            return
+        try:
+            blob = self._client.files.download(file=name)
+        except Exception as exc:
+            logger.error("Could not download batch result file {}: {}", name, exc)
+            return
+        if isinstance(blob, bytes):
+            blob = blob.decode("utf-8", errors="replace")
+        for line in blob.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                logger.warning("Skipping unparseable line in batch result file {}", name)
 
     @staticmethod
     def _extract_text(entry: dict) -> str | None:
@@ -230,3 +297,21 @@ def _to_dict(obj):
             except Exception:
                 continue
     return getattr(obj, "__dict__", {})
+
+
+def _entry_job_id(entry: dict) -> int | None:
+    """Read the job id back off a response.
+
+    ``metadata`` is what we set on the request and what the API echoes. The
+    JSONL file format uses a top-level ``key`` instead, so both are accepted.
+    """
+    meta = entry.get("metadata") or {}
+    raw = meta.get("job_id") if isinstance(meta, dict) else None
+    if raw is None:
+        raw = entry.get("key")
+    if raw is None:
+        return None
+    try:
+        return int(str(raw))
+    except (TypeError, ValueError):
+        return None
