@@ -208,11 +208,59 @@ def _js_click_submit(driver: webdriver.Remote) -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
+def get_session(
+    email: str,
+    password: str,
+    session_file: str = "data/linkedin_session.json",
+    browser: str = "edge",
+    interactive: bool = True,
+    interactive_timeout: int = 300,
+    validate: bool = True,
+) -> requests.Session | None:
+    """Return an authenticated session, reusing a stored one where possible.
+
+    Tries the saved cookie jar first and validates it with a single request.
+    Only when that fails does it fall back to an interactive Selenium login,
+    which is the step that needs a 2FA approval on your phone.
+
+    With ``interactive=False`` (every scheduled run) a dead session returns
+    None instead of opening a browser on a machine nobody is sitting at.
+    """
+    from job_search.core.session_store import (
+        load_session, save_session, validate_session,
+    )
+
+    stored = load_session(session_file)
+    if stored is not None:
+        if not validate:
+            logger.info("Using stored LinkedIn session (not validated)")
+            return stored
+        if validate_session(stored):
+            logger.info("Stored LinkedIn session is valid, no login needed")
+            return stored
+        logger.info("Stored LinkedIn session is no longer valid")
+
+    if not interactive:
+        logger.error(
+            "No valid LinkedIn session and interactive login is disabled. "
+            "Run 'job-search login' to sign in and approve 2FA once."
+        )
+        return None
+
+    session = create_session(
+        email, password, browser=browser, interactive_timeout=interactive_timeout
+    )
+    if session is not None:
+        save_session(session, session_file)
+    return session
+
+
 def create_session(
     email: str,
     password: str,
     browser: str = "edge",
     attempt: int = 1,
+    interactive_timeout: int = 300,
 ) -> requests.Session | None:
     """
     Automate LinkedIn login via Selenium and return an authenticated requests.Session.
@@ -228,10 +276,17 @@ def create_session(
         "/feed", "/home", "/mynetwork", "/jobs", "/messaging", "/notifications"
     )
     _FORM_WAIT    = 20   # seconds to wait for the username field to appear
-    _AUTH_TIMEOUT = 60   # seconds to wait for post-login redirect
+    _AUTH_TIMEOUT = max(60, interactive_timeout)  # wait for post-login redirect
+
+    # LinkedIn parks 2FA and CAPTCHA on these paths. Detecting them lets us tell
+    # the user what to do instead of silently timing out.
+    _CHALLENGE_PATHS = ("/checkpoint", "/challenge", "/uas/consumer-email-challenge")
 
     def _is_logged_in() -> bool:
         return any(p in driver.current_url for p in _LOGGED_IN_PATHS)
+
+    def _is_challenge() -> bool:
+        return any(p in driver.current_url for p in _CHALLENGE_PATHS)
 
     logger.info("Login attempt {} — opening LinkedIn login page…", attempt)
     driver = _make_driver(browser)
@@ -312,6 +367,22 @@ def create_session(
         # Wait for a confirmed authenticated URL
         # (handles slow redirects, 2FA prompts, CAPTCHA pages, etc.)
         try:
+            # Give the challenge page a moment to appear so the prompt is accurate.
+            try:
+                WebDriverWait(driver, 8).until(
+                    lambda d: _is_logged_in() or _is_challenge()
+                )
+            except TimeoutException:
+                pass
+
+            if _is_challenge():
+                logger.warning(
+                    "LinkedIn is asking for verification. Approve the sign-in on "
+                    "your phone or complete the challenge in the open browser. "
+                    "Waiting up to {}s.",
+                    _AUTH_TIMEOUT,
+                )
+
             WebDriverWait(driver, _AUTH_TIMEOUT).until(lambda d: _is_logged_in())
             logger.info("LinkedIn authentication confirmed ({})", driver.current_url)
         except TimeoutException:

@@ -42,7 +42,14 @@ def main() -> None:
     type=click.Choice(["search", "details", "screen", "cover-letter"]),
     help="Stages to run (default: all). Repeat for multiple: -s screen -s cover-letter",
 )
-def run(config: str, resume: bool, log_level: str | None, stages: tuple[str, ...]) -> None:
+@click.option("--no-interactive", is_flag=True, default=False,
+              help="Never open a browser. Required for scheduled runs.")
+@click.option("--scheduled", is_flag=True, default=False,
+              help="Mark as a scheduled run: honours the schedule pause and implies --no-interactive.")
+@click.option("--max-runtime", type=float, default=None,
+              help="Override execution.max_runtime_hours for this run.")
+def run(config: str, resume: bool, log_level: str | None, stages: tuple[str, ...],
+        no_interactive: bool, scheduled: bool, max_runtime: float | None) -> None:
     """Run the full job search pipeline, or a subset of stages.
 
     \b
@@ -56,10 +63,27 @@ def run(config: str, resume: bool, log_level: str | None, stages: tuple[str, ...
     cfg = load_config(config)
     setup_logging(level=log_level or cfg.logging.level, log_file=cfg.logging.file)
 
+    from job_search.core import runcontrol
     from job_search.orchestration.coordinator import ALL_STAGES, JobSearchCoordinator
 
+    # A scheduled run checks the pause first. Auto-resume happens here: if the
+    # resume moment has passed, pause_state clears the file and we continue.
+    if scheduled:
+        no_interactive = True
+        paused = runcontrol.pause_state(cfg.schedule.pause_file)
+        if paused is not None:
+            remaining = runcontrol.pause_remaining(cfg.schedule.pause_file)
+            click.echo(f"Schedule is paused ({remaining} remaining). Exiting.")
+            return
+
     active_stages = set(stages) if stages else set(ALL_STAGES)
-    coordinator = JobSearchCoordinator(cfg, stages=active_stages)
+    coordinator = JobSearchCoordinator(
+        cfg,
+        stages=active_stages,
+        interactive=not no_interactive,
+        origin="scheduled" if scheduled else "manual",
+        max_runtime_hours=max_runtime,
+    )
 
     if cfg.web.auto_start:
         click.echo(f"Web UI: http://{cfg.web.host}:{cfg.web.port}/  (starts with pipeline)")
@@ -218,16 +242,163 @@ def list_jobs(config: str, status: str | None) -> None:
 # web — start the Flask UI
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# login — refresh the stored LinkedIn session (the one interactive step)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--config", default="config/config.yaml", show_default=True)
+@click.option("--force", is_flag=True, default=False,
+              help="Log in again even if the stored session still works")
+def login(config: str, force: bool) -> None:
+    """Sign in to LinkedIn and store the session for unattended runs.
+
+    This is the only step that needs you present, because of 2FA. Once stored,
+    scheduled runs reuse the session until LinkedIn invalidates it.
+    """
+    from job_search.core.config import load_secrets
+    from job_search.core.session_store import (
+        clear_session, load_session, session_saved_at, validate_session,
+    )
+    from job_search.scraping.auth import get_session
+
+    cfg = load_config(config)
+    setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)
+    secrets = load_secrets()
+    path = cfg.auth.session_file
+
+    if force:
+        clear_session(path)
+    else:
+        existing = load_session(path)
+        if existing is not None and validate_session(existing):
+            click.echo(f"Stored session is still valid (saved {session_saved_at(path)}).")
+            click.echo("Use --force to sign in again anyway.")
+            return
+
+    click.echo("Opening a browser. Approve the sign-in on your phone if prompted.")
+    session = get_session(
+        email=secrets.linkedin_username,
+        password=secrets.linkedin_password,
+        session_file=path,
+        interactive=True,
+        interactive_timeout=cfg.auth.interactive_timeout,
+    )
+    if session is None:
+        click.echo("Login failed. See debug/ for screenshots.")
+        raise SystemExit(1)
+    click.echo(f"Session stored at {path}. Scheduled runs can now go unattended.")
+
+
+# ---------------------------------------------------------------------------
+# session / schedule — inspect and control unattended running
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--config", default="config/config.yaml", show_default=True)
+def status(config: str) -> None:
+    """Show LinkedIn session, runner lock and schedule pause state."""
+    from job_search.core import runcontrol
+    from job_search.core.session_store import load_session, session_saved_at, validate_session
+
+    cfg = load_config(config)
+
+    session = load_session(cfg.auth.session_file)
+    if session is None:
+        click.echo("LinkedIn session: none stored        (run: job-search login)")
+    elif validate_session(session):
+        click.echo(f"LinkedIn session: valid              (saved {session_saved_at(cfg.auth.session_file)})")
+    else:
+        click.echo("LinkedIn session: EXPIRED            (run: job-search login)")
+
+    holder = runcontrol.is_locked(
+        cfg.execution.lock_file, cfg.execution.lock_stale_after_minutes
+    )
+    if holder:
+        click.echo(f"Runner:           running            (pid {holder.pid}, {holder.origin}, "
+                   f"{holder.age_minutes:.0f} min, stages: {holder.stages})")
+    else:
+        click.echo("Runner:           idle")
+
+    remaining = runcontrol.pause_remaining(cfg.schedule.pause_file)
+    click.echo(f"Schedule:         paused, {remaining} left" if remaining else "Schedule:         active")
+
+
+@main.command("pause")
+@click.option("--config", default="config/config.yaml", show_default=True)
+@click.argument("preset", type=click.Choice(list(("12h", "tomorrow_morning", "24h", "indefinite"))),
+                required=False)
+def pause_cmd(config: str, preset: str | None) -> None:
+    """Suppress scheduled runs until a resume time (default: tomorrow morning)."""
+    from job_search.core import runcontrol
+
+    cfg = load_config(config)
+    resume_at = runcontrol.pause_schedule(
+        cfg.schedule.pause_file,
+        preset=preset or cfg.schedule.default_pause,
+        morning_hour=cfg.schedule.morning_resume_hour,
+    )
+    click.echo(f"Schedule paused until {resume_at}" if resume_at
+               else "Schedule paused indefinitely. Resume with: job-search resume")
+
+
+@main.command("resume")
+@click.option("--config", default="config/config.yaml", show_default=True)
+def resume_cmd(config: str) -> None:
+    """Resume scheduled runs immediately."""
+    from job_search.core import runcontrol
+
+    cfg = load_config(config)
+    runcontrol.resume_schedule(cfg.schedule.pause_file)
+    click.echo("Schedule resumed.")
+
+
+@main.command("stop")
+@click.option("--config", default="config/config.yaml", show_default=True)
+def stop_cmd(config: str) -> None:
+    """Ask the running pipeline to stop gracefully, whoever started it."""
+    from job_search.core import runcontrol
+
+    cfg = load_config(config)
+    holder = runcontrol.is_locked(
+        cfg.execution.lock_file, cfg.execution.lock_stale_after_minutes
+    )
+    if holder is None:
+        click.echo("Nothing is running.")
+        return
+    runcontrol.request_stop(cfg.execution.stop_file, reason="requested from CLI")
+    click.echo(f"Stop requested for pid {holder.pid} ({holder.origin} run).")
+
+
 @main.command()
 @click.option("--config", default="config/config.yaml", show_default=True)
 @click.option("--limit", default=None, type=int, help="Number of pending jobs to check for expiration (default: all pending jobs)")
-def clean(config: str, limit: int | None) -> None:
+@click.option("--no-interactive", is_flag=True, default=False,
+              help="Never open a browser. Required for scheduled runs.")
+@click.option("--scheduled", is_flag=True, default=False,
+              help="Honour the schedule pause and imply --no-interactive.")
+def clean(config: str, limit: int | None, no_interactive: bool, scheduled: bool) -> None:
     """Discover expired/closed jobs on LinkedIn and mark them as 'expired'."""
+    from job_search.core import runcontrol
     from job_search.core.database import DatabaseManager
     from job_search.cleaner.cleaner import JobCleaner
 
     cfg = load_config(config)
     setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)
+
+    if scheduled:
+        no_interactive = True
+        if runcontrol.pause_state(cfg.schedule.pause_file) is not None:
+            click.echo("Schedule is paused. Exiting.")
+            return
+
+    if not runcontrol.acquire_lock(
+        cfg.execution.lock_file, origin="scheduled" if scheduled else "manual",
+        stages="clean", stale_after_minutes=cfg.execution.lock_stale_after_minutes,
+    ):
+        click.echo("Another run is in progress. Exiting.")
+        return
+
     db = DatabaseManager(cfg.database.path)
     try:
         cleaner = JobCleaner(db)
@@ -235,6 +406,7 @@ def clean(config: str, limit: int | None) -> None:
         click.echo(f"Cleaner finished: Checked {result['checked']} jobs, marked {result['expired']} as expired.")
     finally:
         db.close()
+        runcontrol.release_lock(cfg.execution.lock_file)
 
 
 # ---------------------------------------------------------------------------

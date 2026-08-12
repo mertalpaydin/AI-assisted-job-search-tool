@@ -128,6 +128,20 @@ class ConcurrencyConfig(BaseModel):
     max_cover_letter_workers: int = 3
 
 
+class AuthConfig(BaseModel):
+    """LinkedIn session persistence and interactive login behaviour."""
+
+    session_file: str = "data/linkedin_session.json"
+    interactive_timeout: int = 300   # seconds to wait for a 2FA approval
+    validate_on_start: bool = True
+
+
+class ScheduleConfig(BaseModel):
+    pause_file: str = "data/schedule.paused"
+    default_pause: str = "tomorrow_morning"   # 12h | tomorrow_morning | 24h | indefinite
+    morning_resume_hour: int = 7
+
+
 class ShutdownConditionsConfig(BaseModel):
     no_new_jobs_minutes: int = 30
     check_interval_seconds: int = 60
@@ -135,6 +149,11 @@ class ShutdownConditionsConfig(BaseModel):
 
 class ExecutionConfig(BaseModel):
     max_runtime_hours: int = 8
+    lock_file: str = "data/runner.lock"
+    lock_stale_after_minutes: int = 120
+    stop_file: str = "data/runner.stop"
+    force_stop_grace_seconds: int = 30
+    idle_drain_minutes: int = 2   # exit this soon after queues empty (non-search runs)
     shutdown_conditions: ShutdownConditionsConfig = Field(default_factory=ShutdownConditionsConfig)
     pickup_on_restart: bool = True
     checkpoint_interval_minutes: int = 5
@@ -163,6 +182,8 @@ class ExportConfig(BaseModel):
 
 class Config(BaseModel):
     search: SearchConfig
+    auth: AuthConfig = Field(default_factory=AuthConfig)
+    schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
     cover_letter: CoverLetterConfig = Field(default_factory=CoverLetterConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)

@@ -14,7 +14,8 @@ from job_search.ai.cover_letter import CoverLetterWorker
 from job_search.ai.prompt_manager import PromptManager
 from job_search.ai.screener import GeminiScreeningWorker, ScreeningWorker
 from job_search.utils.api_rotation import GeminiAPIRotator
-from job_search.scraping.auth import create_session, make_headers
+from job_search.core import runcontrol
+from job_search.scraping.auth import get_session, make_headers
 from job_search.scraping.details import DetailsWorker
 from job_search.scraping.search import SearchWorker
 
@@ -37,13 +38,29 @@ class JobSearchCoordinator:
     to process jobs already in the database without re-scraping.
     """
 
-    def __init__(self, config: Config, stages: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        stages: set[str] | None = None,
+        interactive: bool = True,
+        origin: str = "manual",
+        max_runtime_hours: float | None = None,
+    ) -> None:
         self._config = config
         self._stages = set(stages) if stages else set(ALL_STAGES)
         self._secrets = load_secrets()
         self._db = DatabaseManager(config.database.path)
-        self._shutdown = ShutdownCoordinator()
+        self._shutdown = ShutdownCoordinator(stop_file=config.execution.stop_file)
         self._state = StateManager(self._db)
+        self._interactive = interactive
+        self._origin = origin
+        self._max_runtime_hours = (
+            max_runtime_hours if max_runtime_hours is not None
+            else config.execution.max_runtime_hours
+        )
+        self._lock_held = False
+        # Set when LinkedIn stages were skipped because no valid session exists.
+        self.linkedin_session_invalid = False
 
         # Queues
         self._details_queue: queue.Queue = queue.Queue()
@@ -59,6 +76,25 @@ class JobSearchCoordinator:
 
     def start(self, resume: bool = True) -> None:
         active = sorted(self._stages)
+        exec_cfg = self._config.execution
+
+        # A scheduled run must never fight a manual one, and vice versa.
+        if not runcontrol.acquire_lock(
+            exec_cfg.lock_file, origin=self._origin, stages=",".join(active),
+            stale_after_minutes=exec_cfg.lock_stale_after_minutes,
+        ):
+            holder = runcontrol.read_lock(exec_cfg.lock_file)
+            logger.warning(
+                "Another run is already in progress (pid {}, {} run, started {}). Exiting.",
+                getattr(holder, "pid", "?"), getattr(holder, "origin", "?"),
+                getattr(holder, "started_at", "?"),
+            )
+            return
+        self._lock_held = True
+
+        # A stop request left over from a previous run would kill this one instantly.
+        runcontrol.clear_stop(exec_cfg.stop_file)
+
         logger.info("=== AI Job Search Tool starting (stages: {}) ===", ", ".join(active))
 
         if resume:
@@ -81,6 +117,9 @@ class JobSearchCoordinator:
         for t in self._threads:
             t.join(timeout=10)
         self._db.close()
+        if self._lock_held:
+            runcontrol.release_lock(self._config.execution.lock_file)
+            runcontrol.clear_stop(self._config.execution.stop_file)
         logger.info("=== Shutdown complete ===")
         self._state.log_stats()
 
@@ -157,31 +196,33 @@ class JobSearchCoordinator:
 
         # --- LinkedIn auth (needed for scraping & clean stages) ---
         session = None
-        if stages & {"search", "details", "clean"}:
-            _MAX_LOGIN_ATTEMPTS = 5
-            _LOGIN_RETRY_DELAY  = 15  # seconds between attempts
-            for attempt in range(1, _MAX_LOGIN_ATTEMPTS + 1):
-                logger.info(
-                    "Authenticating with LinkedIn (attempt {}/{})…",
-                    attempt, _MAX_LOGIN_ATTEMPTS,
-                )
-                session = create_session(
-                    email=self._secrets.linkedin_username,
-                    password=self._secrets.linkedin_password,
-                    attempt=attempt,
-                )
-                if session is not None:
-                    break
-                if attempt < _MAX_LOGIN_ATTEMPTS:
-                    logger.warning(
-                        "Login attempt {} failed — retrying in {}s…",
-                        attempt, _LOGIN_RETRY_DELAY,
-                    )
-                    time.sleep(_LOGIN_RETRY_DELAY)
+        linkedin_stages = stages & {"search", "details", "clean"}
+        if linkedin_stages:
+            auth_cfg = self._config.auth
+            session = get_session(
+                email=self._secrets.linkedin_username,
+                password=self._secrets.linkedin_password,
+                session_file=auth_cfg.session_file,
+                interactive=self._interactive,
+                interactive_timeout=auth_cfg.interactive_timeout,
+                validate=auth_cfg.validate_on_start,
+            )
             if session is None:
-                raise RuntimeError(
-                    f"LinkedIn authentication failed after {_MAX_LOGIN_ATTEMPTS} attempts. "
-                    "Check debug/ screenshots and config/.env credentials."
+                # Drop the LinkedIn stages but keep everything that only needs
+                # Gemini, so a dead session costs scraping and nothing else.
+                self.linkedin_session_invalid = True
+                self._stages -= linkedin_stages
+                stages = self._stages
+                remaining = sorted(stages)
+                if not remaining:
+                    logger.error(
+                        "No valid LinkedIn session and no non-LinkedIn stages to run. "
+                        "Run 'job-search login' to sign in."
+                    )
+                    return
+                logger.warning(
+                    "No valid LinkedIn session. Skipping {} and continuing with {}.",
+                    ", ".join(sorted(linkedin_stages)), ", ".join(remaining),
                 )
 
         # --- Search workers ---
@@ -296,7 +337,7 @@ class JobSearchCoordinator:
     def _monitor_loop(self) -> None:
         cfg = self._config.execution
         check_interval = cfg.shutdown_conditions.check_interval_seconds
-        max_runtime = cfg.max_runtime_hours * 3600
+        max_runtime = self._max_runtime_hours * 3600
         start_time = time.monotonic()
         retry_interval = cfg.retry_errors_interval_minutes * 60
         last_retry = time.monotonic() if retry_interval > 0 else None
@@ -306,7 +347,9 @@ class JobSearchCoordinator:
         if "search" in self._stages:
             idle_limit_minutes = cfg.shutdown_conditions.no_new_jobs_minutes
         else:
-            idle_limit_minutes = 15
+            # A drain-only run should exit as soon as the queues are empty,
+            # not sit holding the lock.
+            idle_limit_minutes = cfg.idle_drain_minutes
 
         # Only watch queues that belong to active stages
         watched_queues: list[queue.Queue] = []

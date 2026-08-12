@@ -411,6 +411,20 @@ execution:
   pickup_on_restart: true
   checkpoint_interval_minutes: 5
 
+# LinkedIn session persistence. The stored session removes the need for a 2FA
+# approval on every run, which is what makes scheduling possible.
+auth:
+  session_file: "data/linkedin_session.json"
+  interactive_timeout: 300      # seconds to wait for a phone approval at login
+  validate_on_start: true       # one cheap request to confirm the session lives
+
+# Scheduled-run suppression. Pausing writes a sentinel with an absolute resume
+# time; the next scheduled run after that moment clears it automatically.
+schedule:
+  pause_file: "data/schedule.paused"
+  default_pause: "tomorrow_morning"   # 12h | tomorrow_morning | 24h | indefinite
+  morning_resume_hour: 7
+
 # Database
 database:
   path: "data/jobs.db"

@@ -18,21 +18,54 @@ class PipelineQueues:
 
 
 class ShutdownCoordinator:
-    """Thread-safe shutdown flag."""
+    """Thread-safe shutdown flag, optionally backed by a stop file.
 
-    def __init__(self) -> None:
+    The web UI cannot reach into a scheduled run's process, so a stop request
+    is expressed as a file. Workers poll their queues on a short timeout and
+    check this on every pass, so a graceful stop lands within a few seconds
+    rather than at the next monitor tick.
+    """
+
+    def __init__(self, stop_file: str | None = None) -> None:
         self._shutdown = threading.Event()
+        self._stop_file = stop_file
 
     def request_shutdown(self) -> None:
         logger.info("Shutdown requested")
         self._shutdown.set()
 
+    def _stop_file_present(self) -> bool:
+        if not self._stop_file:
+            return False
+        from job_search.core.runcontrol import stop_requested
+        if stop_requested(self._stop_file):
+            if not self._shutdown.is_set():
+                logger.info("Stop file detected, shutting down")
+                self._shutdown.set()
+            return True
+        return False
+
     def should_shutdown(self) -> bool:
-        return self._shutdown.is_set()
+        return self._shutdown.is_set() or self._stop_file_present()
 
     def wait(self, timeout: float) -> bool:
-        """Block until shutdown requested or timeout. Returns True if shutdown."""
-        return self._shutdown.wait(timeout=timeout)
+        """Block until shutdown requested or timeout. Returns True if shutdown.
+
+        Long waits are broken into short slices so an external stop request is
+        noticed promptly instead of after the full timeout.
+        """
+        if not self._stop_file:
+            return self._shutdown.wait(timeout=timeout)
+
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return self.should_shutdown()
+            if self._shutdown.wait(timeout=min(5.0, remaining)):
+                return True
+            if self._stop_file_present():
+                return True
 
 
 class StateManager:
