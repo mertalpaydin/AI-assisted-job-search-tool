@@ -17,6 +17,33 @@ search:
     - geo_id: "101282230"
       name: "Germany"
 
+  title_filter:
+    # At least one of these must appear in the title, or the job is prefiltered.
+    require_any:
+      - "ai"
+      - "data"
+      - "engineer"
+
+    # Hard exclusions, checked before the detail fetch. Matching jobs are stored
+    # with a prefilter_reason instead of being fetched or screened.
+    exclude_any:
+      - "werkstudent"
+      - "internship"
+      - "c++"
+
+    # Rejected only when the title carries no AI/data signal, so
+    # "Full-Stack AI Engineer" survives while "Full Stack Engineer" does not.
+    exclude_unless_ai:
+      - "full stack"
+      - "backend"
+
+  # Deterministic checks after the detail fetch, before the screening call.
+  prefilter:
+    enabled: true
+    allowed_employment_status: ["Full-time"]
+    excluded_experience_levels: ["Internship"]
+    reject_fluent_german: true
+
   rate_limits:
     requests_per_minute: 30
     delay_between_requests: 2

@@ -38,8 +38,27 @@ class KeywordConfig(BaseModel):
     max_pages: int | None = None
 
 
+# Title tokens marking a role as AI/data flavoured. Used by exclude_unless_ai.
+_DEFAULT_AI_SIGNAL = [
+    "ai", "ml", "genai", "llm", "nlp", "agentic", "artificial", "machine learning",
+    "data", "analytics", "scientist", "mlops",
+]
+
+
 class TitleFilterConfig(BaseModel):
     require_any: list[str] = []  # at least one must match (word-boundary, case-insensitive); empty = disabled
+    exclude_any: list[str] = []  # any match rejects the title outright
+    exclude_unless_ai: list[str] = []  # rejects only when the title has no AI/data signal
+    ai_signal: list[str] = Field(default_factory=lambda: list(_DEFAULT_AI_SIGNAL))
+
+
+class PrefilterConfig(BaseModel):
+    """Deterministic checks applied after the detail fetch, before screening."""
+
+    enabled: bool = True
+    allowed_employment_status: list[str] = ["Full-time"]
+    excluded_experience_levels: list[str] = ["Internship"]
+    reject_fluent_german: bool = True
 
 
 class SearchConfig(BaseModel):
@@ -48,6 +67,7 @@ class SearchConfig(BaseModel):
     rate_limits: RateLimitConfig = Field(default_factory=RateLimitConfig)
     max_pages: int = 5  # pages of 100 results each, per keyword+location
     title_filter: TitleFilterConfig = Field(default_factory=TitleFilterConfig)
+    prefilter: PrefilterConfig = Field(default_factory=PrefilterConfig)
     blocked_companies: list[str] = []  # company names to skip entirely (case-insensitive)
 
     @field_validator("keywords", mode="before")

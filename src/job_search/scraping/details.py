@@ -10,6 +10,7 @@ from loguru import logger
 
 from job_search.core.config import Config
 from job_search.core.database import DatabaseManager
+from job_search.core.prefilter import DetailsPrefilter
 from job_search.core.state import ShutdownCoordinator
 from job_search.scraping.auth import make_headers
 from job_search.scraping.models import CompanyData, ParsedJobDetails
@@ -139,6 +140,7 @@ class DetailsWorker:
         self._blocked_companies: frozenset[str] = frozenset(
             c.lower() for c in config.search.blocked_companies
         )
+        self._prefilter = DetailsPrefilter(config)
 
     def run(self) -> None:
         logger.info("Details worker started")
@@ -210,6 +212,18 @@ class DetailsWorker:
                 )
                 self._db.delete_job(job_id)
                 return
+
+        # Deterministic checks that need the full record. A match records the
+        # reason and skips the screening call; the row is kept for auditing.
+        reason = self._prefilter.reason(
+            employment_status=parsed.job_fields.get("formattedEmploymentStatus"),
+            experience_level=parsed.job_fields.get("formattedExperienceLevel"),
+            description=parsed.job_fields.get("description"),
+        )
+        if reason:
+            self._db.mark_prefiltered(job_id, reason)
+            logger.debug("Prefiltered ({}) after details: job {}", reason, job_id)
+            return
 
         self._screening_queue.put(job_id)
         logger.debug("Details saved for job {}", job_id)

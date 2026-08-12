@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     german_requirement_level TEXT,
     screening_reasoning TEXT,
     archetype TEXT,
+    prefilter_reason TEXT,
 
     workRemoteAllowed INTEGER,
     workplaceTypes TEXT,
@@ -216,6 +217,7 @@ class SelectedJobRow:
     user_notes: str | None = None
     applyMethod: str | None = None
     archetype: str | None = None
+    prefilter_reason: str | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -328,6 +330,23 @@ class DatabaseManager:
         self._migrate_v5(conn)
         self._migrate_v6(conn)
         self._migrate_v7(conn)
+        self._migrate_v8(conn)
+
+    def _migrate_v8(self, conn: sqlite3.Connection) -> None:
+        """Add prefilter_reason to jobs.
+
+        Existing rows keep NULL, so the deterministic prefilters only ever
+        apply to jobs discovered after this migration runs.
+        """
+        for stmt in (
+            "ALTER TABLE jobs ADD COLUMN prefilter_reason TEXT",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_prefilter ON jobs(prefilter_reason)",
+        ):
+            try:
+                conn.execute(stmt)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     def _migrate_v7(self, conn: sqlite3.Connection) -> None:
         """Add archetype column to jobs and screening_results."""
@@ -573,12 +592,46 @@ class DatabaseManager:
             label, badge = "rejected", "warning"
         return {"job_id": job_id, "label": label, "badge": badge, "selected": is_selected == 1}
 
-    def insert_job(self, job_id: int, keyword: str, location_id: str) -> None:
+    def insert_job(
+        self,
+        job_id: int,
+        keyword: str,
+        location_id: str,
+        prefilter_reason: str | None = None,
+    ) -> None:
+        """Insert a discovered job.
+
+        A prefilter_reason records that the job was rejected on its title alone,
+        so it is stored for auditing but never queued for details or screening.
+        """
         with self._cursor() as cur:
             cur.execute(
-                "INSERT OR IGNORE INTO jobs (job_id, search_keyword, search_location_id) VALUES (?, ?, ?)",
-                (job_id, keyword, location_id),
+                "INSERT OR IGNORE INTO jobs "
+                "(job_id, search_keyword, search_location_id, prefilter_reason) "
+                "VALUES (?, ?, ?, ?)",
+                (job_id, keyword, location_id, prefilter_reason),
             )
+
+    def mark_prefiltered(self, job_id: int, reason: str) -> None:
+        """Flag an already-scraped job as rejected before screening."""
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET prefilter_reason = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE job_id = ?",
+                (reason, job_id),
+            )
+
+    def get_prefilter_counts(self) -> list[dict]:
+        """Return prefilter reasons with counts, most frequent first."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT prefilter_reason, COUNT(*) AS n
+                FROM jobs
+                WHERE prefilter_reason IS NOT NULL
+                GROUP BY prefilter_reason
+                ORDER BY n DESC
+            """)
+            return [{"reason": r[0], "count": r[1]} for r in cur.fetchall()]
 
     def update_job_details(self, job_id: int, fields: dict[str, Any]) -> None:
         """Update job row with scraped details. Unknown field names are silently skipped."""
@@ -642,7 +695,11 @@ class DatabaseManager:
 
     def get_jobs_pending_details(self) -> list[int]:
         with self._cursor() as cur:
-            cur.execute("SELECT job_id FROM jobs WHERE scraped = 0 ORDER BY created_at DESC, job_id DESC")
+            cur.execute(
+                "SELECT job_id FROM jobs "
+                "WHERE scraped = 0 AND prefilter_reason IS NULL "
+                "ORDER BY created_at DESC, job_id DESC"
+            )
             return [row[0] for row in cur.fetchall()]
 
     def get_jobs_pending_screening(self) -> list[int]:
@@ -650,7 +707,7 @@ class DatabaseManager:
             cur.execute("""
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN screening_results sr ON j.job_id = sr.job_id
-                WHERE j.scraped = 1 AND sr.id IS NULL
+                WHERE j.scraped = 1 AND sr.id IS NULL AND j.prefilter_reason IS NULL
                 ORDER BY COALESCE(j.workRemoteAllowed, 0) ASC, j.created_at DESC, j.job_id DESC
             """)
             return [row[0] for row in cur.fetchall()]
@@ -1313,6 +1370,7 @@ class DatabaseManager:
         min_match: float | None = None,
         apply_type: str = "",
         archetype_filter: str = "",
+        prefilter_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated AI-selected jobs with optional filters.
 
@@ -1391,6 +1449,11 @@ class DatabaseManager:
             conditions.append("UPPER(j.archetype) = UPPER(?)")
             params.append(archetype_filter)
 
+        if prefilter_filter == "only":
+            conditions.append("j.prefilter_reason IS NOT NULL")
+        elif prefilter_filter == "hide":
+            conditions.append("j.prefilter_reason IS NULL")
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
@@ -1414,7 +1477,7 @@ class DatabaseManager:
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes, j.applyMethod, j.archetype
+                    j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
@@ -1435,7 +1498,7 @@ class DatabaseManager:
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes, j.applyMethod, j.archetype
+                    j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -1484,6 +1547,7 @@ class DatabaseManager:
         min_match: float | None = None,
         apply_type: str = "",
         archetype_filter: str = "",
+        prefilter_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated scraped jobs (selected or not) with optional filters.
 
@@ -1561,6 +1625,11 @@ class DatabaseManager:
             conditions.append("UPPER(j.archetype) = UPPER(?)")
             params.append(archetype_filter)
 
+        if prefilter_filter == "only":
+            conditions.append("j.prefilter_reason IS NOT NULL")
+        elif prefilter_filter == "hide":
+            conditions.append("j.prefilter_reason IS NULL")
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
@@ -1583,7 +1652,7 @@ class DatabaseManager:
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes, j.applyMethod, j.archetype
+                    j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}

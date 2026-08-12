@@ -10,7 +10,7 @@
                   rm=remote_filter, cl=cl_filter,
                   df=date_from, dt=date_to, ex=exclude_companies,
                   kw=keyword_filter, ger=german_filter, mm=min_match, at=apply_type,
-                  ar=archetype_filter) -%}
+                  ar=archetype_filter, pf=prefilter_filter) -%}
   {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
@@ -23,6 +23,7 @@
   {%- if ger %}&german={{ ger }}{% endif %}
   {%- if at %}&apply_type={{ at }}{% endif %}
   {%- if ar %}&archetype={{ ar }}{% endif %}
+  {%- if pf %}&prefiltered={{ pf }}{% endif %}
   {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
 
@@ -135,6 +136,34 @@
       </li>
     </ul>
   </div>
+
+  {# Prefiltered filter: jobs rejected by a deterministic rule before screening #}
+  {% if show_all %}
+  {% set pf_total = prefilter_counts | sum(attribute='count') %}
+  <div class="dropdown" id="prefilterDropdown">
+    <button class="btn btn-sm {% if prefilter_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-funnel me-1"></i>Prefiltered
+      {% if prefilter_filter %}<span class="badge bg-dark ms-1">{{ prefilter_filter }}</span>{% endif %}
+    </button>
+    <ul class="dropdown-menu p-2 shadow" style="min-width:280px; max-height:400px; overflow-y:auto">
+      <li><a class="dropdown-item small {% if not prefilter_filter %}active{% endif %}" href="{{ page_url(p=1, pf='') }}">Show everything</a></li>
+      <li><a class="dropdown-item small {% if prefilter_filter == 'only' %}active{% endif %}" href="{{ page_url(p=1, pf='only') }}">
+        Only prefiltered <span class="text-muted">({{ pf_total }})</span></a></li>
+      <li><a class="dropdown-item small {% if prefilter_filter == 'hide' %}active{% endif %}" href="{{ page_url(p=1, pf='hide') }}">
+        Hide prefiltered</a></li>
+      {% if prefilter_counts %}
+      <li><hr class="dropdown-divider"></li>
+      <li><span class="dropdown-header small text-muted px-2">Reasons</span></li>
+      {% for row in prefilter_counts[:12] %}
+      <li class="d-flex justify-content-between px-2 small text-muted">
+        <span class="text-truncate" style="max-width:200px">{{ row.reason }}</span><span>{{ row.count }}</span>
+      </li>
+      {% endfor %}
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
 
   {# Archetype (role family) filter dropdown #}
   {% set arch_colors = {'A':'primary','B':'success','C':'info','D':'warning','E':'secondary','F':'dark'} %}
@@ -529,7 +558,9 @@
         </td>
         <td class="text-center">
           {% set st = job.application_status %}
-          {% if st == "applied" %}<span class="badge bg-primary status-badge">applied</span>
+          {% if job.prefilter_reason %}<span class="badge bg-dark text-warning border border-warning-subtle status-badge"
+                title="Never reached screening: {{ job.prefilter_reason }}">prefiltered</span>
+          {% elif st == "applied" %}<span class="badge bg-primary status-badge">applied</span>
           {% elif st == "interviewing" %}<span class="badge bg-info text-dark status-badge">interviewing</span>
           {% elif st == "offered" %}<span class="badge bg-success status-badge">offered</span>
           {% elif st == "rejected" %}<span class="badge bg-danger status-badge">rejected</span>

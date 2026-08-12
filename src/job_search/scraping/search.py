@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import queue
-import re
 import time
 
 import requests
 from loguru import logger
 
-from job_search.core.config import Config, KeywordConfig, LocationConfig, TitleFilterConfig
+from job_search.core.config import Config, KeywordConfig, LocationConfig
 from job_search.core.database import DatabaseManager
+from job_search.core.prefilter import TitlePrefilter
 from job_search.core.state import ShutdownCoordinator, StateManager
 from job_search.scraping.auth import make_headers
 from job_search.scraping.models import JobStub
@@ -29,22 +29,8 @@ _SEARCH_URL_BASE = (
 _JOB_CARD_TYPE = "com.linkedin.voyager.dash.jobs.JobPostingCard"
 
 
-def _title_passes_filter(title: str, cfg: TitleFilterConfig) -> bool:
-    """Return True if the title contains at least one required keyword.
-
-    Uses a negative lookbehind on [a-z] so the keyword must start at a
-    word boundary (space, punctuation, or start of string), while still
-    matching plural/compound forms like 'engineers' or 'IT-Consultants'.
-    Short terms like 'ai' and 'ml' are safely guarded: 'email' and 'html'
-    don't match because their preceding character IS [a-z].
-    """
-    if not cfg.require_any:
-        return True  # filter disabled
-    t = title.lower()
-    return any(
-        re.search(r"(?<![a-z])" + re.escape(kw.lower()), t)
-        for kw in cfg.require_any
-    )
+# Title matching now lives in job_search.core.prefilter.TitlePrefilter, which is
+# shared with the details stage and returns a reason string instead of a bool.
 
 
 def _parse_search_response(data: dict) -> list[JobStub]:
@@ -112,6 +98,7 @@ class SearchWorker:
         self._locations = config.search.locations
         self._default_max_pages = config.search.max_pages
         self._cycle_index = 0
+        self._title_prefilter = TitlePrefilter(config)
 
     def _pairs_for_cycle(self, index: int) -> list[tuple[KeywordConfig, LocationConfig]]:
         """Keyword/location pairs due in this cycle, honouring each term's tier."""
@@ -197,13 +184,20 @@ class SearchWorker:
                 break  # No more results
 
             new_in_page = 0
-            title_filter = self._config.search.title_filter
             for stub in stubs:
                 if self._db.job_exists(stub.job_id):
                     continue
-                if stub.title and not _title_passes_filter(stub.title, title_filter):
-                    logger.debug("Title filter blocked: {}", stub.title)
+
+                # Rejected titles are still stored, with the rule that rejected
+                # them, but never fetched or screened.
+                reason = self._title_prefilter.reason(stub.title)
+                if reason:
+                    self._db.insert_job(
+                        stub.job_id, keyword.term, location.geo_id, prefilter_reason=reason
+                    )
+                    logger.debug("Prefiltered ({}): {}", reason, stub.title)
                     continue
+
                 self._db.insert_job(stub.job_id, keyword.term, location.geo_id)
                 self._details_queue.put(stub.job_id)
                 self._state.record_new_job()

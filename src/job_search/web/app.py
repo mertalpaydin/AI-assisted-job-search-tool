@@ -143,6 +143,7 @@ def jobs():
     german_filter  = request.args.get("german", "").strip()
     apply_type     = request.args.get("apply_type", "").strip()
     archetype_filter = request.args.get("archetype", "").strip()
+    prefilter_filter = request.args.get("prefiltered", "").strip()
     min_match_param = request.args.get("min_match", "").strip()
     try:
         min_match_val = float(min_match_param) if min_match_param else None
@@ -180,6 +181,7 @@ def jobs():
         min_match=min_match_val,
         apply_type=apply_type,
         archetype_filter=archetype_filter,
+        prefilter_filter=prefilter_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -202,6 +204,8 @@ def jobs():
         archetype_filter=archetype_filter,
         archetype_counts=db.get_archetype_counts(selected_only=True),
         archetype_labels=ARCHETYPE_LABELS,
+        prefilter_filter=prefilter_filter,
+        prefilter_counts=db.get_prefilter_counts(),
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )
@@ -224,6 +228,7 @@ def jobs_all():
     german_filter  = request.args.get("german", "").strip()
     apply_type     = request.args.get("apply_type", "").strip()
     archetype_filter = request.args.get("archetype", "").strip()
+    prefilter_filter = request.args.get("prefiltered", "").strip()
     min_match_param = request.args.get("min_match", "").strip()
     try:
         min_match_val = float(min_match_param) if min_match_param else None
@@ -262,6 +267,7 @@ def jobs_all():
         min_match=min_match_val,
         apply_type=apply_type,
         archetype_filter=archetype_filter,
+        prefilter_filter=prefilter_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -284,6 +290,8 @@ def jobs_all():
         archetype_filter=archetype_filter,
         archetype_counts=db.get_archetype_counts(selected_only=True),
         archetype_labels=ARCHETYPE_LABELS,
+        prefilter_filter=prefilter_filter,
+        prefilter_counts=db.get_prefilter_counts(),
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )
