@@ -1,0 +1,33 @@
+# Narrative material: the "so what" behind the CV.
+#
+# cv.yaml holds the FACTS. This file holds the story those facts cannot carry.
+# The cover letter prompt forbids restating the CV, so this is where the letter
+# gets something new to say. Proof points are tagged by archetype so only the
+# relevant ones are sent for a given job.
+#
+# Copy to config/narrative.yaml (gitignored) and fill in.
+
+narrative:
+  positioning:
+    one_liner: Who you are in two sentences.
+    what_i_want: The work you want, not the title.
+    why_the_pivot: Why the change, in your own words.
+    risk_taken: 'Optional: a real risk you took and when it is relevant to mention.'
+  company_fit:
+    what_attracts_me:
+    - What genuinely draws you to an employer. Feeds the company paragraph.
+    dealbreakers:
+    - What you will not accept.
+  proof_points:
+  - id: example_story
+    headline: One line a hiring manager would remember
+    archetypes:
+    - A
+    - B
+    situation: The context, and why the obvious move would have been wrong.
+    decision: What YOU decided, and the reasoning behind it.
+    obstacle: 'What made it hard: who resisted, what broke, what the constraint was.'
+    outcome: What it produced. Numbers if you have them.
+    transferable: Why this matters for the job you are applying to now.
+  themes:
+  - How you work. Shown through a proof point, never claimed outright.

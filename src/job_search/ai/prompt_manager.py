@@ -27,9 +27,11 @@ class PromptManager:
         prompts_path: str = "config/prompts.yaml",
         cv_path: str = "config/cv.yaml",
         draft_cover_letter_path: str = "config/cover_letter_draft.txt",
+        narrative_path: str = "config/narrative.yaml",
     ) -> None:
         self._prompts = self._load_yaml(prompts_path)
         self._cv = self._load_yaml(cv_path)
+        self._narrative = self._load_optional_yaml(narrative_path)
         self._cv_text = self._render_cv_text()
         self._draft_cover_letter = self._load_draft(draft_cover_letter_path)
 
@@ -39,6 +41,70 @@ class PromptManager:
         if not p.exists():
             return "(No draft cover letter provided.)"
         return p.read_text(encoding="utf-8").strip()
+
+    @staticmethod
+    def _load_optional_yaml(path: str) -> dict[str, Any]:
+        """Load a YAML file if present, otherwise return an empty mapping.
+
+        The narrative file is optional: without it the cover letter prompt
+        simply carries no story material and falls back to CV facts.
+        """
+        p = Path(path)
+        if not p.exists():
+            return {}
+        with p.open(encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+
+    def render_narrative(self, archetype: str | None = None) -> str:
+        """Render the story material relevant to one role family.
+
+        cv.yaml supplies the facts; this supplies the reasoning, obstacles and
+        outcomes behind them. Proof points are tagged by archetype so a family D
+        job never sees the procurement stories and vice versa.
+        """
+        data = (self._narrative or {}).get("narrative", {})
+        if not data:
+            return ""
+
+        key = self._archetype_key(archetype)
+        lines: list[str] = []
+
+        pos = data.get("positioning", {})
+        if pos:
+            lines.append("POSITIONING")
+            for field in ("one_liner", "what_i_want", "why_the_pivot", "risk_taken"):
+                text = (pos.get(field) or "").strip()
+                if text:
+                    lines.append(f"- {field.replace('_', ' ')}: {text}")
+
+        fit = data.get("company_fit", {})
+        if fit:
+            lines.append("\nWHAT ATTRACTS ME TO AN EMPLOYER (use for the company paragraph)")
+            for item in fit.get("what_attracts_me", []):
+                lines.append(f"- {item.strip()}")
+            for item in fit.get("dealbreakers", []):
+                lines.append(f"- avoid: {item.strip()}")
+
+        # "none" gets everything, since we cannot tell which story fits.
+        points = [
+            pt for pt in data.get("proof_points", [])
+            if key == "none" or key in [a.upper() for a in pt.get("archetypes", [])]
+        ]
+        if points:
+            lines.append("\nPROOF POINTS (the source for anything the CV cannot say)")
+            for pt in points:
+                lines.append(f"\n### {pt.get('headline', pt.get('id', ''))}")
+                for field in ("situation", "decision", "obstacle", "outcome", "transferable"):
+                    text = (pt.get(field) or "").strip()
+                    if text:
+                        lines.append(f"{field.upper()}: {text}")
+
+        themes = data.get("themes", [])
+        if themes:
+            lines.append("\nRECURRING THEMES (show through a proof point, never claim outright)")
+            lines.extend(f"- {t}" for t in themes)
+
+        return "\n".join(lines).strip()
 
     @staticmethod
     def _load_yaml(path: str) -> dict[str, Any]:
@@ -193,5 +259,7 @@ class PromptManager:
             job_location=self._escape(job_location or "Unknown"),
             job_description=self._escape(job_description or ""),
             archetype=self._escape(_ARCHETYPE_DESCRIPTIONS[key]),
+            narrative=self._escape(self.render_narrative(archetype)
+                                   or "(No narrative material provided.)"),
         )
         return system, user
