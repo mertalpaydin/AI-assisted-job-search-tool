@@ -716,6 +716,33 @@ def import_jobs():
 # Runner UI Routes
 # ---------------------------------------------------------------------------
 
+@app.route("/prefiltered")
+def prefiltered():
+    """Review what the deterministic prefilters caught, rule by rule.
+
+    Separate from the jobs list because title-stage rejections are never
+    scraped, and the jobs list requires scraped = 1. Filtering that list by a
+    title rule returned an empty table, which read as "nothing matched" rather
+    than "these are not in this table".
+    """
+    db = get_db()
+    rules = db.get_prefilter_counts()
+    reason = request.args.get("reason", "").strip()
+
+    match = next((r for r in rules if r["reason"] == reason), None)
+    jobs = db.get_prefiltered_jobs(reason) if match else []
+
+    return render_template(
+        "prefiltered.html",
+        rules=rules,
+        total=sum(r["count"] for r in rules),
+        selected_reason=match["reason"] if match else "",
+        selected_count=match["count"] if match else 0,
+        selected_stage=match["stage"] if match else "",
+        jobs=jobs,
+    )
+
+
 @app.route("/runner")
 def runner_dashboard():
     global _runner_thread, _runner_coordinator

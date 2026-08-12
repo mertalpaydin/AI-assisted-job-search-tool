@@ -156,6 +156,9 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(request_timestam
 # Data classes
 # ---------------------------------------------------------------------------
 
+# Marker for "show only jobs rejected by this exact rule" in the jobs list.
+PREFILTER_REASON_PREFIX = "reason:"
+
 APPLICATION_STATUSES = ("applied", "skipped", "expired")
 
 
@@ -639,18 +642,23 @@ class DatabaseManager:
         keyword: str,
         location_id: str,
         prefilter_reason: str | None = None,
+        title: str | None = None,
     ) -> None:
         """Insert a discovered job.
 
         A prefilter_reason records that the job was rejected on its title alone,
         so it is stored for auditing but never queued for details or screening.
+        The title is stored with it: the rule matched on that string, and
+        without it there is no way to judge afterwards whether the rule was too
+        aggressive. Details scraping overwrites the title later for jobs that
+        survive, so keeping it here costs nothing.
         """
         with self._cursor() as cur:
             cur.execute(
                 "INSERT OR IGNORE INTO jobs "
-                "(job_id, search_keyword, search_location_id, prefilter_reason) "
-                "VALUES (?, ?, ?, ?)",
-                (job_id, keyword, location_id, prefilter_reason),
+                "(job_id, search_keyword, search_location_id, prefilter_reason, title) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (job_id, keyword, location_id, prefilter_reason, title),
             )
 
     def mark_prefiltered(self, job_id: int, reason: str) -> None:
@@ -666,13 +674,45 @@ class DatabaseManager:
         """Return prefilter reasons with counts, most frequent first."""
         with self._cursor() as cur:
             cur.execute("""
-                SELECT prefilter_reason, COUNT(*) AS n
+                SELECT prefilter_reason,
+                       COUNT(*) AS n,
+                       SUM(CASE WHEN scraped = 1 THEN 1 ELSE 0 END) AS scraped_n
                 FROM jobs
                 WHERE prefilter_reason IS NOT NULL
                 GROUP BY prefilter_reason
                 ORDER BY n DESC
             """)
-            return [{"reason": r[0], "count": r[1]} for r in cur.fetchall()]
+            # stage matters for display: a title-stage rule fires on the search
+            # result stub, so those rows have no description and never appear in
+            # the All Jobs table, which requires scraped = 1.
+            return [
+                {
+                    "reason": r[0],
+                    "count": r[1],
+                    "scraped_count": r[2],
+                    "stage": "details" if r[2] else "title",
+                }
+                for r in cur.fetchall()
+            ]
+
+    def get_prefiltered_jobs(self, reason: str, limit: int = 500) -> list[dict]:
+        """Return the jobs one prefilter rule caught, scraped or not.
+
+        Deliberately does not join screening or cover letter tables and does not
+        require scraped = 1: title-stage rejections only ever have the search
+        stub, and that stub is exactly what you need to judge whether the rule
+        is too aggressive.
+        """
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT job_id, title, company_name, formattedLocation,
+                       jobPostingUrl, created_at, scraped
+                FROM jobs
+                WHERE prefilter_reason = ?
+                ORDER BY created_at DESC, job_id DESC
+                LIMIT ?
+            """, (reason, limit))
+            return [dict(r) for r in cur.fetchall()]
 
     def update_job_details(self, job_id: int, fields: dict[str, Any]) -> None:
         """Update job row with scraped details. Unknown field names are silently skipped."""
@@ -1033,7 +1073,14 @@ class DatabaseManager:
             cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = 1 {and_date}")
             details_scraped = cur.fetchone()[0]
 
-            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = 0 {and_date}")
+            # Prefiltered jobs are excluded from every "pending" number below.
+            # They are not work waiting to happen, they are work deliberately
+            # declined, and counting them made the runner overstate the backlog
+            # by a factor of five.
+            cur.execute(f"""
+                SELECT COUNT(*) FROM jobs
+                WHERE scraped = 0 AND prefilter_reason IS NULL {and_date}
+            """)
             details_pending = cur.fetchone()[0]
 
             cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = -1 {and_date}")
@@ -1082,8 +1129,26 @@ class DatabaseManager:
             """)
             cl_error = cur.fetchone()[0]
 
-            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = 1 AND cv_match_score IS NULL {and_date}")
+            # Matches get_jobs_pending_screening: not prefiltered, not already
+            # sitting in an open batch. Otherwise the tile and the queue the
+            # coordinator actually builds disagree.
+            cur.execute(f"""
+                SELECT COUNT(*) FROM jobs
+                WHERE scraped = 1 AND cv_match_score IS NULL
+                  AND prefilter_reason IS NULL AND batch_job_id IS NULL {and_date}
+            """)
             screen_pending = cur.fetchone()[0]
+
+            cur.execute(f"""
+                SELECT COUNT(*) FROM jobs
+                WHERE batch_job_id IS NOT NULL AND cv_match_score IS NULL {and_date}
+            """)
+            screen_in_flight = cur.fetchone()[0]
+
+            cur.execute(f"""
+                SELECT COUNT(*) FROM jobs WHERE prefilter_reason IS NOT NULL {and_date}
+            """)
+            prefiltered_total = cur.fetchone()[0]
 
             cur.execute(f"SELECT COUNT(*) FROM jobs WHERE application_status = 'expired' {and_date}")
             expired_count = cur.fetchone()[0]
@@ -1111,6 +1176,8 @@ class DatabaseManager:
             "screened_ok": screened_ok,
             "screened_error": screened_error,
             "screen_pending": screen_pending,
+            "screen_in_flight": screen_in_flight,
+            "prefiltered_total": prefiltered_total,
             "screen_pass": screen_pass,
             "screen_fail": screen_fail,
             "screen_pass_rate_pct": pass_rate_pct,
@@ -1495,6 +1562,11 @@ class DatabaseManager:
             conditions.append("j.prefilter_reason IS NOT NULL")
         elif prefilter_filter == "hide":
             conditions.append("j.prefilter_reason IS NULL")
+        elif prefilter_filter.startswith(PREFILTER_REASON_PREFIX):
+            # "reason:<text>" narrows to one rule, so you can see exactly what a
+            # single deny word caught before deciding to keep or drop it.
+            conditions.append("j.prefilter_reason = ?")
+            params.append(prefilter_filter[len(PREFILTER_REASON_PREFIX):])
 
         where = " AND ".join(conditions)
 
@@ -1671,6 +1743,11 @@ class DatabaseManager:
             conditions.append("j.prefilter_reason IS NOT NULL")
         elif prefilter_filter == "hide":
             conditions.append("j.prefilter_reason IS NULL")
+        elif prefilter_filter.startswith(PREFILTER_REASON_PREFIX):
+            # "reason:<text>" narrows to one rule, so you can see exactly what a
+            # single deny word caught before deciding to keep or drop it.
+            conditions.append("j.prefilter_reason = ?")
+            params.append(prefilter_filter[len(PREFILTER_REASON_PREFIX):])
 
         where = " AND ".join(conditions)
 

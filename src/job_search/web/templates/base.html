@@ -203,6 +203,11 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'prefiltered' %}active{% endif %}" href="/prefiltered">
+            <i class="bi bi-funnel me-2"></i>Prefiltered
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'search_stats' %}active{% endif %}" href="/stats">
             <i class="bi bi-bar-chart-line me-2"></i>Search Stats
           </a>

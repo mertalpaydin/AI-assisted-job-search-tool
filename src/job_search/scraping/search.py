@@ -193,7 +193,8 @@ class SearchWorker:
                 reason = self._title_prefilter.reason(stub.title)
                 if reason:
                     self._db.insert_job(
-                        stub.job_id, keyword.term, location.geo_id, prefilter_reason=reason
+                        stub.job_id, keyword.term, location.geo_id,
+                        prefilter_reason=reason, title=stub.title,
                     )
                     logger.debug("Prefiltered ({}): {}", reason, stub.title)
                     continue

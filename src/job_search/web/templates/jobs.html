@@ -23,7 +23,7 @@
   {%- if ger %}&german={{ ger }}{% endif %}
   {%- if at %}&apply_type={{ at }}{% endif %}
   {%- if ar %}&archetype={{ ar }}{% endif %}
-  {%- if pf %}&prefiltered={{ pf }}{% endif %}
+  {%- if pf %}&prefiltered={{ pf | urlencode }}{% endif %}
   {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
 
@@ -144,7 +144,8 @@
     <button class="btn btn-sm {% if prefilter_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
             type="button" data-bs-toggle="dropdown" aria-expanded="false">
       <i class="bi bi-funnel me-1"></i>Prefiltered
-      {% if prefilter_filter %}<span class="badge bg-dark ms-1">{{ prefilter_filter }}</span>{% endif %}
+      {% if prefilter_filter %}<span class="badge bg-dark ms-1 text-truncate d-inline-block align-bottom"
+            style="max-width:160px" title="{{ prefilter_filter }}">{{ prefilter_filter | replace('reason:', '') }}</span>{% endif %}
     </button>
     <ul class="dropdown-menu p-2 shadow" style="min-width:280px; max-height:400px; overflow-y:auto">
       <li><a class="dropdown-item small {% if not prefilter_filter %}active{% endif %}" href="{{ page_url(p=1, pf='') }}">Show everything</a></li>
@@ -155,11 +156,21 @@
       {% if prefilter_counts %}
       <li><hr class="dropdown-divider"></li>
       <li><span class="dropdown-header small text-muted px-2">Reasons</span></li>
-      {% for row in prefilter_counts[:12] %}
-      <li class="d-flex justify-content-between px-2 small text-muted">
-        <span class="text-truncate" style="max-width:200px">{{ row.reason }}</span><span>{{ row.count }}</span>
+      {# Title-stage rules never produce a scraped row, so linking them into
+         this table would always show nothing. Send every reason to the review
+         page instead, which can display the search stub. #}
+      {% for row in prefilter_counts[:20] %}
+      <li>
+        <a class="dropdown-item small d-flex justify-content-between"
+           href="/prefiltered?reason={{ row.reason | urlencode }}" title="{{ row.reason }}">
+          <span class="text-truncate" style="max-width:200px">{{ row.reason }}</span>
+          <span class="ms-2">{{ row.count }}{% if not row.scraped_count %}
+            <i class="bi bi-eye-slash ms-1 text-muted" title="never scraped"></i>{% endif %}</span>
+        </a>
       </li>
       {% endfor %}
+      <li><hr class="dropdown-divider"></li>
+      <li><a class="dropdown-item small" href="/prefiltered">Review all prefiltered &rarr;</a></li>
       {% endif %}
     </ul>
   </div>

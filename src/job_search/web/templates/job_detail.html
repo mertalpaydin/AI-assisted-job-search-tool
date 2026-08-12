@@ -145,6 +145,18 @@
             </div>
           </div>
 
+          {% if job.prefilter_reason %}
+          <div class="col">
+            <div class="text-muted small mb-1">Prefiltered</div>
+            <div>
+              <span class="badge bg-dark text-warning border border-warning-subtle px-2 py-1">never screened</span>
+              <div class="small text-warning mt-1">{{ job.prefilter_reason }}</div>
+              <a class="small text-decoration-none"
+                 href="/prefiltered?reason={{ job.prefilter_reason | urlencode }}">see all</a>
+            </div>
+          </div>
+          {% endif %}
+
           <div class="col">
             <div class="text-muted small mb-1">CV Match</div>
             {% if job.cv_match_score is not none %}
@@ -201,6 +213,12 @@
       <div class="card-header d-flex justify-content-between align-items-center py-3">
         <span class="fw-semibold text-light"><i class="bi bi-envelope me-2 text-warning"></i>Cover Letter</span>
         <div class="d-flex gap-2 align-items-center">
+          {# Outside the "already generated" gate on purpose: inspecting the
+             prompt is most useful before you spend a generation on it. #}
+          <a href="/jobs/{{ job.job_id }}/cover-letter/prompt" target="_blank"
+             class="btn btn-sm btn-outline-info" title="View or download the exact prompt for this job">
+            <i class="bi bi-braces me-1"></i>Export Prompt
+          </a>
           {% if job.cover_letter_text %}
           <button class="btn btn-sm btn-outline-secondary" id="copyBtn" onclick="copyCoverLetter()">
             <i class="bi bi-clipboard me-1"></i>Copy Text
@@ -208,10 +226,6 @@
           <button type="button" class="btn btn-sm btn-outline-danger" id="pdfBtn" onclick="generatePdfLive(event)">
             <i class="bi bi-file-earmark-pdf me-1"></i>Generate PDF
           </button>
-          <a href="/jobs/{{ job.job_id }}/cover-letter/prompt" target="_blank"
-             class="btn btn-sm btn-outline-info" title="View or download the exact prompt for this job">
-            <i class="bi bi-braces me-1"></i>Export Prompt
-          </a>
           <form method="post" action="/jobs/{{ job.job_id }}/cover-letter/regenerate" class="d-inline">
             <input type="hidden" name="source" value="detail">
             <button type="submit" class="btn btn-sm btn-outline-warning" title="Delete export files/DB record and re-queue for generation">
