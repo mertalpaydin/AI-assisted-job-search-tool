@@ -16,7 +16,11 @@ from urllib.parse import urlparse
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from job_search.core.config import Config, load_config
-from job_search.core.database import APPLICATION_STATUSES, DatabaseManager
+from job_search.core.database import (
+    APPLICATION_STATUSES,
+    ARCHETYPE_LABELS,
+    DatabaseManager,
+)
 from job_search.utils.formatting import clean_cover_letter_text
 
 # Flask finds templates relative to this file's directory
@@ -108,6 +112,7 @@ def index():
         recent_stats=recent_stats,
         is_runner_active=is_runner_active,
         active_days=days_param,
+        archetype_counts=db.get_archetype_counts(selected_only=True),
     )
 
 
@@ -137,6 +142,7 @@ def jobs():
     keyword_filter = request.args.get("kw", "").strip()
     german_filter  = request.args.get("german", "").strip()
     apply_type     = request.args.get("apply_type", "").strip()
+    archetype_filter = request.args.get("archetype", "").strip()
     min_match_param = request.args.get("min_match", "").strip()
     try:
         min_match_val = float(min_match_param) if min_match_param else None
@@ -173,6 +179,7 @@ def jobs():
         german_filter=german_filter,
         min_match=min_match_val,
         apply_type=apply_type,
+        archetype_filter=archetype_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -192,6 +199,9 @@ def jobs():
         german_filter=german_filter,
         min_match=min_match_param,
         apply_type=apply_type,
+        archetype_filter=archetype_filter,
+        archetype_counts=db.get_archetype_counts(selected_only=True),
+        archetype_labels=ARCHETYPE_LABELS,
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )
@@ -213,6 +223,7 @@ def jobs_all():
     keyword_filter = request.args.get("kw", "").strip()
     german_filter  = request.args.get("german", "").strip()
     apply_type     = request.args.get("apply_type", "").strip()
+    archetype_filter = request.args.get("archetype", "").strip()
     min_match_param = request.args.get("min_match", "").strip()
     try:
         min_match_val = float(min_match_param) if min_match_param else None
@@ -250,6 +261,7 @@ def jobs_all():
         german_filter=german_filter,
         min_match=min_match_val,
         apply_type=apply_type,
+        archetype_filter=archetype_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -269,6 +281,9 @@ def jobs_all():
         german_filter=german_filter,
         min_match=min_match_param,
         apply_type=apply_type,
+        archetype_filter=archetype_filter,
+        archetype_counts=db.get_archetype_counts(selected_only=True),
+        archetype_labels=ARCHETYPE_LABELS,
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
     )
@@ -282,6 +297,7 @@ def job_detail(job_id: int):
         abort(404)
     prev_job_id, next_job_id = db.get_adjacent_job_ids(job_id)
     return render_template("job_detail.html", job=job, statuses=APPLICATION_STATUSES,
+                           archetype_labels=ARCHETYPE_LABELS,
                            cl_mode=get_cl_mode(),
                            prev_job_id=prev_job_id,
                            next_job_id=next_job_id)
@@ -470,7 +486,9 @@ def search_stats():
     days_param = request.args.get("days", 30, type=int)
     days = days_param if days_param in (7, 30, 90, 0) else 30
     combos = db.get_search_combo_stats(days=days if days > 0 else None)
-    return render_template("stats.html", combos=combos, stats_period_days=days)
+    return render_template("stats.html", combos=combos, stats_period_days=days,
+                           archetype_counts=db.get_archetype_counts(),
+                           archetype_labels=ARCHETYPE_LABELS)
 
 
 @app.route("/jobs/<int:job_id>/quick-apply", methods=["POST"])

@@ -282,6 +282,35 @@
   </div>
 </div>
 
+{# Selected jobs by role family, links straight into the filtered list #}
+{% if archetype_counts %}
+{% set arch_colors = {'A':'primary','B':'success','C':'info','D':'warning','E':'secondary','F':'dark'} %}
+<div class="card shadow-sm border-0 mb-4" style="background: #1e293b;">
+  <div class="card-body">
+    <h6 class="card-title fw-bold mb-3">
+      <i class="bi bi-diagram-3 me-2 text-primary"></i>Selected Jobs by Role Family
+    </h6>
+    <div class="d-flex flex-wrap gap-2">
+      {% for row in archetype_counts %}
+      <a href="/jobs?archetype={{ 'unclassified' if row.archetype == 'none' else row.archetype }}"
+         class="text-decoration-none">
+        <div class="p-3 rounded-3 border d-flex align-items-center gap-2"
+             style="background: #0f172a; border-color: #334155 !important;">
+          {% if row.archetype != 'none' %}
+          <span class="badge bg-{{ arch_colors.get(row.archetype, 'secondary') }}">{{ row.archetype }}</span>
+          {% else %}
+          <span class="badge bg-secondary-subtle text-muted border border-secondary-subtle">?</span>
+          {% endif %}
+          <span class="small text-muted">{{ row.label }}</span>
+          <span class="fs-5 fw-bold text-light">{{ row.selected }}</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="d-flex gap-2">
   <a href="/jobs" class="btn btn-primary px-4">
     <i class="bi bi-list-ul me-1"></i>View Selected Jobs

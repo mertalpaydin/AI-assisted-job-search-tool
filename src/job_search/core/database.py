@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     cv_match_score REAL,
     german_requirement_level TEXT,
     screening_reasoning TEXT,
+    archetype TEXT,
 
     workRemoteAllowed INTEGER,
     workplaceTypes TEXT,
@@ -81,6 +82,7 @@ CREATE TABLE IF NOT EXISTS screening_results (
     german_requirement_level TEXT,
     is_selected INTEGER,
     screening_reasoning TEXT,
+    archetype TEXT,
     screening_status INTEGER DEFAULT 0,
     FOREIGN KEY (job_id) REFERENCES jobs(job_id)
 );
@@ -143,6 +145,21 @@ CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(request_timestam
 APPLICATION_STATUSES = ("applied", "skipped", "expired")
 
 
+# Screening archetypes, mirroring the role families in config/prompts.yaml.
+# "none" means the job fits no target family.
+ARCHETYPES: tuple[str, ...] = ("A", "B", "C", "D", "E", "F", "none")
+
+ARCHETYPE_LABELS: dict[str, str] = {
+    "A": "Procurement x AI",
+    "B": "AI Transformation",
+    "C": "AI / Data Product",
+    "D": "Applied Data Science",
+    "E": "Generic AI / ML",
+    "F": "Procurement (fallback)",
+    "none": "No family",
+}
+
+
 @dataclass
 class JobRow:
     job_id: int
@@ -155,6 +172,7 @@ class JobRow:
     company_name: str | None
     scraped: int
     applyMethod: str | None = None
+    archetype: str | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -171,6 +189,7 @@ class ScreeningResult:
     german_requirement_level: str
     is_selected: bool
     reasoning: str
+    archetype: str | None = None
 
 
 @dataclass
@@ -196,6 +215,7 @@ class SelectedJobRow:
     search_keyword: str | None = None
     user_notes: str | None = None
     applyMethod: str | None = None
+    archetype: str | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -240,6 +260,7 @@ _JOBS_COLUMNS: frozenset[str] = frozenset({
 _SORTABLE_FIELDS: frozenset[str] = frozenset({
     "title", "company_name", "formattedLocation", "cv_match_score",
     "german_requirement_level", "listedAt", "applies", "created_at",
+    "archetype",
 })
 
 
@@ -306,6 +327,20 @@ class DatabaseManager:
         self._migrate_v4(conn)
         self._migrate_v5(conn)
         self._migrate_v6(conn)
+        self._migrate_v7(conn)
+
+    def _migrate_v7(self, conn: sqlite3.Connection) -> None:
+        """Add archetype column to jobs and screening_results."""
+        for stmt in (
+            "ALTER TABLE jobs ADD COLUMN archetype TEXT",
+            "ALTER TABLE screening_results ADD COLUMN archetype TEXT",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_archetype ON jobs(archetype)",
+        ):
+            try:
+                conn.execute(stmt)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     def _migrate_v6(self, conn: sqlite3.Connection) -> None:
         """Add last_cleaned_at column and index to jobs table."""
@@ -665,7 +700,7 @@ class DatabaseManager:
             cur.execute("""
                 SELECT job_id, title, description, formattedLocation,
                        workRemoteAllowed, formattedExperienceLevel, jobPostingUrl,
-                       company_name, scraped
+                       company_name, scraped, archetype
                 FROM jobs
                 WHERE job_id = ?
             """, (job_id,))
@@ -683,13 +718,14 @@ class DatabaseManager:
             cur.execute("""
                 INSERT INTO screening_results
                     (job_id, cv_match_score, german_requirement_level,
-                     is_selected, screening_reasoning, screening_status)
-                VALUES (?, ?, ?, ?, ?, 1)
+                     is_selected, screening_reasoning, archetype, screening_status)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
                 ON CONFLICT(job_id) DO UPDATE SET
                     cv_match_score = excluded.cv_match_score,
                     german_requirement_level = excluded.german_requirement_level,
                     is_selected = excluded.is_selected,
                     screening_reasoning = excluded.screening_reasoning,
+                    archetype = excluded.archetype,
                     screening_status = 1,
                     screening_date = CURRENT_TIMESTAMP
             """, (
@@ -698,6 +734,7 @@ class DatabaseManager:
                 result.german_requirement_level,
                 int(result.is_selected),
                 result.reasoning,
+                result.archetype,
             ))
             # Denormalize into jobs for easy single-table queries
             cur.execute("""
@@ -706,6 +743,7 @@ class DatabaseManager:
                     cv_match_score = ?,
                     german_requirement_level = ?,
                     screening_reasoning = ?,
+                    archetype = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE job_id = ?
             """, (
@@ -713,6 +751,7 @@ class DatabaseManager:
                 result.cv_match_score,
                 result.german_requirement_level,
                 result.reasoning,
+                result.archetype,
                 job_id,
             ))
 
@@ -1273,6 +1312,7 @@ class DatabaseManager:
         german_filter: str = "",
         min_match: float | None = None,
         apply_type: str = "",
+        archetype_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated AI-selected jobs with optional filters.
 
@@ -1345,6 +1385,12 @@ class DatabaseManager:
             conditions.append("LOWER(j.german_requirement_level) = LOWER(?)")
             params.append(german_filter)
 
+        if archetype_filter == "unclassified":
+            conditions.append("(j.archetype IS NULL OR j.archetype = '' OR j.archetype = 'none')")
+        elif archetype_filter:
+            conditions.append("UPPER(j.archetype) = UPPER(?)")
+            params.append(archetype_filter)
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
@@ -1368,7 +1414,7 @@ class DatabaseManager:
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes, j.applyMethod
+                    j.user_notes, j.applyMethod, j.archetype
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
@@ -1389,7 +1435,7 @@ class DatabaseManager:
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes, j.applyMethod
+                    j.user_notes, j.applyMethod, j.archetype
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -1437,6 +1483,7 @@ class DatabaseManager:
         german_filter: str = "",
         min_match: float | None = None,
         apply_type: str = "",
+        archetype_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated scraped jobs (selected or not) with optional filters.
 
@@ -1508,6 +1555,12 @@ class DatabaseManager:
             conditions.append("LOWER(j.german_requirement_level) = LOWER(?)")
             params.append(german_filter)
 
+        if archetype_filter == "unclassified":
+            conditions.append("(j.archetype IS NULL OR j.archetype = '' OR j.archetype = 'none')")
+        elif archetype_filter:
+            conditions.append("UPPER(j.archetype) = UPPER(?)")
+            params.append(archetype_filter)
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
@@ -1530,7 +1583,7 @@ class DatabaseManager:
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes, j.applyMethod
+                    j.user_notes, j.applyMethod, j.archetype
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
@@ -1538,6 +1591,35 @@ class DatabaseManager:
                 LIMIT ? OFFSET ?
             """, params + [limit, offset])
             return [SelectedJobRow(**dict(row)) for row in cur.fetchall()], total
+
+    def get_archetype_counts(self, selected_only: bool = False) -> list[dict]:
+        """Return per-archetype counts for the stats page and filter dropdowns.
+
+        Ordered A..F, then unclassified. Jobs screened before archetypes
+        existed have a NULL archetype and are grouped under "none".
+        """
+        where = "WHERE is_selected = 1" if selected_only else ""
+        with self._cursor() as cur:
+            cur.execute(f"""
+                SELECT
+                    COALESCE(NULLIF(archetype, ''), 'none') AS archetype,
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN is_selected = 1 THEN 1 ELSE 0 END) AS selected,
+                    SUM(CASE WHEN application_status = 'applied' THEN 1 ELSE 0 END) AS applied
+                FROM jobs
+                {where}
+                GROUP BY 1
+            """)
+            rows = {r[0]: {"archetype": r[0], "total": r[1],
+                           "selected": r[2] or 0, "applied": r[3] or 0}
+                    for r in cur.fetchall()}
+        ordered = [rows[a] for a in ARCHETYPES if a in rows and a != "none"]
+        ordered.extend(r for k, r in rows.items() if k not in ARCHETYPES)
+        if "none" in rows:
+            ordered.append(rows["none"])
+        for row in ordered:
+            row["label"] = ARCHETYPE_LABELS.get(row["archetype"], row["archetype"])
+        return ordered
 
     def get_distinct_keywords(self) -> list[str]:
         """Return a sorted list of all distinct search keywords present in the database."""

@@ -67,7 +67,17 @@ MINIMAL_PROMPTS_YAML = textwrap.dedent("""\
         Remote: {remote_allowed}
         Description: {job_description}
     cover_letter:
-      system_prompt: "You are a cover letter writer."
+      system_prompt: |
+        You are a cover letter writer.
+        {archetype_guidance}
+      archetype_guidance:
+        "A": "LEAD WITH PROCUREMENT RESULTS."
+        "B": "LEAD WITH CHANGE DELIVERY."
+        "C": "LEAD WITH DELIVERY AND CUSTOMERS."
+        "D": "LEAD WITH THE THESIS."
+        "E": "LEAD WITH THE FRAMEWORKS."
+        "F": "LEAD AS A PROCUREMENT CANDIDATE."
+        "none": "BALANCE BOTH SIDES."
       user_prompt_template: |
         CV: {cv_text}
         Draft: {draft_cover_letter}
@@ -75,6 +85,7 @@ MINIMAL_PROMPTS_YAML = textwrap.dedent("""\
         Position: {job_title}
         Location: {job_location}
         Description: {job_description}
+        Family: {archetype}
 """)
 
 

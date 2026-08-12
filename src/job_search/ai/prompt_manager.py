@@ -6,6 +6,19 @@ from typing import Any
 import yaml
 
 
+# Expanded into the cover letter prompt so the model does not have to infer
+# what a bare letter means. Keys mirror ARCHETYPES in core.database.
+_ARCHETYPE_DESCRIPTIONS: dict[str, str] = {
+    "A": "A - procurement / supply chain meets AI and analytics",
+    "B": "B - AI transformation, enablement, adoption and strategy",
+    "C": "C - AI / data product, delivery and solution consulting",
+    "D": "D - applied data science with a domain angle",
+    "E": "E - generic AI / ML / data engineering",
+    "F": "F - pure procurement, sourcing or supply chain",
+    "none": "not classified",
+}
+
+
 class PromptManager:
     """Loads prompts.yaml and cv.yaml, formats prompts for screening and cover letters."""
 
@@ -131,16 +144,47 @@ class PromptManager:
         """Escape literal { and } in user-supplied text so str.format() won't choke on them."""
         return text.replace("{", "{{").replace("}", "}}")
 
+    @staticmethod
+    def _archetype_key(archetype: str | None) -> str:
+        """Normalise a screener archetype to a guidance key ("A".."F" or "none")."""
+        key = (archetype or "").strip().upper()
+        return key if key in _ARCHETYPE_DESCRIPTIONS and key != "NONE" else "none"
+
+    def archetype_guidance(self, archetype: str | None) -> str:
+        """Return the cover letter guidance block for a single role family.
+
+        Only this block reaches the model. Falls back to the "none" block when
+        the job was never classified or carries an unknown family.
+        """
+        cfg = self._prompts.get("cover_letter", {})
+        blocks = cfg.get("archetype_guidance") or {}
+        key = self._archetype_key(archetype)
+        return str(blocks.get(key) or blocks.get("none") or "").rstrip()
+
     def format_cover_letter_prompt(
         self,
         job_title: str,
         company_name: str | None,
         job_location: str | None,
         job_description: str | None,
+        archetype: str | None = None,
     ) -> tuple[str, str]:
-        """Return (system_prompt, user_prompt) for cover letter generation."""
+        """Return (system_prompt, user_prompt) for cover letter generation.
+
+        The system prompt is the shared instruction set with the one guidance
+        block for this job's role family substituted in. Guidance written for
+        the other families is never sent.
+        """
         cfg = self._prompts["cover_letter"]
-        system = cfg["system_prompt"].strip()
+        key = self._archetype_key(archetype)
+
+        # Plain replace rather than str.format: the system prompt contains
+        # literal bracketed [Review: ...] markers and other punctuation that
+        # format() would misread.
+        system = cfg["system_prompt"].replace(
+            "{archetype_guidance}", self.archetype_guidance(archetype)
+        ).strip()
+
         user = cfg["user_prompt_template"].format(
             cv_text=self._escape(self._cv_text),
             draft_cover_letter=self._escape(self._draft_cover_letter),
@@ -148,5 +192,6 @@ class PromptManager:
             company_name=self._escape(company_name or "Unknown"),
             job_location=self._escape(job_location or "Unknown"),
             job_description=self._escape(job_description or ""),
+            archetype=self._escape(_ARCHETYPE_DESCRIPTIONS[key]),
         )
         return system, user

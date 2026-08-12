@@ -129,8 +129,23 @@
 
         <hr class="border-secondary opacity-25">
         
+        {% set arch_colors = {'A':'primary','B':'success','C':'info','D':'warning','E':'secondary','F':'dark'} %}
         <div class="row text-center g-3 my-1">
-          <div class="col-3">
+          <div class="col">
+            <div class="text-muted small mb-1">Role Family</div>
+            <div>
+              {% set ar = job.archetype %}
+              {% if ar and ar != 'none' %}
+              <span class="badge bg-{{ arch_colors.get(ar, 'secondary') }} px-2 py-1">{{ ar }}</span>
+              <div class="small text-muted mt-1">{{ archetype_labels.get(ar, ar) }}</div>
+              {% else %}
+              <span class="badge bg-secondary-subtle text-muted border border-secondary-subtle px-2 py-1">Unclassified</span>
+              <div class="small text-muted mt-1">generic cover letter</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="col">
             <div class="text-muted small mb-1">CV Match</div>
             {% if job.cv_match_score is not none %}
             {% set pct = (job.cv_match_score * 100)|int %}
@@ -140,7 +155,7 @@
             {% else %}<div class="fs-5 text-muted">—</div>{% endif %}
           </div>
 
-          <div class="col-3">
+          <div class="col">
             <div class="text-muted small mb-1">German Requirement</div>
             {% set gl = job.german_requirement_level or "none" %}
             <div>
@@ -152,7 +167,7 @@
             </div>
           </div>
 
-          <div class="col-3">
+          <div class="col">
             <div class="text-muted small mb-1">AI Selection</div>
             <div>
               {% if job.is_selected == 1 %}

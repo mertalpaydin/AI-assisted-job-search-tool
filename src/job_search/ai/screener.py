@@ -10,12 +10,16 @@ from google.genai import types as genai_types
 from loguru import logger
 
 from job_search.core.config import Config
-from job_search.core.database import DatabaseManager, ScreeningResult
+from job_search.core.database import ARCHETYPES, DatabaseManager, ScreeningResult
 from job_search.core.state import ShutdownCoordinator
 from job_search.ai.prompt_manager import PromptManager
 from job_search.utils.api_rotation import GeminiAPIRotator
 
 _GERMAN_LEVELS = ("none", "low", "medium", "high")
+
+# Archetypes the screener is allowed to emit. Anything else is normalised to
+# "none" rather than trusted, so a hallucinated label cannot reach the database.
+_ARCHETYPE_ALIASES = {a.lower(): a for a in ARCHETYPES}
 
 
 def _parse_screening_json(text: str) -> dict:
@@ -34,6 +38,18 @@ def _apply_criteria(raw: dict, config: Config) -> ScreeningResult:
     german_level = str(raw.get("german_requirement_level", "none")).lower()
     reasoning = str(raw.get("reasoning", ""))
 
+    # Accept "A", "a", "none", or a labelled form such as "A. Procurement x AI".
+    # The leading letter is only taken when it is followed by a non-letter, so
+    # prose like "Family A" is rejected rather than silently read as "F".
+    raw_archetype = str(raw.get("archetype", "") or "").strip().lower()
+    archetype = _ARCHETYPE_ALIASES.get(raw_archetype)
+    if archetype is None:
+        match = re.match(r"^([a-f])(?![a-z])", raw_archetype)
+        if match:
+            archetype = _ARCHETYPE_ALIASES.get(match.group(1))
+    if archetype is None:
+        archetype = "none"
+
     if german_level not in _GERMAN_LEVELS:
         german_level = "none"
 
@@ -47,6 +63,7 @@ def _apply_criteria(raw: dict, config: Config) -> ScreeningResult:
         german_requirement_level=german_level,
         is_selected=is_selected,
         reasoning=reasoning,
+        archetype=archetype,
     )
 
 
@@ -142,9 +159,9 @@ class ScreeningWorker:
             if self._config.cover_letter.mode == "auto":
                 self._cover_letter_queue.put(job_id)
             logger.info(
-                "Job {} SELECTED — cv_match={:.2f}, german={} (cl_mode={})",
-                job_id, result.cv_match_score, result.german_requirement_level,
-                self._config.cover_letter.mode,
+                "Job {} SELECTED [{}] - cv_match={:.2f}, german={} (cl_mode={})",
+                job_id, result.archetype, result.cv_match_score,
+                result.german_requirement_level, self._config.cover_letter.mode,
             )
         else:
             logger.debug(
@@ -260,8 +277,8 @@ class GeminiScreeningWorker:
             if self._config.cover_letter.mode == "auto":
                 self._cover_letter_queue.put(job_id)
             logger.info(
-                "Job {} SELECTED (gemini-worker-{}) — cv_match={:.2f}, german={} (cl_mode={})",
-                job_id, self._worker_id, result.cv_match_score,
+                "Job {} SELECTED [{}] (gemini-worker-{}) - cv_match={:.2f}, german={} (cl_mode={})",
+                job_id, result.archetype, self._worker_id, result.cv_match_score,
                 result.german_requirement_level, self._config.cover_letter.mode,
             )
         else:

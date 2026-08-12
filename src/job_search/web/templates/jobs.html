@@ -9,7 +9,8 @@
                   st=status_filter, sq=search_query,
                   rm=remote_filter, cl=cl_filter,
                   df=date_from, dt=date_to, ex=exclude_companies,
-                  kw=keyword_filter, ger=german_filter, mm=min_match, at=apply_type) -%}
+                  kw=keyword_filter, ger=german_filter, mm=min_match, at=apply_type,
+                  ar=archetype_filter) -%}
   {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
@@ -21,6 +22,7 @@
   {%- if kw %}&kw={{ kw | urlencode }}{% endif %}
   {%- if ger %}&german={{ ger }}{% endif %}
   {%- if at %}&apply_type={{ at }}{% endif %}
+  {%- if ar %}&archetype={{ ar }}{% endif %}
   {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
 
@@ -129,6 +131,51 @@
       <li>
         <a class="dropdown-item small {% if apply_type == 'company' %}active{% endif %}" href="{{ page_url(p=1, at='company') }}">
           <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle me-1">🌐 Company</span> Company Website
+        </a>
+      </li>
+    </ul>
+  </div>
+
+  {# Archetype (role family) filter dropdown #}
+  {% set arch_colors = {'A':'primary','B':'success','C':'info','D':'warning','E':'secondary','F':'dark'} %}
+  <div class="dropdown" id="archetypeFilterDropdown">
+    <button class="btn btn-sm {% if archetype_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-diagram-3 me-1"></i>Role Family
+      {% if archetype_filter %}
+        <span class="badge bg-dark ms-1">
+          {% if archetype_filter == 'unclassified' %}unclassified
+          {% else %}{{ archetype_filter | upper }}{% endif %}
+        </span>
+      {% endif %}
+    </button>
+    <ul class="dropdown-menu p-2 shadow" style="min-width:250px">
+      <li>
+        <a class="dropdown-item small {% if not archetype_filter %}active{% endif %}" href="{{ page_url(p=1, ar='') }}">
+          All Role Families
+        </a>
+      </li>
+      <li><hr class="dropdown-divider"></li>
+      {% for row in archetype_counts %}
+        {% if row.archetype != 'none' %}
+        <li>
+          <a class="dropdown-item small d-flex justify-content-between align-items-center
+                    {% if archetype_filter|upper == row.archetype %}active{% endif %}"
+             href="{{ page_url(p=1, ar=row.archetype) }}">
+            <span>
+              <span class="badge bg-{{ arch_colors.get(row.archetype, 'secondary') }} me-1">{{ row.archetype }}</span>
+              {{ row.label }}
+            </span>
+            <span class="text-muted ms-2">{{ row.selected }}</span>
+          </a>
+        </li>
+        {% endif %}
+      {% endfor %}
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <a class="dropdown-item small {% if archetype_filter == 'unclassified' %}active{% endif %}"
+           href="{{ page_url(p=1, ar='unclassified') }}">
+          <span class="badge bg-light text-muted me-1">?</span> Unclassified
         </a>
       </li>
     </ul>
@@ -363,6 +410,7 @@
         <th>{{ sort_link("title", "Job") }}</th>
         <th>{{ sort_link("formattedLocation", "Location") }}</th>
         <th class="text-center">{{ sort_link("cv_match_score", "Match") }}</th>
+        <th class="text-center">{{ sort_link("archetype", "Family") }}</th>
         <th class="text-center">{{ sort_link("german_requirement_level", "German") }}</th>
         {% if show_all %}
         <th class="text-center">Selected</th>
@@ -421,6 +469,15 @@
           <span class="badge bg-secondary badge-match px-2 py-1">{{ pct }}%</span>
           {% endif %}
           {% else %}—{% endif %}
+        </td>
+        <td class="text-center">
+          {% set ar = job.archetype %}
+          {% if ar and ar != 'none' %}
+            <span class="badge bg-{{ arch_colors.get(ar, 'secondary') }} badge-match px-2 py-1"
+                  title="{{ archetype_labels.get(ar, ar) }}">{{ ar }}</span>
+          {% else %}
+            <span class="badge bg-light text-muted small" title="Not classified">?</span>
+          {% endif %}
         </td>
         <td class="text-center">
           {% set gl = job.german_requirement_level or "?" %}
