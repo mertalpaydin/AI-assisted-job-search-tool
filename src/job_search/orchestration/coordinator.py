@@ -306,8 +306,10 @@ class JobSearchCoordinator:
                 screening_mode == "auto" and len(pending) >= cfg.screening.batch_threshold
             )
             if use_batch and pending:
-                self._submit_batch(pending, api_keys[0])
-                stages = self._stages = self._stages - {"screen"}
+                # Only drop the screening stage if the submission actually
+                # succeeded, otherwise the run would silently screen nothing.
+                if self._submit_batch(pending, api_keys[0]):
+                    stages = self._stages = self._stages - {"screen"}
 
         if "screen" in stages and screening_backend == "gemini":
             if not api_keys:
@@ -378,22 +380,33 @@ class JobSearchCoordinator:
             len(api_keys) if api_keys else 0,
         )
 
-    def _submit_batch(self, pending: list[int], api_key: str) -> None:
-        """Send pending screening work to the Batch API and move on."""
+    def _submit_batch(self, pending: list[int], api_key: str) -> bool:
+        """Send pending screening work to the Batch API.
+
+        Returns True when the batch was accepted, so the caller knows it is safe
+        to skip the synchronous screening workers. On any failure this returns
+        False and the run screens instantly instead, which matters because a
+        silently skipped screening stage looks identical to "nothing to do".
+        """
         try:
             from job_search.ai.batch_screener import BatchScreener
 
             screener = BatchScreener(self._config, self._db, api_key=api_key)
             batch_id = screener.submit(pending)
-            if batch_id is not None:
-                logger.info(
-                    "Screening submitted as batch {} ({} jobs). Results arrive within "
-                    "24h and are collected by the next run or the collect task.",
-                    batch_id, len(pending),
-                )
         except Exception as exc:
-            logger.error("Batch submission failed, falling back to instant screening: {}", exc)
-            self._stages.add("screen")
+            logger.error("Batch submission failed, screening instantly instead: {}", exc)
+            return False
+
+        if batch_id is None:
+            logger.info("Batch submission produced no work, screening instantly instead")
+            return False
+
+        logger.info(
+            "Screening submitted as batch {} ({} jobs). Results arrive within "
+            "24h and are collected by the next run or the collect task.",
+            batch_id, len(pending),
+        )
+        return True
 
     def _spawn(self, name: str, target) -> None:
         t = threading.Thread(target=target, name=name, daemon=True)
