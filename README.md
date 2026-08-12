@@ -1,22 +1,65 @@
 # AI-Assisted Job Search Tool
 
-Automates LinkedIn job discovery, AI screening against your CV, cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, and application tracking — all from your local machine.
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
+![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-242%20passing-2ea44f)
+![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
+
+Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+> The dashboard: pipeline funnel, action queues, application progress, and a role-family breakdown. *(Screenshots use a synthetic demo dataset — no real companies or personal data.)*
 
 ---
 
 ## Features
 
-- **Automated Job Scraping** — LinkedIn search + full details extraction with pagination (up to 500 results per keyword/location) using Selenium with cookie session persistence.
-- **Dual-Backend AI Screening** — Scores jobs against your CV and filters out jobs requiring high German proficiency or wrong locations. Supports:
-  - **Gemini API** (default): Fast parallel screening with multi-key API rotation and exponential backoff retries.
-  - **Local GGUF Model** (offline): GPU-accelerated local GGUF model via `llama-cpp-python`.
-- **AI Cover Letter Generation** — Tailors cover letters to each selected job using your CV data and prompt guidelines.
-- **1-Page LaTeX Cover Letter PDF Exporter** — Automated 1-page LaTeX cover letter compiler using local MiKTeX (`xelatex` / `pdflatex`). Features an executive centered header, tagline (`DATA SCIENCE & AI/ML SPECIALIST | STRATEGIC PROCUREMENT`), transparent signature image, dynamic "a/an" article selection, and an auto-fitting font size algorithm.
-- **Customizable Export Locations** — Configurable output directories in `config/config.yaml` for CSV/Text exports (`export.output_dir`) and PDF cover letters (`export.pdf_dir`).
-- **Job Expiration Cleaner** — Automated check to detect expired or closed LinkedIn job postings (`uv run job-search clean`).
-- **Concurrent Pipeline** — Parallel search, details, screening, and cover letter workers with graceful shutdown, checkpointing, and resume capabilities.
+- **Automated Job Scraping** — LinkedIn search + full details extraction with pagination (up to 500 results per keyword/location) using Selenium, with a **persisted session** so 2FA is only needed once (`uv run job-search login`).
+- **Tiered Search Terms** — Each search term carries a `tier` (1 = every cycle, 2 = every other cycle, 3 = every third) and an optional per-term `max_pages`, so high-value queries are polled deeply and often while broad ones are polled sparingly.
+- **Deterministic Prefilter** — Two cost-free filter stages reject obviously-unfit jobs *before* spending an AI call, recording *why* each was rejected instead of deleting it:
+  - **Title stage** runs on the search stub and skips both the detail fetch and screening (e.g. non-AI/non-data titles, wrong locations).
+  - **Details stage** runs after the detail fetch and skips screening (employment type, experience level, German-fluency requirements).
+  - Rejections are reversible (clear the `prefilter_reason` column) and fully reviewable in the Web UI.
+- **Gemini AI Screening** — Scores jobs against your CV, filters out jobs requiring high German proficiency or wrong locations, and assigns a **role-family archetype (A–F)**. Fast parallel screening via the Gemini API with multi-key rotation and exponential backoff retries.
+- **Batch Screening (50% cheaper)** — Screening can be submitted to the Gemini **Batch API** and collected later (up to 24h latency). An in-flight guard (`jobs.batch_job_id`) prevents paying twice or overwriting a fresh answer with a stale one. `auto` mode keeps small manual runs instant and sends large or scheduled backlogs to batch.
+- **Role-Family-Tailored Cover Letters** — Cover letter prompts are split into a shared instruction set plus one guidance block per family; only the block for the job's own family is sent. An optional **career-narrative layer** (`config/narrative.yaml`) supplies the reasoning, obstacles, and outcomes behind your CV lines so letters can stop restating the CV.
+- **1-Page LaTeX Cover Letter PDF Exporter** — Automated 1-page LaTeX cover letter compiler using local MiKTeX (`xelatex` / `pdflatex`). Features a centered executive header, tagline, transparent signature image, dynamic "a/an" article selection, name-derived sign-off matching, and an auto-fitting font-size algorithm with length-based vertical centering to guarantee single-page output.
+- **Job Expiration Cleaner** — Detects expired or closed LinkedIn postings using the authenticated session with request pacing and rate-limit backoff (`uv run job-search clean`).
+- **Cross-Process Run Control** — A runner lock (ignores dead PIDs and stale holders), a stop file for graceful cross-process shutdown, and a schedule pause with lazy auto-resume let the Web UI, CLI, and scheduled tasks coordinate one run at a time.
+- **Unattended Scheduling** — `scripts/install_tasks.ps1` registers Windows Task Scheduler entries (with `StartWhenAvailable`, so a run missed while the laptop slept fires on wake). Scheduled runs skip LinkedIn stages if the session is dead rather than opening a browser.
+- **Concurrent Pipeline** — Parallel search, details, screening, and cover letter workers with graceful shutdown, checkpointing, resume, and errored-job retry.
 - **Application Tracking** — Mark jobs as `applied`, `interviewing`, `offered`, `rejected`, or `clear`.
-- **Web UI Dashboard** — Local Flask web application (`http://127.0.0.1:5000/`) to review jobs, edit Job Title / Company Name / Cover Letter text live, generate 1-page PDFs instantly, copy formatted text for MS Word, and track status.
+- **Web UI Dashboard** — Local Flask web application (`http://127.0.0.1:5000/`) to review jobs, inspect prefiltered rejections, edit Job Title / Company Name / Cover Letter text live, export the exact per-job prompt, generate 1-page PDFs instantly, drive the runner and batch collection, import jobs, and track status.
+
+---
+
+## How It Works
+
+Every job flows through a funnel that spends the expensive AI calls only on candidates that survive the cheap, deterministic checks first.
+
+```mermaid
+flowchart LR
+    A([LinkedIn Search]) --> B{Title<br/>prefilter}
+    B -- kept --> C[Scrape Details]
+    B -- rejected --> X[(Prefiltered<br/>recorded, reviewable)]
+    C --> D{Details<br/>prefilter}
+    D -- kept --> E[AI Screening<br/>score + role family]
+    D -- rejected --> X
+    E -- below threshold --> R[Not selected]
+    E -- selected --> F[Cover Letter<br/>family-tailored]
+    F --> G[1-page LaTeX PDF]
+    G --> H([Apply / Track])
+
+    classDef drop fill:#7f1d1d,stroke:#ef4444,color:#fff;
+    classDef keep fill:#14532d,stroke:#22c55e,color:#fff;
+    class X,R drop;
+    class F,G,H keep;
+```
+
+- **Screening** runs against the **Gemini API** and can be sent **instantly** or to the **Batch API** (≈50% cheaper) depending on whether anyone is waiting on the result.
+- **Prefiltered** and **not selected** jobs are never deleted — they are recorded with a reason so a bad rule can be spotted and reversed.
 
 ---
 
@@ -24,15 +67,16 @@ Automates LinkedIn job discovery, AI screening against your CV, cover letter gen
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| Phase 0: Data Discovery | Complete | Scraped & cataloged 136 LinkedIn API fields into 6 SQLite tables |
+| Phase 0: Data Discovery | Complete | Scraped & cataloged LinkedIn API fields into SQLite tables |
 | Phase 0.5: Cleanup & Organization | Complete | Established modular architecture & dependency management |
 | Phase 1: Project Setup | Complete | Pydantic config schemas, logging, and environment settings |
-| Phase 2: Database & Core | Complete | SQLite thread-safe DatabaseManager with WAL mode |
-| Phase 3: Scraping Refactor | Complete | Selenium LinkedIn worker with cookie persistence |
-| Phase 4: AI Screening | Complete | Gemini API screener (multi-key rotation) + Local GGUF screener |
-| Phase 5: Cover Letter Generation | Complete | Gemini cover letter generator with prompt customization |
-| Phase 6: Orchestration | Complete | Parallel pipeline coordinator with resume & stage scoping |
-| Phase 7: Web UI & LaTeX PDF Export | Complete | Flask web dashboard, MS Word line formatting, 1-page LaTeX PDF generator |
+| Phase 2: Database & Core | Complete | SQLite thread-safe DatabaseManager with WAL mode (migrations to v8) |
+| Phase 3: Scraping Refactor | Complete | Selenium LinkedIn worker with persisted session |
+| Phase 4: AI Screening | Complete | Prefilter + Gemini screener, batch API, role-family archetypes |
+| Phase 5: Cover Letter Generation | Complete | Family-tailored generator with career-narrative layer |
+| Phase 6: Orchestration | Complete | Parallel coordinator with resume, stage scoping, and cross-process run control |
+| Phase 7: Web UI & LaTeX PDF Export | Complete | Flask dashboard, runner panel, MS Word formatting, 1-page LaTeX PDF |
+| Phase 8: Scheduling | Complete | Windows Task Scheduler integration, session persistence, schedule pause |
 
 ---
 
@@ -41,17 +85,9 @@ Automates LinkedIn job discovery, AI screening against your CV, cover letter gen
 ### 1. Install dependencies
 
 ```bash
+uv lock
 uv sync
 ```
-
-> **Note:** `llama-cpp-python` with GPU support is only needed when using the local GGUF screening backend (`screening.backend: "local"`). For the default Gemini backend, standard `uv sync` is sufficient.
->
-> **Optional CUDA GPU support for local GGUF screening:**
-> ```bash
-> uv pip install llama-cpp-python \
->   --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu128 \
->   --force-reinstall --no-cache-dir
-> ```
 
 ### 2. Configure credentials
 
@@ -69,30 +105,43 @@ GEMINI_API_KEY_2=          # optional API key for rotation
 GEMINI_API_KEY_3=          # optional API key for rotation
 ```
 
-### 3. Configure search, CV, and export paths
+### 3. Configure search, CV, prompts, and narrative
 
 ```bash
-cp config/config.yaml.example config/config.yaml
-cp config/cv.yaml.example     config/cv.yaml
+cp config/config.yaml.example   config/config.yaml
+cp config/cv.yaml.example       config/cv.yaml
+cp config/prompts.yaml.example  config/prompts.yaml
+cp config/narrative.yaml.example config/narrative.yaml   # optional
 ```
 
-- **`config/config.yaml`** — set keywords, locations, screening thresholds, and export directories (`export.output_dir` and `export.pdf_dir`)
-- **`config/cv.yaml`** — fill in your real CV data (used by the AI screener and cover letter generator)
+- **`config/config.yaml`** — search terms (with tiers/max_pages), screening thresholds and mode, schedule/auth settings, and export directories (`export.output_dir`, `export.pdf_dir`).
+- **`config/cv.yaml`** — your real CV data, including a `projects` block (used by both the screener and the cover letter generator).
+- **`config/prompts.yaml`** — AI screening and cover letter prompt templates.
+- **`config/narrative.yaml`** *(optional)* — proof-point stories tagged by role family. Without it, cover letter prompts gracefully degrade to CV facts.
 
-> Both files are gitignored and will never be committed to repository history.
+> `config.yaml`, `cv.yaml`, `prompts.yaml`, and `narrative.yaml` are all gitignored and never committed. Only their `.example` counterparts are tracked.
 
-### 4. Choose a screening backend
+### 4. Choose a screening mode
 
-Set `screening.backend` in `config/config.yaml`:
+Set these under `screening:` in `config/config.yaml`:
 
-| Value | Requires | Workers | Notes |
-|-------|----------|---------|-------|
-| `"gemini"` (default) | Gemini API keys in `.env` | Multiple (configurable) | Fast API calls; no GPU needed |
-| `"local"` | GGUF model file in `data/models/` + llama-cpp-python | 1 (GPU-bound) | Fully offline screening |
+| Setting | Values | Notes |
+|---------|--------|-------|
+| `mode` | `"instant"` \| `"batch"` \| `"auto"` | `auto`: scheduled runs batch (50% cheaper), manual runs stay instant unless the backlog exceeds `batch_threshold` |
+| `batch_threshold` | integer | Manual-run-only override; a backlog this large is sent to batch |
+| `batch_stale_after_hours` | float | Warn about a batch left open longer than this |
 
 ---
 
 ## Running the Tool
+
+### Sign in once (required before the first run)
+
+```bash
+uv run job-search login
+```
+
+Opens a browser to sign in to LinkedIn (approve 2FA on your phone if prompted) and stores the session. Scheduled and later runs reuse it until LinkedIn invalidates it. Use `--force` to re-authenticate.
 
 ### Run the full pipeline
 
@@ -100,64 +149,56 @@ Set `screening.backend` in `config/config.yaml`:
 uv run job-search run
 ```
 
-Opens a browser window to log in to LinkedIn (handles CAPTCHA/2FA manually), then executes the full pipeline: search → scrape details → screen jobs → generate cover letters.
+Executes the full pipeline: search → prefilter → scrape details → screen jobs → generate cover letters. Uses the stored session; only falls back to an interactive login if the session is dead.
 
-### Resume after interruption
+### Resume, stage selection, and unattended runs
 
 ```bash
+# Resume from the last checkpoint (default)
 uv run job-search run --resume
-```
 
-Restores pending jobs from SQLite and resumes from the exact checkpoint.
-
-### Run specific pipeline stages
-
-Use `-s` / `--stages` to run only desired stages:
-
-```bash
-# Screen pending jobs only (no LinkedIn login needed)
-uv run job-search run -s screen
-
-# Generate cover letters for selected jobs
-uv run job-search run -s cover-letter
-
-# Screen and generate cover letters together
+# Run only specific stages
+uv run job-search run -s screen                   # screen pending jobs only
+uv run job-search run -s cover-letter             # generate cover letters only
 uv run job-search run -s screen -s cover-letter
+uv run job-search run -s search -s details        # scrape only (no AI)
 
-# Scrape jobs only (no AI processing)
-uv run job-search run -s search -s details
+# Unattended: never open a browser; drop LinkedIn stages if the session is dead
+uv run job-search run --no-interactive
+uv run job-search run --scheduled                 # implies --no-interactive, honours schedule pause
+uv run job-search run --max-runtime 4             # bound this run to 4 hours
 ```
 
-### Clean expired LinkedIn postings
+### Inspect and control unattended running
 
 ```bash
-uv run job-search clean
+uv run job-search status        # LinkedIn session, runner lock, and schedule-pause state
+uv run job-search stop          # ask the running pipeline (any process) to stop gracefully
+uv run job-search pause         # suppress scheduled runs (default: until tomorrow morning)
+uv run job-search pause 12h     # 12h | tomorrow_morning | 24h | indefinite
+uv run job-search resume        # resume scheduled runs immediately
+```
+
+### Clean expired postings, reset errors, purge blocked companies
+
+```bash
+uv run job-search clean                    # detect closed postings, mark them expired
 uv run job-search clean --limit 50
-```
 
-Checks pending jobs against LinkedIn to detect closed postings and marks them as `expired`.
-
-### Reset pipeline errors for retry
-
-```bash
-# Reset all error types (details, screening, cover letter)
-uv run job-search reset-errors
-
-# Reset only detail scraping errors
+uv run job-search reset-errors             # reset all error types for retry
 uv run job-search reset-errors --stage details
-
-# Reset only screening errors
 uv run job-search reset-errors --stage screening
+
+uv run job-search purge-blocked --dry-run  # preview jobs from blocked companies
+uv run job-search purge-blocked            # remove them
 ```
 
-### Terminal Job Listing & Application Tracking
+### Terminal listing & application tracking
 
 ```bash
-# List AI-selected jobs in terminal
 uv run job-search list
 uv run job-search list --status pending
 
-# Update application status
 uv run job-search track <job_id> applied
 uv run job-search track <job_id> interviewing
 uv run job-search track <job_id> offered
@@ -165,7 +206,7 @@ uv run job-search track <job_id> rejected
 uv run job-search track <job_id> clear
 ```
 
-### Export Cover Letters & CSV Index
+### Export cover letters & CSV index
 
 ```bash
 uv run job-search export
@@ -174,9 +215,21 @@ uv run job-search export --output-dir data/export
 
 ---
 
+## Scheduling (Windows)
+
+Register the scheduled Task Scheduler entries:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install_tasks.ps1
+```
+
+The tasks run `scripts/scheduled_run.bat`, pass `--scheduled`, and use `StartWhenAvailable` so a run missed while the laptop slept fires on wake. Pause or resume the whole schedule at any time with `job-search pause` / `job-search resume`, or from the Web UI runner panel.
+
+---
+
 ## Web UI Dashboard
 
-Start the Flask dashboard:
+Start the Flask dashboard (it also auto-starts with the pipeline):
 
 ```bash
 uv run job-search web
@@ -186,11 +239,35 @@ Open `http://127.0.0.1:5000/` in your browser.
 
 | Dashboard Page | Capabilities |
 |----------------|--------------|
-| **Dashboard** | Overview metrics, application stage breakdowns, status counters |
-| **Selected Jobs** | Table of AI-matched jobs, match scores, German requirement flags |
-| **All Jobs** | Master repository of all scraped jobs |
-| **Search Stats** | Conversion funnel metrics per keyword/location |
-| **Job Detail** | Live editable **Job Title**, **Company Name**, and **Cover Letter Text**; MS Word clipboard formatter (`Copy Text`); instant **1-Page "Generate PDF"** compiler |
+| **Dashboard** | Overview metrics, application-stage breakdowns, role-family summary, prefiltered/in-flight counters |
+| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, and quick actions |
+| **All Jobs** | Master repository of all scraped jobs, with company inclusion/exclusion filtering |
+| **Prefiltered** | Deterministic rejections grouped by rule and stage, so an over-aggressive rule can be spotted and reversed |
+| **Search Stats** | Conversion-funnel metrics per keyword/location, with a role-family breakdown |
+| **Runner** | Session health, schedule pause/resume, stop & force-stop for a run owned by any process, batch collection with per-batch abandon, start-run, clear-errors, and live logs |
+| **Import Jobs** | Add jobs manually by URL |
+| **Job Detail** | Live-editable **Job Title**, **Company Name**, and **Cover Letter Text**; MS Word clipboard formatter; **Export Prompt** (exact system + user prompt for that job); Delete/Regenerate cover letter; instant **1-Page "Generate PDF"** compiler |
+
+### Screenshots
+
+**Selected Jobs** — match score, role-family badge, German level, cover-letter status, Easy-Apply vs Company-Website tags, and one-click apply/skip:
+
+![Selected Jobs](docs/screenshots/selected_jobs.png)
+
+**Job Detail** — AI screening assessment, editable cover letter wired live to the PDF generator, application status, and prompt export:
+
+![Job Detail](docs/screenshots/job_detail.png)
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/runner.png" alt="Runner control panel"><br/><sub><b>Runner</b> — session health, schedule pause, batch collection, stage selection, and live logs.</sub></td>
+    <td width="50%"><img src="docs/screenshots/prefiltered.png" alt="Prefiltered review"><br/><sub><b>Prefiltered</b> — deterministic rejections grouped by rule and stage, with the exact postings each rule caught.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/stats.png" alt="Search &amp; conversion analytics"><br/><sub><b>Search Stats</b> — per-keyword conversion funnel and role-family breakdown.</sub></td>
+    <td width="50%" valign="top"><br/><sub>All screenshots are rendered from a <b>synthetic demo dataset</b> — the company names, job titles, and candidate identity shown are invented for illustration.</sub></td>
+  </tr>
+</table>
 
 ---
 
@@ -199,11 +276,11 @@ Open `http://127.0.0.1:5000/` in your browser.
 ### 1-Page LaTeX PDF Cover Letters
 When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 - PDF is compiled using your local MiKTeX installation (`xelatex` / `pdflatex`).
-- Saved directly to `export.pdf_dir` (e.g. `<your repo dir>\Desktop\CV\CL_saver\Applicant_Name_CoverLetter_[Company].pdf`).
-- Features a centered executive header, tagline (`DATA SCIENCE & AI/ML SPECIALIST | STRATEGIC PROCUREMENT`), transparent signature image, dynamic "a/an" article selection (`an AI Engineer` vs `a Data Scientist`), and an auto-fitting font-size algorithm to guarantee a single-page output.
+- Saved to `export.pdf_dir` (e.g. `Applicant_Name_CoverLetter_[Company].pdf`).
+- Features a centered executive header and tagline, transparent signature image, dynamic "a/an" article selection (`an AI Engineer` vs `a Data Scientist`), name-derived sign-off matching, length-based vertical centering, and an auto-fitting font-size algorithm that guarantees a single page.
 
 ### Text & CSV Exports
-- **Text Files**: Generated in `export.output_dir` (e.g. `Company_Title_JobId.txt`) containing metadata, match score, notes, and cover letter.
+- **Text Files**: Written to `export.output_dir` (e.g. `Company_Title_JobId.txt`) with metadata, match score, notes, and cover letter.
 - **`index.csv`**: Master summary CSV listing all selected jobs, URLs, and application statuses.
 
 ---
@@ -214,13 +291,19 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-87 automated unit tests covering:
-- Database CRUD and WAL mode transaction safety
+242 automated unit tests covering:
+- Database CRUD, WAL-mode transaction safety, and schema migrations
 - Pydantic configuration schemas and `.env` credentials loading
+- Deterministic prefilter rules (title and details stages)
+- Role-family archetype validation
 - Gemini API key rotation and exponential backoff
+- Batch screening submission, collection, and in-flight guarding
+- Screening-mode routing (instant / batch / auto by origin)
+- Tiered search-term scheduling
+- Cross-process run control (locks, stop file, schedule pause)
 - Prompt template manager and markdown formatting
-- Job cleaner & expiration detection
-- Flask Web UI routes, MS Word line break formatting, and live PDF endpoints
+- Job cleaner & expiration detection (including query prioritization)
+- Flask Web UI routes, MS Word line-break formatting, and live PDF endpoints
 - 1-Page LaTeX PDF compiler and dynamic article logic
 
 ---
@@ -229,32 +312,41 @@ uv run pytest tests/ -v
 
 ```
 ├── config/
-│   ├── config.yaml.example          # Search keywords, locations, export paths template
-│   ├── cv.yaml.example              # CV template — copy to cv.yaml and fill in
-│   ├── prompts.yaml                 # AI screening and cover letter prompt templates
+│   ├── config.yaml.example          # Search terms/tiers, screening mode, schedule, export paths
+│   ├── cv.yaml.example              # CV template (incl. projects) — copy to cv.yaml and fill in
+│   ├── prompts.yaml.example         # AI screening & cover letter prompt templates
+│   ├── narrative.yaml.example       # Optional career-narrative proof points, tagged by role family
 │   ├── cover_letter_template.tex    # Executive 1-page LaTeX cover letter template
 │   └── .env.example                 # Credentials template — copy to .env
 ├── data/
-│   ├── models/                      # GGUF model files for local screening (gitignored)
-│   ├── export/                      # Default text/CSV export directory (gitignored)
+│   ├── export/                      # Default text/CSV/PDF export directory (gitignored)
 │   └── samples/                     # Discovery field catalog and SQL schemas
 ├── docs/
-│   └── project-summary.md           # One-page project architectural summary
+│   └── screenshots/                 # Web UI screenshots used in this README
 ├── scripts/
 │   ├── cleanup_errors.py            # Standalone script to clear pipeline errors
 │   ├── export_db.py                 # Export database tables to CSV
 │   ├── fix_incomplete_cover_letters.py # Purge incomplete/truncated cover letter entries
+│   ├── install_tasks.ps1            # Register Windows Task Scheduler entries
+│   ├── scheduled_run.bat            # Entry point invoked by the scheduled tasks
 │   ├── test_login.py                # Test LinkedIn auth & session cookie saving
-│   └── view_db.py                   # Standalone SQLite database viewer
+│   ├── view_db.py                   # Standalone SQLite database viewer
+│   └── phase0_discovery/            # One-off LinkedIn API field discovery scripts
 ├── src/
 │   └── job_search/
-│       ├── ai/                      # Gemini screener, local GGUF screener, cover letter generator
+│       ├── ai/                      # Gemini screener, batch screener, cover letter generator, prompt manager
 │       ├── cleaner/                 # LinkedIn job expiration cleaner
-│       ├── core/                    # Pydantic config, SQLite database manager, pipeline state
+│       ├── core/                    # Pydantic config, SQLite database manager, prefilter, run control, session store, pipeline state
 │       ├── export/                  # Text/CSV exporter & 1-page LaTeX PDF exporter
 │       ├── orchestration/           # Parallel pipeline coordinator & worker pools
-│       ├── scraping/                # Selenium LinkedIn auth & details scraping workers
+│       ├── scraping/                # Selenium LinkedIn auth, search & details workers
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (87 tests)
+└── tests/                           # Unit test suite (242 tests)
 ```
+
+---
+
+## License
+
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You are free to use, study, modify, and share this project **for any noncommercial purpose**; commercial use is not permitted. See the [LICENSE](LICENSE) file for the full terms.
