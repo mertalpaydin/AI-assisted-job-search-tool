@@ -20,13 +20,21 @@ from job_search.core.config import Config
 
 
 def _word_pattern(term: str) -> re.Pattern[str]:
-    """Compile a term so it matches at a word boundary.
+    """Compile a term so it matches only as a whole word.
 
-    re.escape keeps terms such as ``c++`` working, and the negative lookbehind
-    stops short terms matching inside longer words: ``ios`` must not fire on
-    "Studios".
+    A boundary is asserted on each side of the term, but only where the term's
+    own edge is alphanumeric. That stops a term matching inside a longer word
+    from either direction — ``ios`` must not fire on "Studios" (suffix) and
+    ``intern`` must not fire on "International" (prefix) — while a term that
+    ends in punctuation such as ``c++`` still matches "C++ Engineer".
     """
-    return re.compile(r"(?<![a-z0-9])" + re.escape(term.lower()), re.IGNORECASE)
+    t = term.lower()
+    left = r"(?<![a-z0-9])" if t[:1].isalnum() else ""
+    # A glued German gender ending ("…In", "…innen") is tolerated before the
+    # boundary, so "werkstudent" still catches "WerkstudentIn" and "berater"
+    # catches "BeraterIn", while "intern" still does not catch "International".
+    right = r"(?:innen|in)?(?![a-z0-9])" if t[-1:].isalnum() else ""
+    return re.compile(left + re.escape(t) + right, re.IGNORECASE)
 
 
 def _compile_terms(terms: list[str]) -> list[tuple[str, re.Pattern[str]]]:

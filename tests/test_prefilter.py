@@ -56,9 +56,59 @@ class TestTitlePrefilter:
         assert tp.reason("Senior iOS Engineer") == "title:ios"
 
     def test_punctuation_terms_survive_escaping(self) -> None:
-        """re.escape keeps 'c++' usable as a term."""
+        """re.escape keeps 'c++' usable as a term, and no trailing boundary is
+        asserted after punctuation so it still matches."""
         tp = TitlePrefilter(_config(exclude_any=["c++"]))
         assert tp.reason("Senior C++ Engineer") == "title:c++"
+
+    @pytest.mark.parametrize("title", [
+        "International Sales Manager",
+        "Product Owner Internet-Filiale Vertrieb",
+        "Interner Berater Prozessautomatisierung",
+        "Operations Specialist National & International Transports",
+    ])
+    def test_prefix_terms_do_not_match_inside_words(self, title: str) -> None:
+        """'intern' must not fire on 'International' / 'Internet' / 'Interner'."""
+        tp = TitlePrefilter(_config(exclude_any=["intern", "internship"]))
+        assert tp.reason(title) is None
+
+    def test_intern_still_matches_as_its_own_word(self) -> None:
+        tp = TitlePrefilter(_config(exclude_any=["intern", "internship"]))
+        assert tp.reason("Data Science Intern") == "title:intern"
+        assert tp.reason("Summer Internship Program") == "title:internship"
+
+    @pytest.mark.parametrize("title", [
+        "Werkstudent (m/w/d) Artificial Intelligence",
+        "Werkstudent*in Legal & Procurement (w/m/d)",
+        "Werkstudent:in Consulting (all genders)",
+        "WerkstudentIn Data Science, Machine Learning & AI (m/w/d)",
+        "Werkstudentinnen im Marketing",
+    ])
+    def test_glued_german_gender_suffix_still_matches(self, title: str) -> None:
+        """The whole-word fix must not let 'WerkstudentIn' slip past the filter."""
+        tp = TitlePrefilter(_config(exclude_any=["werkstudent"]))
+        assert tp.reason(title) == "title:werkstudent"
+
+    @pytest.mark.parametrize("title", [
+        "Global Business Transformation Lead - SAP S/4HANA (m/f/d)",
+        "SAP S4HANA Migration Consultant",
+        "S/4 HANA Finance Lead",
+    ])
+    def test_s4hana_titles_are_excluded(self, title: str) -> None:
+        tp = TitlePrefilter(_config(exclude_any=["s/4hana", "s4hana", "s/4 hana"]))
+        assert tp.reason(title) is not None
+
+    @pytest.mark.parametrize("title", [
+        "Strategischer Einkäufer (m/w/d)",
+        "Senior Berater Prozessautomatisierung",
+        "Leiter Beschaffung",
+    ])
+    def test_german_require_keywords_pass(self, title: str) -> None:
+        """German-language titles must not be dropped as 'no required keyword'."""
+        tp = TitlePrefilter(_config(
+            require_any=["einkauf", "einkäufer", "berater", "beschaffung", "leiter"],
+        ))
+        assert tp.reason(title) is None
 
 
 class TestExcludeUnlessAI:

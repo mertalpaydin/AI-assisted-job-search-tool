@@ -41,7 +41,9 @@ screening:
     - Employment type: which contract types to reject outright.
     - Location: which locations are acceptable, and a warning that some postings
       put a conflicting location in the title while the structured field differs.
-    - Language: report the true level demanded, and how to judge it.
+    - Language: report the level demanded using an explicit none/low/medium/high
+      rubric, quote the evidence, and treat "German and English both required" as
+      at least medium.
 
     ALWAYS report which family the job belongs to in the "archetype" field, using
     the single letter A, B, C, D, E or F. Use "none" only when the job fits no
@@ -60,12 +62,14 @@ screening:
     Remote Allowed: {remote_allowed}
     Description: {job_description}
 
-    Respond in JSON:
+    Respond in JSON. Write "reasoning" first and let the other fields follow
+    from it; inside the reasoning, quote the German-language evidence before you
+    set the level:
     {{
+      "reasoning": "Brief explanation, quoting the German-language evidence (the phrase) before deciding the level",
+      "german_requirement_level": "medium",
       "cv_match_score": 0.0,
-      "german_requirement_level": "none",
-      "archetype": "A",
-      "reasoning": "Brief explanation"
+      "archetype": "A"
     }}
 
 cover_letter:

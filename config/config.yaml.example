@@ -23,6 +23,7 @@ search:
       - "ai"
       - "data"
       - "engineer"
+      - "einkauf"        # German equivalents are matched too (buyer/procurement/etc.)
 
     # Hard exclusions, checked before the detail fetch. Matching jobs are stored
     # with a prefilter_reason instead of being fetched or screened.
@@ -30,6 +31,7 @@ search:
       - "werkstudent"
       - "internship"
       - "c++"
+      - "s/4hana"        # SAP S/4HANA implementation roles
 
     # Rejected only when the title carries no AI/data signal, so
     # "Full-Stack AI Engineer" survives while "Full Stack Engineer" does not.
