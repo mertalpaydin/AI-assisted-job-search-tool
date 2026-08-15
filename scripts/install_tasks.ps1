@@ -14,19 +14,22 @@ $repo = Split-Path -Parent $PSScriptRoot
 $bat  = Join-Path $repo "scripts\scheduled_run.bat"
 $prefix = "JobSearch"
 
+# Scrape (search+details) runs for an hour, then a 15-minute gap, then screen
+# and cover letters run together in one process for an hour. Keeping a gap
+# means the single run lock is always free before the next task starts.
 $tasks = @(
-    @{ Name = "$prefix-Scrape";      Mode = "scrape";       Trigger = "Daily 06:30" },
-    @{ Name = "$prefix-Screen";      Mode = "screen";       Trigger = "Daily 07:30" },
-    @{ Name = "$prefix-CoverLetter"; Mode = "cover-letter"; Trigger = "Daily 08:00" },
-    @{ Name = "$prefix-Collect";     Mode = "collect";      Trigger = "Hourly" },
-    @{ Name = "$prefix-Clean";       Mode = "clean";        Trigger = "Weekly Sunday 03:00" }
+    @{ Name = "$prefix-Scrape";   Mode = "scrape";    Trigger = "Daily 07:00" },
+    @{ Name = "$prefix-ScreenCL"; Mode = "screen-cl"; Trigger = "Daily 08:15" },
+    @{ Name = "$prefix-Collect";  Mode = "collect";   Trigger = "Hourly" },
+    @{ Name = "$prefix-Clean";    Mode = "clean";     Trigger = "Weekly Sunday 03:00" }
 )
 
-foreach ($t in $tasks) {
-    if (Get-ScheduledTask -TaskName $t.Name -ErrorAction SilentlyContinue) {
-        Unregister-ScheduledTask -TaskName $t.Name -Confirm:$false
-        Write-Host "removed $($t.Name)"
-    }
+# Remove every existing JobSearch-* task, not just the ones in $tasks, so a
+# renamed or dropped task (e.g. an old separate Screen/CoverLetter) cannot be
+# left orphaned and firing on its old schedule.
+Get-ScheduledTask -TaskName "$prefix-*" -ErrorAction SilentlyContinue | ForEach-Object {
+    Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false
+    Write-Host "removed $($_.TaskName)"
 }
 if ($Remove) { Write-Host "All JobSearch tasks removed."; exit 0 }
 
