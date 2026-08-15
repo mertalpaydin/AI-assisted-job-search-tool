@@ -84,13 +84,13 @@
   {% endif %}
 
   {# High match filter toggle #}
-  {% if min_match == '0.85' %}
+  {% if min_match == '0.8' %}
   <a href="{{ page_url(p=1, mm='') }}" class="btn btn-warning btn-sm">
-    <i class="bi bi-star-fill me-1"></i>&ge;85% Match
+    <i class="bi bi-star-fill me-1"></i>&ge;80% Match
   </a>
   {% else %}
-  <a href="{{ page_url(p=1, mm='0.85') }}" class="btn btn-outline-warning btn-sm">
-    <i class="bi bi-star me-1"></i>&ge;85% Match
+  <a href="{{ page_url(p=1, mm='0.8') }}" class="btn btn-outline-warning btn-sm">
+    <i class="bi bi-star me-1"></i>&ge;80% Match
   </a>
   {% endif %}
 

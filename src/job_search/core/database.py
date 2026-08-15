@@ -1162,7 +1162,7 @@ class DatabaseManager:
 
             cur.execute(f"""
                 SELECT COUNT(*) FROM jobs
-                WHERE is_selected = 1 AND cv_match_score >= 0.85 AND (application_status IS NULL OR application_status = '') {and_date}
+                WHERE is_selected = 1 AND cv_match_score >= 0.80 AND (application_status IS NULL OR application_status = '') {and_date}
             """)
             top_matches_pending = cur.fetchone()[0]
 

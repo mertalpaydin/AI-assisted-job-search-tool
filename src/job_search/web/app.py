@@ -954,7 +954,19 @@ def runner_clear_errors():
 @app.route("/runner/status")
 def runner_status():
     global _runner_thread
-    is_running = _runner_thread is not None and _runner_thread.is_alive()
+    from job_search.core import runcontrol
+
+    # Must match runner_dashboard's definition exactly: a scheduled run in
+    # another process is only visible through the lock. If this checked the
+    # in-process thread alone, it would report "not running" during a scheduled
+    # run while the page was rendered "running", and the client would reload the
+    # page on every poll trying to reconcile the two.
+    in_process = _runner_thread is not None and _runner_thread.is_alive()
+    lock = runcontrol.is_locked(
+        _config.execution.lock_file, _config.execution.lock_stale_after_minutes
+    ) if _config else None
+    is_running = in_process or lock is not None
+
     db = get_db()
     pipeline_stats = db.get_pipeline_stats()
     return jsonify({
