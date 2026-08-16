@@ -26,7 +26,7 @@ if /i "%MODE%"=="scrape" (
 ) else if /i "%MODE%"=="collect" (
     uv run job-search batch collect
 ) else if /i "%MODE%"=="clean" (
-    uv run job-search clean --scheduled
+    uv run job-search clean --scheduled --max-runtime 5
 ) else (
     echo Unknown mode "%MODE%". Use scrape^|screen-cl^|collect^|clean.
     exit /b 1

@@ -77,3 +77,18 @@ def test_clean_pending_jobs(tmp_path):
     job = db.get_selected_job(1234567)
     assert job is not None
     assert job.application_status == "expired"
+
+
+def test_clean_pending_jobs_respects_max_runtime(tmp_path):
+    """A zero-hour budget means the deadline is already past on the first loop
+    check, so the sweep stops gracefully before touching any job."""
+    db_path = tmp_path / "test.db"
+    db = DatabaseManager(str(db_path))
+    db.insert_job(1234567, keyword="test", location_id="test")
+
+    cleaner = JobCleaner(db)
+    cleaner.is_job_expired = MagicMock(return_value=True)
+
+    result = cleaner.clean_pending_jobs(max_runtime_hours=0)
+    assert result["checked"] == 0
+    cleaner.is_job_expired.assert_not_called()

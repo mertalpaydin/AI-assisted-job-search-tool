@@ -130,12 +130,23 @@ class JobCleaner:
 
         return False
 
-    def clean_pending_jobs(self, limit: int | None = None, batch_size: int = 500) -> dict[str, Any]:
-        """Scan pending jobs across batches using parallel worker threads until pending jobs are checked."""
+    def clean_pending_jobs(self, limit: int | None = None, batch_size: int = 500,
+                           max_runtime_hours: float | None = None) -> dict[str, Any]:
+        """Scan pending jobs across batches using parallel worker threads until pending jobs are checked.
+
+        max_runtime_hours bounds the sweep: it stops gracefully between batches
+        once the deadline passes, so a scheduled clean releases its lock before
+        Task Scheduler's hard time limit force-kills it (which would orphan the
+        lock). Remaining jobs are picked up on the next run.
+        """
         checked_ids: set[int] = set()
         all_expired_ids: list[int] = []
         total_checked = 0
         current_backoff = 15.0
+        deadline = (
+            time.monotonic() + max_runtime_hours * 3600
+            if max_runtime_hours is not None else None
+        )
 
         logger.info("Cleaner: Starting scan across pending jobs ({} parallel workers, batch size {})...", self._max_workers, batch_size)
 
@@ -143,6 +154,14 @@ class JobCleaner:
             return job_id, self.is_job_expired(job_id)
 
         while limit is None or limit <= 0 or total_checked < limit:
+            if deadline is not None and time.monotonic() >= deadline:
+                logger.warning(
+                    "Cleaner stopping early: reached max runtime of {:.1f}h "
+                    "({} checked, {} expired so far). Remaining jobs run next time.",
+                    max_runtime_hours, total_checked, len(all_expired_ids),
+                )
+                break
+
             batch = self._db.get_pending_jobs_for_cleaner(limit=batch_size, exclude_ids=checked_ids)
             if not batch:
                 break
