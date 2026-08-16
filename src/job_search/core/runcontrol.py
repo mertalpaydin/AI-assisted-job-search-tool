@@ -125,7 +125,17 @@ def is_locked(path: str, stale_after_minutes: int = 120) -> LockInfo | None:
     if info is None:
         return None
     if not _pid_alive(info.pid):
-        logger.info("Ignoring stale runner lock from dead pid {}", info.pid)
+        # Self-heal: the owner is gone (a crash or a hard kill skipped its
+        # release), so delete the orphan instead of only ignoring it. Otherwise
+        # every later check re-logs this, and the 2s runner-status poll turns it
+        # into a flood. Deleting is safe here precisely because the pid is dead;
+        # a live long-running holder is handled by the age branch below, which
+        # never deletes.
+        logger.info("Removing stale runner lock from dead pid {}", info.pid)
+        try:
+            Path(path).unlink()
+        except OSError:
+            pass
         return None
     if info.age_minutes > stale_after_minutes:
         logger.warning(

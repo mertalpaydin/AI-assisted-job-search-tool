@@ -54,6 +54,26 @@ class TestRunnerLock:
         )
         assert rc.is_locked(paths["lock"]) is None
 
+    def test_dead_pid_lock_is_self_healed(self, paths) -> None:
+        """A dead owner's lock is deleted on detection, not merely ignored, so
+        it cannot re-log on every subsequent check."""
+        Path(paths["lock"]).write_text(
+            json.dumps({"pid": 999999, "started_at": _past(), "origin": "scheduled"}),
+            encoding="utf-8",
+        )
+        assert rc.is_locked(paths["lock"]) is None
+        assert not Path(paths["lock"]).exists()
+
+    def test_live_stale_lock_is_not_deleted(self, paths) -> None:
+        """An age-stale lock whose process is still alive is ignored but left in
+        place — deleting it would drop a legitimately long-running holder."""
+        Path(paths["lock"]).write_text(
+            json.dumps({"pid": os.getpid(), "started_at": _past(hours=5), "origin": "scheduled"}),
+            encoding="utf-8",
+        )
+        assert rc.is_locked(paths["lock"], stale_after_minutes=30) is None
+        assert Path(paths["lock"]).exists()
+
     def test_stale_lock_is_ignored(self, paths) -> None:
         Path(paths["lock"]).write_text(
             json.dumps({"pid": 1, "started_at": _past(hours=5), "origin": "scheduled"}),
