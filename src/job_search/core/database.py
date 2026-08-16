@@ -1054,8 +1054,14 @@ class DatabaseManager:
             "cover_letters_generated": cover_letters,
         }
 
-    def get_pipeline_stats(self, days: float | int | None = None) -> dict[str, Any]:
-        """Detailed funnel counts at every pipeline stage, including error and pending sub-states."""
+    def get_pipeline_stats(self, days: float | int | None = None,
+                           cl_mode: str = "auto") -> dict[str, Any]:
+        """Detailed funnel counts at every pipeline stage, including error and pending sub-states.
+
+        cl_mode mirrors get_jobs_pending_cover_letter: under "user_approval" a
+        cover letter is only ever generated for a job the user approved, so
+        cl_pending counts those alone.
+        """
         where_date = ""
         if days is not None and days > 0:
             if days == 1:
@@ -1114,10 +1120,17 @@ class DatabaseManager:
             cl_generated = cur.fetchone()[0]
 
             not_easy_apply = "(j.applyMethod IS NULL OR NOT (j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%'))"
+            # Under user_approval only an approved job will ever generate, so it
+            # is the only thing genuinely "pending". Under auto, selected jobs
+            # (bar Easy Apply) are queued automatically, matching the old count.
+            if cl_mode == "user_approval":
+                cl_pending_where = "j.user_cl_approved = 1"
+            else:
+                cl_pending_where = f"(j.user_cl_approved = 1 OR (j.is_selected = 1 AND {not_easy_apply}))"
             cur.execute(f"""
                 SELECT COUNT(*) FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id
-                WHERE (j.user_cl_approved = 1 OR (j.is_selected = 1 AND {not_easy_apply}))
+                WHERE {cl_pending_where}
                   AND cl.id IS NULL AND (j.application_status IS NULL OR j.application_status = '') {where_date}
             """)
             cl_pending = cur.fetchone()[0]
@@ -1814,10 +1827,13 @@ class DatabaseManager:
 
     def get_recent_batch_jobs(self, limit: int = 20) -> list[dict]:
         with self._cursor() as cur:
+            # Age freezes once the batch finishes: measure to completed_at when
+            # set, else to now. Otherwise a collected batch's age keeps climbing
+            # forever even though nothing more will happen to it.
             cur.execute("""
                 SELECT id, provider_job_name, stage, request_count, state,
                        submitted_at, completed_at, collected_count, error_message,
-                       CAST((julianday('now') - julianday(submitted_at)) * 24 AS REAL) AS age_hours
+                       CAST((julianday(COALESCE(completed_at, 'now')) - julianday(submitted_at)) * 24 AS REAL) AS age_hours
                 FROM batch_jobs
                 ORDER BY submitted_at DESC
                 LIMIT ?

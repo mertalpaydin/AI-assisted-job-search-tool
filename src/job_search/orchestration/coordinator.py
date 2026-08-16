@@ -166,7 +166,7 @@ class JobSearchCoordinator:
             runcontrol.release_lock(self._config.execution.lock_file)
             runcontrol.clear_stop(self._config.execution.stop_file)
         logger.info("=== Shutdown complete ===")
-        self._state.log_stats()
+        self._state.log_stats(cl_mode=self._config.cover_letter.mode)
 
     def _collect_batches(self) -> None:
         """Write back any finished screening batches. Never fatal."""
@@ -520,7 +520,7 @@ class JobSearchCoordinator:
             elapsed = time.monotonic() - start_time
             no_new_minutes = self._state.minutes_since_last_new_job()
 
-            self._state.log_stats()
+            self._state.log_stats(cl_mode=self._config.cover_letter.mode)
 
             # Auto-retry errored jobs
             if last_retry is not None and (time.monotonic() - last_retry) >= retry_interval:

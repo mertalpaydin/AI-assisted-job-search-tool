@@ -116,11 +116,11 @@ class StateManager:
             len(pending_cover_letters),
         )
 
-    def log_stats(self) -> None:
+    def log_stats(self, cl_mode: str = "auto") -> None:
         # Report outstanding work, mirroring the web UI's Pipeline Runner tab.
         # The cumulative totals (total/details/screened) never move during a
         # screen- or cover-letter-only run, so they carried no signal.
-        stats = self._db.get_pipeline_stats()
+        stats = self._db.get_pipeline_stats(cl_mode=cl_mode)
         errors = stats["details_error"] + stats["screened_error"] + stats["cl_error"]
         logger.info(
             "Pending — details: {} | to be screened: {} | prefiltered: {} | "

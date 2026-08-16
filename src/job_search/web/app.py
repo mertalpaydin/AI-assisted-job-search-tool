@@ -97,7 +97,7 @@ def index():
     days_val = days_map.get(days_param, None)
 
     stats = db.get_stats()
-    pipeline_stats = db.get_pipeline_stats(days=days_val)
+    pipeline_stats = db.get_pipeline_stats(days=days_val, cl_mode=get_cl_mode())
     app_counts = db.get_application_counts(days=days_val)
     cl_mode = get_cl_mode()
     _APPROVAL_DAYS = 30
@@ -968,7 +968,7 @@ def runner_status():
     is_running = in_process or lock is not None
 
     db = get_db()
-    pipeline_stats = db.get_pipeline_stats()
+    pipeline_stats = db.get_pipeline_stats(cl_mode=get_cl_mode())
     return jsonify({
         "is_running": is_running,
         "pipeline_stats": pipeline_stats,
