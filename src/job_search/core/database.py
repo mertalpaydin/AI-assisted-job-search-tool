@@ -1495,6 +1495,7 @@ class DatabaseManager:
         apply_type: str = "",
         archetype_filter: str = "",
         prefilter_filter: str = "",
+        size_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated AI-selected jobs with optional filters.
 
@@ -1572,6 +1573,18 @@ class DatabaseManager:
         elif archetype_filter:
             conditions.append("UPPER(j.archetype) = UPPER(?)")
             params.append(archetype_filter)
+
+        # Company size buckets by employee count. "unknown" is undisclosed (0/null).
+        if size_filter == "startup":
+            conditions.append("j.company_staff_count BETWEEN 1 AND 200")
+        elif size_filter == "mid":
+            conditions.append("j.company_staff_count BETWEEN 201 AND 1000")
+        elif size_filter == "large":
+            conditions.append("j.company_staff_count BETWEEN 1001 AND 5000")
+        elif size_filter == "enterprise":
+            conditions.append("j.company_staff_count > 5000")
+        elif size_filter == "unknown":
+            conditions.append("(j.company_staff_count IS NULL OR j.company_staff_count = 0)")
 
         if prefilter_filter == "only":
             conditions.append("j.prefilter_reason IS NOT NULL")
@@ -1679,6 +1692,7 @@ class DatabaseManager:
         apply_type: str = "",
         archetype_filter: str = "",
         prefilter_filter: str = "",
+        size_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated scraped jobs (selected or not) with optional filters.
 
@@ -1755,6 +1769,18 @@ class DatabaseManager:
         elif archetype_filter:
             conditions.append("UPPER(j.archetype) = UPPER(?)")
             params.append(archetype_filter)
+
+        # Company size buckets by employee count. "unknown" is undisclosed (0/null).
+        if size_filter == "startup":
+            conditions.append("j.company_staff_count BETWEEN 1 AND 200")
+        elif size_filter == "mid":
+            conditions.append("j.company_staff_count BETWEEN 201 AND 1000")
+        elif size_filter == "large":
+            conditions.append("j.company_staff_count BETWEEN 1001 AND 5000")
+        elif size_filter == "enterprise":
+            conditions.append("j.company_staff_count > 5000")
+        elif size_filter == "unknown":
+            conditions.append("(j.company_staff_count IS NULL OR j.company_staff_count = 0)")
 
         if prefilter_filter == "only":
             conditions.append("j.prefilter_reason IS NOT NULL")

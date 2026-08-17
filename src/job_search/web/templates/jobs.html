@@ -10,7 +10,7 @@
                   rm=remote_filter, cl=cl_filter,
                   df=date_from, dt=date_to, ex=exclude_companies,
                   kw=keyword_filter, ger=german_filter, mm=min_match, at=apply_type,
-                  ar=archetype_filter, pf=prefilter_filter) -%}
+                  ar=archetype_filter, pf=prefilter_filter, sz=size_filter) -%}
   {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
@@ -23,6 +23,7 @@
   {%- if ger %}&german={{ ger }}{% endif %}
   {%- if at %}&apply_type={{ at }}{% endif %}
   {%- if ar %}&archetype={{ ar }}{% endif %}
+  {%- if sz %}&size={{ sz }}{% endif %}
   {%- if pf %}&prefiltered={{ pf | urlencode }}{% endif %}
   {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
@@ -134,6 +135,34 @@
           <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle me-1">🌐 Company</span> Company Website
         </a>
       </li>
+    </ul>
+  </div>
+
+  {# Company size filter dropdown #}
+  <div class="dropdown" id="sizeFilterDropdown">
+    <button class="btn btn-sm {% if size_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-people me-1"></i>Company Size
+      {% if size_filter %}
+        <span class="badge bg-dark ms-1">
+          {% if size_filter == 'startup' %}Startup / Scale-up
+          {% elif size_filter == 'mid' %}Mid-size
+          {% elif size_filter == 'large' %}Large
+          {% elif size_filter == 'enterprise' %}Enterprise
+          {% elif size_filter == 'unknown' %}Unknown
+          {% else %}{{ size_filter }}{% endif %}
+        </span>
+      {% endif %}
+    </button>
+    <ul class="dropdown-menu p-2 shadow" style="min-width:230px">
+      <li><a class="dropdown-item small {% if not size_filter %}active{% endif %}" href="{{ page_url(p=1, sz='') }}">All Sizes</a></li>
+      <li><hr class="dropdown-divider"></li>
+      <li><a class="dropdown-item small {% if size_filter == 'startup' %}active{% endif %}" href="{{ page_url(p=1, sz='startup') }}">Startup / Scale-up <span class="text-muted">(1–200)</span></a></li>
+      <li><a class="dropdown-item small {% if size_filter == 'mid' %}active{% endif %}" href="{{ page_url(p=1, sz='mid') }}">Mid-size <span class="text-muted">(201–1,000)</span></a></li>
+      <li><a class="dropdown-item small {% if size_filter == 'large' %}active{% endif %}" href="{{ page_url(p=1, sz='large') }}">Large <span class="text-muted">(1,001–5,000)</span></a></li>
+      <li><a class="dropdown-item small {% if size_filter == 'enterprise' %}active{% endif %}" href="{{ page_url(p=1, sz='enterprise') }}">Enterprise <span class="text-muted">(5,000+)</span></a></li>
+      <li><hr class="dropdown-divider"></li>
+      <li><a class="dropdown-item small {% if size_filter == 'unknown' %}active{% endif %}" href="{{ page_url(p=1, sz='unknown') }}">Unknown <span class="text-muted">(undisclosed)</span></a></li>
     </ul>
   </div>
 

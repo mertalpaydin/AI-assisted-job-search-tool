@@ -391,3 +391,24 @@ def test_easy_apply_cover_letter_exclusion(tmp_path):
     assert db.get_jobs_pending_cover_letter(mode="user_approval") == [301]
 
 
+
+
+class TestCompanySizeFilter:
+    def test_get_all_jobs_size_buckets(self, db: DatabaseManager) -> None:
+        # (job_id, company_staff_count)
+        specs = [(1, 5), (2, 150), (3, 500), (4, 3000), (5, 50000), (6, 0)]
+        for jid, staff in specs:
+            db.insert_job(jid, "kw", "loc")
+            db.update_job_details(jid, {"title": "T", "company_name": f"C{jid}",
+                                        "company_staff_count": staff})
+
+        def ids(size: str):
+            rows, _ = db.get_all_jobs(size_filter=size, limit=100)
+            return sorted(r.job_id for r in rows)
+
+        assert ids("startup") == [1, 2]      # 1-200
+        assert ids("mid") == [3]             # 201-1000
+        assert ids("large") == [4]           # 1001-5000
+        assert ids("enterprise") == [5]      # >5000
+        assert ids("unknown") == [6]         # 0 / null
+        assert len(ids("")) == 6             # no filter returns all
