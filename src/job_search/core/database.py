@@ -234,6 +234,8 @@ class SelectedJobRow:
     applyMethod: str | None = None
     archetype: str | None = None
     prefilter_reason: str | None = None
+    company_staff_count: int | None = None
+    formattedIndustries: str | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -1604,7 +1606,8 @@ class DatabaseManager:
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason
+                    j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason,
+                    j.company_staff_count, j.formattedIndustries
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
@@ -1625,7 +1628,8 @@ class DatabaseManager:
                     j.screening_reasoning,
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason
+                    j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason,
+                    j.company_staff_count, j.formattedIndustries
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -1784,7 +1788,8 @@ class DatabaseManager:
                         as cover_letter_text,
                     cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
-                    j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason
+                    j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason,
+                    j.company_staff_count, j.formattedIndustries
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}

@@ -6,6 +6,7 @@ Run with:  job-search web
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -49,6 +50,20 @@ def short_date_filter(value: str | None) -> str:
         return f"{dt.day} {dt.strftime('%b')}"
     except (ValueError, TypeError):
         return str(value)[:10]
+
+
+@app.template_filter("industry")
+def industry_filter(value: str | None) -> str:
+    """Render the primary industry from the stored JSON array of industries."""
+    if not value:
+        return ""
+    try:
+        arr = json.loads(value)
+        if isinstance(arr, list) and arr:
+            return str(arr[0])
+    except (ValueError, TypeError):
+        pass
+    return str(value).strip('[]"')
 
 _db: DatabaseManager | None = None
 _config: Config | None = None
