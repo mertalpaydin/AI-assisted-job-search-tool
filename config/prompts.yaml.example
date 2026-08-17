@@ -42,8 +42,11 @@ screening:
     - Location: which locations are acceptable, and a warning that some postings
       put a conflicting location in the title while the structured field differs.
     - Language: report the level demanded using an explicit none/low/medium/high
-      rubric, quote the evidence, and treat "German and English both required" as
-      at least medium.
+      rubric, quote the evidence, and keep the level consistent with the
+      reasoning (never "none" if German is expected). A posting written entirely
+      in German for a local/operational role implies at least medium German even
+      with no language line; an explicit *English* requirement does not lower the
+      German level.
 
     ALWAYS report which family the job belongs to in the "archetype" field, using
     the single letter A, B, C, D, E or F. Use "none" only when the job fits no
