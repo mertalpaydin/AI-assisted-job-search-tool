@@ -52,6 +52,15 @@ def short_date_filter(value: str | None) -> str:
         return str(value)[:10]
 
 
+@app.template_filter("thousands")
+def thousands_filter(value) -> str:
+    """Format an integer with thousands separators (11350 -> '11,350')."""
+    try:
+        return f"{int(value):,}"
+    except (ValueError, TypeError):
+        return str(value) if value is not None else ""
+
+
 @app.template_filter("industry")
 def industry_filter(value: str | None) -> str:
     """Render the primary industry from the stored JSON array of industries."""

@@ -496,7 +496,7 @@
           {% if job.company_staff_count or (job.formattedIndustries | industry) %}
           <div class="text-muted" style="font-size:0.72rem;">
             {% if job.company_staff_count and job.company_staff_count > 0 %}
-              <i class="bi bi-people-fill me-1"></i>{{ job.company_staff_count }}
+              <i class="bi bi-people-fill me-1"></i>{{ job.company_staff_count | thousands }}
               {% if job.company_staff_count <= 50 %}<span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1" style="font-size:0.6rem;" title="Small company / startup">startup</span>{% endif %}
               {% if job.formattedIndustries | industry %}<span class="mx-1">·</span>{% endif %}
             {% endif %}
