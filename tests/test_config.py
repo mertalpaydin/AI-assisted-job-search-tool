@@ -101,3 +101,42 @@ class TestSecrets:
         monkeypatch.setenv("GEMINI_API_KEY_3", "")
         secrets = Secrets(_env_file=None)
         assert secrets.gemini_api_keys == []
+
+
+class TestFiltersFile:
+    def _write(self, tmp_path, config_body: str, filters_body: str):
+        (tmp_path / "filters.yaml").write_text(filters_body, encoding="utf-8")
+        p = tmp_path / "config.yaml"
+        p.write_text(config_body, encoding="utf-8")
+        return p
+
+    def test_filters_file_supplies_lists(self, tmp_path) -> None:
+        p = self._write(
+            tmp_path,
+            "search:\n  keywords: ['x']\n  locations: [{geo_id: '1', name: 'X'}]\n"
+            "  filters_file: 'filters.yaml'\n",
+            "title_filter:\n  require_any: ['ai', 'einkauf']\n  exclude_any: ['intern']\n"
+            "blocked_companies: ['Acme Recruiting', 'Staffline']\n",
+        )
+        cfg = load_config(str(p))
+        assert cfg.search.title_filter.require_any == ['ai', 'einkauf']
+        assert cfg.search.title_filter.exclude_any == ['intern']
+        assert cfg.search.blocked_companies == ['Acme Recruiting', 'Staffline']
+
+    def test_inline_title_filter_overrides_file(self, tmp_path) -> None:
+        p = self._write(
+            tmp_path,
+            "search:\n  keywords: ['x']\n  locations: [{geo_id: '1', name: 'X'}]\n"
+            "  filters_file: 'filters.yaml'\n  title_filter:\n    require_any: ['data']\n",
+            "title_filter:\n  require_any: ['ai']\n",
+        )
+        cfg = load_config(str(p))
+        assert cfg.search.title_filter.require_any == ['data']
+
+    def test_missing_filters_file_raises(self, tmp_path) -> None:
+        p = tmp_path / "config.yaml"
+        p.write_text(
+            "search:\n  keywords: ['x']\n  locations: [{geo_id: '1', name: 'X'}]\n"
+            "  filters_file: 'nope.yaml'\n", encoding="utf-8")
+        with pytest.raises(FileNotFoundError):
+            load_config(str(p))

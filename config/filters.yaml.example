@@ -1,0 +1,43 @@
+# Filter lists for the job pipeline, kept out of config.yaml so that file stays
+# short. config.yaml points here via `search.filters_file: "filters.yaml"`.
+# Copy this to config/filters.yaml and fill in your own lists.
+#
+#   title_filter      deterministic title rules run before any AI call
+#   blocked_companies companies skipped at scrape time (case-insensitive, exact match)
+
+title_filter:
+  # At least one of these must appear in the title (word-boundary, case-insensitive),
+  # or the job is prefiltered as "no required keyword".
+  require_any:
+    - "ai"
+    - "data"
+    - "engineer"
+    # German compounds must be listed whole — the head noun is a suffix, so
+    # "manager" does NOT match "Projektmanager". Add the compounds you want kept:
+    - "projektmanager"
+    - "produktmanager"
+    - "teamleiter"
+    - "unternehmensberater"
+    - "softwareentwickler"
+
+  # Hard exclusions, checked before the detail fetch. Matching jobs are stored
+  # with a prefilter_reason instead of being fetched or screened.
+  exclude_any:
+    - "werkstudent"
+    - "internship"
+    - "c++"
+    - "s/4hana"        # SAP S/4HANA implementation roles
+
+  # Rejected only when the title carries no AI/data signal, so
+  # "Full-Stack AI Engineer" survives while "Full Stack Engineer" does not.
+  exclude_unless_ai:
+    - "full stack"
+    - "backend"
+
+# Companies whose jobs are skipped entirely at scrape time and hidden in the UI.
+# Matching is case-insensitive and exact on the company name. Recruiting agencies
+# and job-boards are common candidates (industry "Staffing and Recruiting" is a
+# good way to spot new ones).
+blocked_companies:
+  - "Example Staffing GmbH"
+  - "Acme Recruitment"

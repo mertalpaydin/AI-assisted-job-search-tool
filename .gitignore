@@ -221,6 +221,8 @@ config/.env
 # Personal config files — use *.example versions as templates
 config/cv.yaml
 config/config.yaml
+config/filters.yaml
+config/config.yaml.bak-filters
 config/cover_letter_draft.txt
 config/prompts.yaml
 config/narrative.yaml

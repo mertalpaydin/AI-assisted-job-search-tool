@@ -233,12 +233,43 @@ class Secrets(BaseSettings):
 # Loaders
 # ---------------------------------------------------------------------------
 
+def _merge_filter_files(data: dict[str, Any], base_dir: Path) -> None:
+    """Fold an external `search.filters_file` into the search config.
+
+    The long title-filter keyword lists and the company block list are kept in
+    their own document so config.yaml stays short. The referenced file supplies
+    `title_filter` and/or `blocked_companies`; anything set inline in config.yaml
+    still wins, so a one-off override does not require touching the shared file.
+    """
+    search = data.get("search")
+    if not isinstance(search, dict):
+        return
+    ref = search.pop("filters_file", None)
+    if not ref:
+        return
+    fpath = Path(ref)
+    if not fpath.is_absolute():
+        fpath = base_dir / fpath
+    if not fpath.exists():
+        raise FileNotFoundError(f"search.filters_file not found: {fpath}")
+    with fpath.open(encoding="utf-8") as f:
+        filters: dict[str, Any] = yaml.safe_load(f) or {}
+
+    if "title_filter" in filters:
+        merged = dict(filters.get("title_filter") or {})
+        merged.update(search.get("title_filter") or {})  # inline overrides file
+        search["title_filter"] = merged
+    if "blocked_companies" in filters and "blocked_companies" not in search:
+        search["blocked_companies"] = filters.get("blocked_companies") or []
+
+
 def load_config(config_path: str = "config/config.yaml") -> Config:
     path = Path(config_path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
     with path.open(encoding="utf-8") as f:
         data: dict[str, Any] = yaml.safe_load(f)
+    _merge_filter_files(data, path.parent)
     return Config.model_validate(data)
 
 
