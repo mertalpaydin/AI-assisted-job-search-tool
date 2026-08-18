@@ -1898,6 +1898,70 @@ class DatabaseManager:
             return [SelectedJobRow(**dict(row)) for row in cur.fetchall()], total
 
     # ------------------------------------------------------------------
+    # Company size backfill
+    # ------------------------------------------------------------------
+
+    def get_companies_missing_size_band(self, limit: int | None = None) -> list[dict]:
+        """Companies whose jobs predate the size band being captured.
+
+        Grouped by universalName because that is what the company endpoint is
+        keyed on: one request fills in every job row for that company. Biggest
+        first, so an interrupted run has already fixed the companies that
+        appear most often in the lists.
+        """
+        sql = """
+            SELECT company_universal_name AS universal_name,
+                   MIN(company_name) AS company_name,
+                   COUNT(*) AS job_count
+            FROM jobs
+            WHERE company_universal_name IS NOT NULL
+              AND company_universal_name <> ''
+              AND company_staff_range_start IS NULL
+              AND company_staff_range_end IS NULL
+            GROUP BY company_universal_name
+            ORDER BY job_count DESC, company_universal_name
+        """
+        params: list = []
+        if limit is not None and limit > 0:
+            sql += " LIMIT ?"
+            params.append(limit)
+        with self._cursor() as cur:
+            cur.execute(sql, params)
+            return [dict(r) for r in cur.fetchall()]
+
+    def save_company_size(self, universal_name: str, staff_count: int | None,
+                          range_start: int | None, range_end: int | None) -> int:
+        """Write one company's size onto every job row it owns.
+
+        ``updated_at`` is deliberately left alone: the job posting was not
+        re-fetched, only the company behind it, and that column is what tells
+        us when a job's own details last changed.
+
+        The member count is refreshed too, since the same response carries a
+        current one — job rows scraped on different days had already drifted
+        apart (gategroup held both 2,394 and 2,457). COALESCE keeps whatever
+        was there if this response omits it.
+        """
+        with self._cursor() as cur:
+            cur.execute("""
+                UPDATE jobs SET
+                    company_staff_range_start = ?,
+                    company_staff_range_end = ?,
+                    company_staff_count = COALESCE(?, company_staff_count)
+                WHERE company_universal_name = ?
+            """, (range_start, range_end, staff_count, universal_name))
+            return cur.rowcount
+
+    def count_jobs_without_size_band(self) -> int:
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FROM jobs
+                WHERE company_staff_range_start IS NULL
+                  AND company_staff_range_end IS NULL
+            """)
+            return int(cur.fetchone()[0])
+
+    # ------------------------------------------------------------------
     # Batch screening
     # ------------------------------------------------------------------
 

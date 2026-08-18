@@ -532,6 +532,106 @@ def clean(config: str, limit: int | None, no_interactive: bool, scheduled: bool,
 
 
 # ---------------------------------------------------------------------------
+# backfill-sizes: fetch the declared size band for already-scraped companies
+# ---------------------------------------------------------------------------
+
+@main.command("backfill-sizes")
+@click.option("--config", default="config/config.yaml", show_default=True)
+@click.option("--limit", default=None, type=int,
+              help="Only do this many companies (largest first), then stop.")
+@click.option("--max-runtime", type=float, default=None,
+              help="Stop gracefully after this many hours. Re-run to continue.")
+@click.option("--no-interactive", is_flag=True, default=False,
+              help="Never open a browser. Required for scheduled runs.")
+@click.option("--scheduled", is_flag=True, default=False,
+              help="Honour the schedule pause and imply --no-interactive.")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Report how much work is outstanding without fetching anything.")
+def backfill_sizes(config: str, limit: int | None, max_runtime: float | None,
+                   no_interactive: bool, scheduled: bool, dry_run: bool) -> None:
+    """Fetch the declared company size band for jobs scraped before it was captured.
+
+    Walks distinct companies rather than jobs — one request repairs every job
+    row that company owns. Safe to interrupt: a company already written is
+    skipped next time, so re-running continues where it stopped.
+    """
+    from job_search.core import runcontrol
+    from job_search.core.database import DatabaseManager
+    from job_search.core.config import load_secrets
+    from job_search.scraping.auth import get_session
+    from job_search.scraping.company_backfill import CompanySizeBackfiller
+
+    cfg = load_config(config)
+    setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)
+
+    if scheduled:
+        no_interactive = True
+        if runcontrol.pause_state(cfg.schedule.pause_file) is not None:
+            click.echo("Schedule is paused. Exiting.")
+            return
+
+    db = DatabaseManager(cfg.database.path)
+    try:
+        pending = db.get_companies_missing_size_band()
+        if not pending:
+            click.echo("Every company already has a size band. Nothing to do.")
+            return
+
+        jobs_affected = sum(c["job_count"] for c in pending)
+        click.echo(f"{len(pending)} companies without a size band, "
+                   f"covering {jobs_affected} job(s).")
+        if dry_run:
+            click.echo("Largest first:")
+            for company in pending[:10]:
+                click.echo(f"  {company['job_count']:>5} jobs  {company['company_name']}")
+            return
+
+        if not runcontrol.acquire_lock(
+            cfg.execution.lock_file, origin="scheduled" if scheduled else "manual",
+            stages="backfill-sizes",
+            stale_after_minutes=cfg.execution.lock_stale_after_minutes,
+        ):
+            click.echo("Another run is in progress. Exiting.")
+            return
+
+        try:
+            secrets = load_secrets()
+            auth_cfg = cfg.auth
+            session = get_session(
+                email=secrets.linkedin_username,
+                password=secrets.linkedin_password,
+                session_file=auth_cfg.session_file,
+                interactive=not no_interactive,
+                interactive_timeout=auth_cfg.interactive_timeout,
+            )
+            if session is None:
+                click.echo("No valid LinkedIn session. Run 'job-search login' first.")
+                return
+
+            runcontrol.clear_stop(cfg.execution.stop_file)
+            backfiller = CompanySizeBackfiller(
+                db, session,
+                delay=cfg.search.rate_limits.delay_between_requests,
+            )
+            summary = backfiller.run(
+                limit=limit,
+                max_runtime_hours=max_runtime,
+                should_stop=lambda: runcontrol.stop_requested(cfg.execution.stop_file),
+            )
+        finally:
+            runcontrol.release_lock(cfg.execution.lock_file)
+            runcontrol.clear_stop(cfg.execution.stop_file)
+
+        click.echo(
+            f"Wrote {summary['companies']} companies onto {summary['updated_jobs']} job(s). "
+            f"No band: {summary['no_band']}  |  failed: {summary['failed']}  |  "
+            f"still to do: {summary['remaining']}"
+        )
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
 # purge-blocked: delete jobs from companies that are on the block list
 # ---------------------------------------------------------------------------
 
