@@ -23,7 +23,7 @@ Automates LinkedIn job discovery, deterministic prefiltering, AI screening again
   - **Details stage** runs after the detail fetch and skips screening (employment type, experience level, German-fluency requirements).
   - Rejections are reversible (clear the `prefilter_reason` column) and fully reviewable in the Web UI.
 - **Gemini AI Screening** — Scores jobs against your CV, filters out jobs requiring high German proficiency or wrong locations, and assigns a **role-family archetype (A–F)**. Fast parallel screening via the Gemini API with multi-key rotation and exponential backoff retries.
-- **Batch Screening (50% cheaper)** — Screening can be submitted to the Gemini **Batch API** and collected later (up to 24h latency). An in-flight guard (`jobs.batch_job_id`) prevents paying twice or overwriting a fresh answer with a stale one. `auto` mode keeps small manual runs instant and sends large or scheduled backlogs to batch.
+- **Batch Screening (50% cheaper)** — Screening can be submitted to the Gemini **Batch API** and collected later (up to 24h latency). An in-flight guard (`jobs.batch_job_id`) prevents paying twice or overwriting a fresh answer with a stale one, each response is claimed atomically so two collectors can never write the same row, and a machine-wide lock keeps the hourly collect task, a run's startup, and the Web UI button from colliding. `auto` mode keeps small manual runs instant and sends large or scheduled backlogs to batch.
 - **Role-Family-Tailored Cover Letters** — Cover letter prompts are split into a shared instruction set plus one guidance block per family; only the block for the job's own family is sent. An optional **career-narrative layer** (`config/narrative.yaml`) supplies the reasoning, obstacles, and outcomes behind your CV lines so letters can stop restating the CV.
 - **1-Page LaTeX Cover Letter PDF Exporter** — Automated 1-page LaTeX cover letter compiler using local MiKTeX (`xelatex` / `pdflatex`). Features a centered executive header, tagline, transparent signature image, dynamic "a/an" article selection, name-derived sign-off matching, and an auto-fitting font-size algorithm with length-based vertical centering to guarantee single-page output.
 - **Job Expiration Cleaner** — Detects expired or closed LinkedIn postings using the authenticated session with request pacing and rate-limit backoff (`uv run job-search clean`).
@@ -109,17 +109,19 @@ GEMINI_API_KEY_3=          # optional API key for rotation
 
 ```bash
 cp config/config.yaml.example   config/config.yaml
+cp config/filters.yaml.example  config/filters.yaml
 cp config/cv.yaml.example       config/cv.yaml
 cp config/prompts.yaml.example  config/prompts.yaml
 cp config/narrative.yaml.example config/narrative.yaml   # optional
 ```
 
 - **`config/config.yaml`** — search terms (with tiers/max_pages), screening thresholds and mode, schedule/auth settings, and export directories (`export.output_dir`, `export.pdf_dir`).
+- **`config/filters.yaml`** — the long lists: `title_filter` keyword rules and `blocked_companies`. Referenced from `config.yaml` via `search.filters_file` and merged at load time, with anything set inline in `config.yaml` winning. Keeping them out of the main file stops a 300-entry list from being silently misindented under the wrong section.
 - **`config/cv.yaml`** — your real CV data, including a `projects` block (used by both the screener and the cover letter generator).
 - **`config/prompts.yaml`** — AI screening and cover letter prompt templates.
 - **`config/narrative.yaml`** *(optional)* — proof-point stories tagged by role family. Without it, cover letter prompts gracefully degrade to CV facts.
 
-> `config.yaml`, `cv.yaml`, `prompts.yaml`, and `narrative.yaml` are all gitignored and never committed. Only their `.example` counterparts are tracked.
+> `config.yaml`, `filters.yaml`, `cv.yaml`, `prompts.yaml`, and `narrative.yaml` are all gitignored and never committed. Only their `.example` counterparts are tracked.
 
 ### 4. Choose a screening mode
 
@@ -184,6 +186,7 @@ uv run job-search resume        # resume scheduled runs immediately
 ```bash
 uv run job-search clean                    # detect closed postings, mark them expired
 uv run job-search clean --limit 50
+uv run job-search clean --max-runtime 5    # stop between batches after 5h, releasing the lock cleanly
 
 uv run job-search reset-errors             # reset all error types for retry
 uv run job-search reset-errors --stage details
@@ -192,6 +195,17 @@ uv run job-search reset-errors --stage screening
 uv run job-search purge-blocked --dry-run  # preview jobs from blocked companies
 uv run job-search purge-blocked            # remove them
 ```
+
+### Batch screening by hand
+
+```bash
+uv run job-search batch submit             # send everything pending and exit; does not wait
+uv run job-search batch submit --limit 200
+uv run job-search batch collect            # poll open batches, write back whatever has finished
+uv run job-search batch list               # recent batches and their state
+```
+
+Only one collector runs at a time machine-wide (`data/collect.lock`), so this command, the hourly collect task, a run's startup, and the Web UI button can never overlap — whoever arrives second steps aside rather than re-polling the same batch. Results land in the same database either way.
 
 ### Terminal listing & application tracking
 
@@ -223,7 +237,16 @@ Register the scheduled Task Scheduler entries:
 powershell -ExecutionPolicy Bypass -File scripts/install_tasks.ps1
 ```
 
-The tasks run `scripts/scheduled_run.bat`, pass `--scheduled`, and use `StartWhenAvailable` so a run missed while the laptop slept fires on wake. Pause or resume the whole schedule at any time with `job-search pause` / `job-search resume`, or from the Web UI runner panel.
+| Task | Trigger | What it runs |
+|------|---------|--------------|
+| `JobSearch-Scrape` | Daily 07:00 | Search + details, bounded to 1h |
+| `JobSearch-ScreenCL` | Daily 08:15 | Screening (batch) + cover letters in **one** process, bounded to 1h |
+| `JobSearch-Collect` | Hourly | `batch collect` — writes back finished screening batches |
+| `JobSearch-Clean` | Weekly, Sunday 03:00 | Expiry sweep, bounded to 5h |
+
+Scrape and screen are 15 minutes apart so the single run lock is always free before the next task starts. Screening and cover letters share one process for the same reason.
+
+The tasks run `scripts/scheduled_run.bat`, pass `--scheduled`, and use `StartWhenAvailable` so a run missed while the laptop slept fires on wake — note that this means several missed tasks can fire together the moment the machine comes back. Re-running `install_tasks.ps1` clears every `JobSearch-*` task before registering, so a renamed or dropped task cannot be left firing on its old schedule. Pause or resume the whole schedule at any time with `job-search pause` / `job-search resume`, or from the Web UI runner panel.
 
 ---
 
@@ -240,8 +263,8 @@ Open `http://127.0.0.1:5000/` in your browser.
 | Dashboard Page | Capabilities |
 |----------------|--------------|
 | **Dashboard** | Overview metrics, application-stage breakdowns, role-family summary, prefiltered/in-flight counters |
-| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, and quick actions |
-| **All Jobs** | Master repository of all scraped jobs, with company inclusion/exclusion filtering |
+| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, employee count + industry, a **company-size** filter, and quick actions |
+| **All Jobs** | Master repository of all scraped jobs, with company inclusion/exclusion and company-size filtering |
 | **Prefiltered** | Deterministic rejections grouped by rule and stage, so an over-aggressive rule can be spotted and reversed |
 | **Search Stats** | Conversion-funnel metrics per keyword/location, with a role-family breakdown |
 | **Runner** | Session health, schedule pause/resume, stop & force-stop for a run owned by any process, batch collection with per-batch abandon, start-run, clear-errors, and live logs |
@@ -291,7 +314,7 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-242 automated unit tests covering:
+279 automated unit tests covering:
 - Database CRUD, WAL-mode transaction safety, and schema migrations
 - Pydantic configuration schemas and `.env` credentials loading
 - Deterministic prefilter rules (title and details stages)
@@ -313,6 +336,7 @@ uv run pytest tests/ -v
 ```
 ├── config/
 │   ├── config.yaml.example          # Search terms/tiers, screening mode, schedule, export paths
+│   ├── filters.yaml.example         # Title keyword rules & blocked companies — copy to filters.yaml
 │   ├── cv.yaml.example              # CV template (incl. projects) — copy to cv.yaml and fill in
 │   ├── prompts.yaml.example         # AI screening & cover letter prompt templates
 │   ├── narrative.yaml.example       # Optional career-narrative proof points, tagged by role family
