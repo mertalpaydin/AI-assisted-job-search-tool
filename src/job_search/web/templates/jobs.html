@@ -157,6 +157,7 @@
     <ul class="dropdown-menu p-2 shadow" style="min-width:230px">
       <li><a class="dropdown-item small {% if not size_filter %}active{% endif %}" href="{{ page_url(p=1, sz='') }}">All Sizes</a></li>
       <li><hr class="dropdown-divider"></li>
+      <li><div class="px-2 pb-2 text-muted" style="font-size:0.7rem;">By the size band the company declares on LinkedIn. Jobs scraped before that was captured fall back to their LinkedIn member count.</div></li>
       <li><a class="dropdown-item small {% if size_filter == 'startup' %}active{% endif %}" href="{{ page_url(p=1, sz='startup') }}">Startup / Scale-up <span class="text-muted">(1–200)</span></a></li>
       <li><a class="dropdown-item small {% if size_filter == 'mid' %}active{% endif %}" href="{{ page_url(p=1, sz='mid') }}">Mid-size <span class="text-muted">(201–1,000)</span></a></li>
       <li><a class="dropdown-item small {% if size_filter == 'large' %}active{% endif %}" href="{{ page_url(p=1, sz='large') }}">Large <span class="text-muted">(1,001–5,000)</span></a></li>
@@ -522,13 +523,21 @@
             </span>
             {% endif %}
           </div>
-          {% if job.company_staff_count or (job.formattedIndustries | industry) %}
+          {% set has_size = job.company_size_label or (job.company_staff_count and job.company_staff_count > 0) %}
+          {% if has_size or (job.formattedIndustries | industry) %}
           <div class="text-muted" style="font-size:0.72rem;">
-            {% if job.company_staff_count and job.company_staff_count > 0 %}
-              <i class="bi bi-people-fill me-1"></i>{{ job.company_staff_count | thousands }}
-              {% if job.company_staff_count <= 50 %}<span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1" style="font-size:0.6rem;" title="Small company / startup">startup</span>{% endif %}
-              {% if job.formattedIndustries | industry %}<span class="mx-1">·</span>{% endif %}
+            {% if job.company_size_label %}
+              {# Declared band first — this is the figure LinkedIn's About page shows. #}
+              <i class="bi bi-people-fill me-1" title="Company size declared on LinkedIn"></i>{{ job.company_size_label }}
+              {% if job.company_staff_count and job.company_staff_count > 0 %}
+                <span class="opacity-50" title="LinkedIn members listing this company as their employer — not headcount">· {{ job.company_staff_count | thousands }} on LI</span>
+              {% endif %}
+            {% elif job.company_staff_count and job.company_staff_count > 0 %}
+              {# No band captured yet: say what the number actually is. #}
+              <i class="bi bi-people-fill me-1"></i><span title="LinkedIn members listing this company as their employer — not headcount">{{ job.company_staff_count | thousands }} on LI</span>
             {% endif %}
+            {% if job.is_small_company %}<span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1" style="font-size:0.6rem;" title="Small company / startup">startup</span>{% endif %}
+            {% if has_size and (job.formattedIndustries | industry) %}<span class="mx-1">·</span>{% endif %}
             {{ job.formattedIndustries | industry }}
           </div>
           {% endif %}

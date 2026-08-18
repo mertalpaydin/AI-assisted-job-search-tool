@@ -88,14 +88,33 @@ def _extract_company(response: dict) -> CompanyData | None:
             if value is not None:
                 company_fields[name] = value
 
-        # Always capture name and url even if not in mappings
-        for key in ("name", "url", "staffCount", "universalName"):
+        # Always capture these even if not in mappings. (The mapped paths in
+        # field_mappings.json are written as "included_company.<field>" but are
+        # walked relative to the item, so none of them ever resolve — this loop
+        # is what actually populates the company fields we use.)
+        for key in ("name", "url", "staffCount", "staffCountRange", "universalName"):
             if key in item and key not in company_fields:
                 company_fields[key] = item[key]
 
         return CompanyData(company_urn=company_urn, fields=company_fields)
 
     return None
+
+
+def _staff_range(raw: Any) -> tuple[int | None, int | None]:
+    """Split a staffCountRange object into (start, end).
+
+    The top band omits ``end`` entirely rather than sending null — LinkedIn's
+    10,001+ companies come back as ``{"start": 10001}`` — so a missing end
+    means "no upper bound", not "unknown".
+    """
+    if not isinstance(raw, dict):
+        return None, None
+
+    def _int(value: Any) -> int | None:
+        return value if isinstance(value, int) else None
+
+    return _int(raw.get("start")), _int(raw.get("end"))
 
 
 def _parse_details_response(job_id: int, response: dict) -> ParsedJobDetails:
@@ -193,6 +212,17 @@ class DetailsWorker:
             parsed.job_fields["company_url"] = cf.get("url")
             parsed.job_fields["company_staff_count"] = cf.get("staffCount")
             parsed.job_fields["company_universal_name"] = cf.get("universalName")
+
+            # Two different numbers, and they disagree badly. staffCount is how
+            # many LinkedIn members list the company as their employer;
+            # staffCountRange is the band the company declares, which is what
+            # its About page shows. gategroup declares 10,001+ and has 2,457
+            # members. Keep both: the band is authoritative for size but
+            # saturates at 10,001+, so the count is the only thing that
+            # separates a 20k employer from a 700k one.
+            start, end = _staff_range(cf.get("staffCountRange"))
+            parsed.job_fields["company_staff_range_start"] = start
+            parsed.job_fields["company_staff_range_end"] = end
 
         company_name: str | None = parsed.job_fields.get("company_name")
         if company_name and company_name.lower() in self._blocked_companies:

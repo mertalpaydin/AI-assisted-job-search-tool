@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 
     company_url TEXT,
     company_staff_count INTEGER,
+    company_staff_range_start INTEGER,
+    company_staff_range_end INTEGER,
     company_universal_name TEXT,
 
     jobPostingUrl TEXT,
@@ -236,6 +238,8 @@ class SelectedJobRow:
     prefilter_reason: str | None = None
     company_staff_count: int | None = None
     formattedIndustries: str | None = None
+    company_staff_range_start: int | None = None
+    company_staff_range_end: int | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -244,6 +248,37 @@ class SelectedJobRow:
             return False
         val = str(self.applyMethod)
         return "easyApplyUrl" in val or "OnsiteApply" in val
+
+    @property
+    def company_size_label(self) -> str | None:
+        """The size band the company declares, e.g. "10,001+" or "51–200".
+
+        None for rows scraped before the band was captured — those have only
+        the member count, which is a different measure and is labelled as such
+        in the UI rather than being passed off as headcount.
+        """
+        start, end = self.company_staff_range_start, self.company_staff_range_end
+        if start is None and end is None:
+            return None
+        if end is None:
+            return f"{start:,}+"
+        if start is None:
+            return f"{end:,}"
+        return f"{start:,}–{end:,}"
+
+    @property
+    def is_small_company(self) -> bool:
+        """True for an employer of about 50 people or fewer.
+
+        Reads the band first and the member count only as a fallback, matching
+        how the size filter buckets — otherwise the badge and the filter would
+        disagree on the same row.
+        """
+        if self.company_staff_range_end is not None:
+            return self.company_staff_range_end <= 50
+        if self.company_staff_range_start is not None:
+            return False                      # the unbounded 10,001+ band
+        return bool(self.company_staff_count and self.company_staff_count <= 50)
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +303,7 @@ _JOBS_COLUMNS: frozenset[str] = frozenset({
     "formattedEmploymentStatus", "formattedExperienceLevel",
     "formattedIndustries", "formattedJobFunctions",
     "company_url", "company_staff_count", "company_universal_name",
+    "company_staff_range_start", "company_staff_range_end",
     "jobPostingUrl", "jobPostingId", "jobState",
     "originalListedAt", "expireAt", "applies", "views",
     "applyMethod", "applicantTrackingSystem",
@@ -275,6 +311,29 @@ _JOBS_COLUMNS: frozenset[str] = frozenset({
     "companyDescription", "description",
     "application_status", "applied_at",
 })
+
+# Company size, as a single upper bound the buckets can be cut against.
+#
+# The declared band wins: it is what the company says about itself and what
+# its About page shows. A band with no `end` is the top one (10,001+), so it
+# gets a sentinel that lands it above every threshold. Only when no band was
+# ever captured — every row scraped before this was extracted — do we fall
+# back to the LinkedIn member count, which measures something else entirely
+# and is what put gategroup (declared 10,001+, 2,457 members) in the wrong
+# bucket to begin with. NULLIF folds an undisclosed 0 into "unknown".
+_SIZE_BOUND_SQL = """COALESCE(
+    j.company_staff_range_end,
+    CASE WHEN j.company_staff_range_start IS NOT NULL THEN 2147483647 END,
+    NULLIF(j.company_staff_count, 0)
+)"""
+
+_SIZE_BUCKETS: dict[str, str] = {
+    "startup": f"{_SIZE_BOUND_SQL} BETWEEN 1 AND 200",
+    "mid": f"{_SIZE_BOUND_SQL} BETWEEN 201 AND 1000",
+    "large": f"{_SIZE_BOUND_SQL} BETWEEN 1001 AND 5000",
+    "enterprise": f"{_SIZE_BOUND_SQL} > 5000",
+    "unknown": f"{_SIZE_BOUND_SQL} IS NULL",
+}
 
 # Whitelisted fields for ORDER BY (prevents SQL injection via sort params)
 _SORTABLE_FIELDS: frozenset[str] = frozenset({
@@ -350,6 +409,33 @@ class DatabaseManager:
         self._migrate_v7(conn)
         self._migrate_v8(conn)
         self._migrate_v9(conn)
+        self._migrate_v10(conn)
+
+    def _migrate_v10(self, conn: sqlite3.Connection) -> None:
+        """Add the declared company size band alongside the member count.
+
+        company_staff_count is how many LinkedIn members list the company as
+        their employer, which is not headcount and can be off by orders of
+        magnitude in either direction — gategroup declares 10,001+ employees
+        and has 2,457 members; SAP's member count exceeds its real headcount.
+        The band is what the About page shows, and what the size filter now
+        buckets on.
+
+        Existing rows keep NULL for both, and the filter falls back to the
+        member count for them, so nothing disappears from the lists before a
+        re-scrape fills the band in.
+        """
+        for stmt in (
+            "ALTER TABLE jobs ADD COLUMN company_staff_range_start INTEGER",
+            "ALTER TABLE jobs ADD COLUMN company_staff_range_end INTEGER",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_staff_range "
+            "ON jobs(company_staff_range_end)",
+        ):
+            try:
+                conn.execute(stmt)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     def _migrate_v9(self, conn: sqlite3.Connection) -> None:
         """Add batch screening support: the batch_jobs table and the in-flight link.
@@ -1574,17 +1660,9 @@ class DatabaseManager:
             conditions.append("UPPER(j.archetype) = UPPER(?)")
             params.append(archetype_filter)
 
-        # Company size buckets by employee count. "unknown" is undisclosed (0/null).
-        if size_filter == "startup":
-            conditions.append("j.company_staff_count BETWEEN 1 AND 200")
-        elif size_filter == "mid":
-            conditions.append("j.company_staff_count BETWEEN 201 AND 1000")
-        elif size_filter == "large":
-            conditions.append("j.company_staff_count BETWEEN 1001 AND 5000")
-        elif size_filter == "enterprise":
-            conditions.append("j.company_staff_count > 5000")
-        elif size_filter == "unknown":
-            conditions.append("(j.company_staff_count IS NULL OR j.company_staff_count = 0)")
+        # Company size buckets, cut against the declared band (see _SIZE_BUCKETS).
+        if size_filter in _SIZE_BUCKETS:
+            conditions.append(_SIZE_BUCKETS[size_filter])
 
         if prefilter_filter == "only":
             conditions.append("j.prefilter_reason IS NOT NULL")
@@ -1620,7 +1698,8 @@ class DatabaseManager:
                     cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
                     j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason,
-                    j.company_staff_count, j.formattedIndustries
+                    j.company_staff_count, j.formattedIndustries,
+                    j.company_staff_range_start, j.company_staff_range_end
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
@@ -1642,7 +1721,8 @@ class DatabaseManager:
                     cl.cover_letter_text, cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
                     j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason,
-                    j.company_staff_count, j.formattedIndustries
+                    j.company_staff_count, j.formattedIndustries,
+                    j.company_staff_range_start, j.company_staff_range_end
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -1770,17 +1850,9 @@ class DatabaseManager:
             conditions.append("UPPER(j.archetype) = UPPER(?)")
             params.append(archetype_filter)
 
-        # Company size buckets by employee count. "unknown" is undisclosed (0/null).
-        if size_filter == "startup":
-            conditions.append("j.company_staff_count BETWEEN 1 AND 200")
-        elif size_filter == "mid":
-            conditions.append("j.company_staff_count BETWEEN 201 AND 1000")
-        elif size_filter == "large":
-            conditions.append("j.company_staff_count BETWEEN 1001 AND 5000")
-        elif size_filter == "enterprise":
-            conditions.append("j.company_staff_count > 5000")
-        elif size_filter == "unknown":
-            conditions.append("(j.company_staff_count IS NULL OR j.company_staff_count = 0)")
+        # Company size buckets, cut against the declared band (see _SIZE_BUCKETS).
+        if size_filter in _SIZE_BUCKETS:
+            conditions.append(_SIZE_BUCKETS[size_filter])
 
         if prefilter_filter == "only":
             conditions.append("j.prefilter_reason IS NOT NULL")
@@ -1815,7 +1887,8 @@ class DatabaseManager:
                     cl.generation_date, cl.generation_status,
                     j.user_cl_approved, j.created_at, j.search_keyword,
                     j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason,
-                    j.company_staff_count, j.formattedIndustries
+                    j.company_staff_count, j.formattedIndustries,
+                    j.company_staff_range_start, j.company_staff_range_end
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}

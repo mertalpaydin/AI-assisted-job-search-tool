@@ -1,7 +1,7 @@
 """Tests for job_search.core.database — DatabaseManager CRUD."""
 from __future__ import annotations
 
-from job_search.core.database import DatabaseManager, ScreeningResult
+from job_search.core.database import DatabaseManager, ScreeningResult, SelectedJobRow
 
 
 class TestJobOperations:
@@ -412,3 +412,94 @@ class TestCompanySizeFilter:
         assert ids("enterprise") == [5]      # >5000
         assert ids("unknown") == [6]         # 0 / null
         assert len(ids("")) == 6             # no filter returns all
+
+    def test_the_declared_band_beats_the_member_count(self, db: DatabaseManager) -> None:
+        """The gategroup case: 2,457 LinkedIn members, but 10,001+ declared.
+
+        Bucketing on the member count filed it under "large". The band is what
+        the company says about itself, so it belongs in "enterprise".
+        """
+        db.insert_job(1, "kw", "loc")
+        db.update_job_details(1, {"title": "T", "company_name": "gategroup",
+                                  "company_staff_count": 2457,
+                                  "company_staff_range_start": 10001,
+                                  "company_staff_range_end": None})
+        # And the reverse: a crowdsourcing platform with more members listing it
+        # than it declares employees.
+        db.insert_job(2, "kw", "loc")
+        db.update_job_details(2, {"title": "T", "company_name": "Mindrift",
+                                  "company_staff_count": 2300,
+                                  "company_staff_range_start": 51,
+                                  "company_staff_range_end": 200})
+
+        def ids(size: str):
+            rows, _ = db.get_all_jobs(size_filter=size, limit=100)
+            return sorted(r.job_id for r in rows)
+
+        assert ids("enterprise") == [1]
+        assert ids("startup") == [2]
+        assert ids("large") == []
+
+    def test_rows_without_a_band_fall_back_to_the_member_count(
+        self, db: DatabaseManager
+    ) -> None:
+        """Everything scraped before the band existed must stay filterable."""
+        db.insert_job(1, "kw", "loc")
+        db.update_job_details(1, {"title": "T", "company_name": "Old",
+                                  "company_staff_count": 3000})
+
+        rows, _ = db.get_all_jobs(size_filter="large", limit=100)
+        assert [r.job_id for r in rows] == [1]
+
+    def test_unknown_needs_both_to_be_absent(self, db: DatabaseManager) -> None:
+        db.insert_job(1, "kw", "loc")
+        db.update_job_details(1, {"title": "T", "company_name": "NoData"})
+        db.insert_job(2, "kw", "loc")
+        db.update_job_details(2, {"title": "T", "company_name": "Undisclosed",
+                                  "company_staff_count": 0,
+                                  "company_staff_range_start": 51,
+                                  "company_staff_range_end": 200})
+
+        rows, _ = db.get_all_jobs(size_filter="unknown", limit=100)
+        assert [r.job_id for r in rows] == [1]
+
+
+class TestCompanySizeLabel:
+    """What the two numbers are called in the UI."""
+
+    def _row(self, **kwargs):
+        db_row = SelectedJobRow(
+            job_id=1, title="T", company_name="C", formattedLocation=None,
+            jobPostingUrl=None, workRemoteAllowed=None, description=None,
+            application_status=None, applied_at=None, cv_match_score=None,
+            german_requirement_level=None, is_selected=None,
+            screening_reasoning=None, cover_letter_text=None,
+            generation_date=None, generation_status=None, **kwargs,
+        )
+        return db_row
+
+    def test_top_band_renders_with_a_plus(self) -> None:
+        row = self._row(company_staff_range_start=10001, company_staff_count=2457)
+        assert row.company_size_label == "10,001+"
+
+    def test_bounded_band_renders_as_a_range(self) -> None:
+        row = self._row(company_staff_range_start=1001, company_staff_range_end=5000)
+        assert row.company_size_label == "1,001–5,000"
+
+    def test_no_band_has_no_label(self) -> None:
+        """Old rows must not have their member count passed off as headcount."""
+        row = self._row(company_staff_count=2457)
+        assert row.company_size_label is None
+
+    def test_startup_badge_follows_the_band_not_the_count(self) -> None:
+        # 33 members, but the company declares 51-200: not a startup.
+        assert self._row(company_staff_count=33, company_staff_range_start=51,
+                         company_staff_range_end=200).is_small_company is False
+        # Same member count, declared 11-50: genuinely small.
+        assert self._row(company_staff_count=33, company_staff_range_start=11,
+                         company_staff_range_end=50).is_small_company is True
+        # The unbounded top band is never small, whatever the member count says.
+        assert self._row(company_staff_count=1, company_staff_range_start=10001
+                         ).is_small_company is False
+        # No band at all: fall back to the count.
+        assert self._row(company_staff_count=12).is_small_company is True
