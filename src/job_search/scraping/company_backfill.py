@@ -30,6 +30,12 @@ _COMPANY_URL = (
 # LinkedIn's ways of saying "slow down". 999 is its own, undocumented one.
 _THROTTLED = (429, 403, 999)
 
+# Round-trip cost of one company request, on top of the configured pause.
+# Measured over a full 6,540-company sweep: 2.85s per company against a 2.0s
+# pause. Estimating from the pause alone announced that sweep as 3.6h when it
+# ran for 5.2h.
+_REQUEST_SECONDS = 0.85
+
 
 class CompanySizeBackfiller:
     """Walks distinct companies, asking each for its declared size band."""
@@ -68,10 +74,11 @@ class CompanySizeBackfiller:
             return summary
 
         total_jobs = sum(c["job_count"] for c in companies)
+        eta_hours = len(companies) * (self._delay + _REQUEST_SECONDS) / 3600
         logger.info(
             "Company size backfill: {} companies covering {} job(s), "
             "roughly {:.1f}h at {}s pacing",
-            len(companies), total_jobs, len(companies) * self._delay / 3600, self._delay,
+            len(companies), total_jobs, eta_hours, self._delay,
         )
 
         deadline = (
