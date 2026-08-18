@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -174,6 +175,76 @@ def release_lock(path: str) -> None:
         p.unlink()
     except OSError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Exclusive short-lived lock
+# ---------------------------------------------------------------------------
+
+def _claim_exclusive(p: Path, origin: str) -> bool:
+    """Create the lock file, failing if someone else got there first.
+
+    ``acquire_lock`` above reads and then writes, which leaves a window two
+    processes starting in the same second can both pass. O_CREAT|O_EXCL closes
+    it: the existence check and the creation are one syscall, on Windows as
+    well as POSIX. That matters here because the racing callers are woken by
+    the same event (a laptop coming back from sleep firing every missed task at
+    once), so they arrive within milliseconds of each other.
+    """
+    try:
+        fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+    try:
+        os.write(fd, json.dumps({
+            "pid": os.getpid(),
+            "started_at": _now().isoformat(timespec="seconds"),
+            "origin": origin,
+        }, indent=2).encode("utf-8"))
+    finally:
+        os.close(fd)
+    return True
+
+
+def _exclusive_is_stale(p: Path, stale_after_minutes: int) -> bool:
+    """True when the lock file is left over rather than genuinely held."""
+    info = read_lock(str(p))
+    if info is None:
+        return True                       # unreadable or truncated
+    if not _pid_alive(info.pid):
+        return True
+    return info.age_minutes > stale_after_minutes
+
+
+@contextmanager
+def exclusive(path: str, stale_after_minutes: int = 30, origin: str = ""):
+    """Hold a cross-process lock for the duration of the block.
+
+    Yields True when this process owns it and False when another live process
+    does. Callers are expected to skip their work on False rather than wait:
+    every user of this is idempotent and will run again shortly.
+    """
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    held = _claim_exclusive(p, origin)
+    if not held and _exclusive_is_stale(p, stale_after_minutes):
+        logger.info("Removing stale lock {}", p.name)
+        try:
+            p.unlink()
+        except OSError:
+            pass
+        held = _claim_exclusive(p, origin)
+
+    try:
+        yield held
+    finally:
+        if held:
+            # release_lock only removes a file this pid owns, so a lock we lost
+            # to a staleness sweep is not deleted out from under its new owner.
+            release_lock(str(p))
 
 
 # ---------------------------------------------------------------------------

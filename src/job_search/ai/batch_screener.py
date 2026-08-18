@@ -23,6 +23,7 @@ from loguru import logger
 
 from job_search.ai.prompt_manager import PromptManager
 from job_search.ai.screener import _apply_criteria, _parse_screening_json
+from job_search.core import runcontrol
 from job_search.core.config import Config
 from job_search.core.database import DatabaseManager
 
@@ -34,6 +35,16 @@ _FAILURE_STATES = ("JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED
 # Inline batch input is capped at 20MB; leave room for the envelope.
 _MAX_INLINE_BYTES = 18 * 1024 * 1024
 _MAX_INLINE_REQUESTS = 1000
+
+# What became of a single response.
+_WRITTEN = "written"        # saved to the job row
+_DISCARDED = "discarded"    # someone else owns the job now; not ours to write
+_FAILED = "failed"          # ours, but unusable; the job is marked for retry
+
+
+def _empty_summary(skipped: bool = False) -> dict:
+    return {"checked": 0, "collected": 0, "still_running": 0,
+            "failed": 0, "skipped": skipped}
 
 
 class BatchScreener:
@@ -158,9 +169,31 @@ class BatchScreener:
     # Collect
     # ------------------------------------------------------------------
 
-    def collect_all(self, stale_after_hours: float = 36.0) -> dict[str, int]:
-        """Poll every open batch and write back whatever has finished."""
-        summary = {"checked": 0, "collected": 0, "still_running": 0, "failed": 0}
+    def collect_all(self, stale_after_hours: float = 36.0) -> dict:
+        """Poll every open batch and write back whatever has finished.
+
+        Only one collector runs at a time across the whole machine. Three paths
+        reach here — a run's startup, the hourly collect task, and the web UI
+        button — and none of them holds the runner lock, so without this they
+        can and do overlap: a laptop waking up fires every missed scheduled task
+        at once. Overlapping collectors are no longer able to corrupt anything,
+        but they still duplicate every API call and split the bookkeeping, so
+        the second one steps aside rather than racing.
+        """
+        exec_cfg = self._config.execution
+        with runcontrol.exclusive(
+            exec_cfg.collect_lock_file,
+            stale_after_minutes=exec_cfg.collect_lock_stale_after_minutes,
+            origin="batch-collect",
+        ) as held:
+            if not held:
+                logger.info("Another process is collecting batches right now; "
+                            "leaving it to finish")
+                return _empty_summary(skipped=True)
+            return self._collect_all_locked(stale_after_hours)
+
+    def _collect_all_locked(self, stale_after_hours: float) -> dict:
+        summary = _empty_summary()
 
         for row in self._db.get_open_batch_jobs():
             summary["checked"] += 1
@@ -198,6 +231,10 @@ class BatchScreener:
     def _collect_one(self, batch_id: int, batch) -> int:
         written = 0
         unmapped = 0
+        discarded = 0
+        errored = 0
+        answered: set[int] = set()
+
         for entry in self._iter_responses(batch):
             job_id = _entry_job_id(entry)
             if job_id is None:
@@ -206,47 +243,70 @@ class BatchScreener:
                 unmapped += 1
                 continue
 
-            if self._write_result(batch_id, job_id, entry):
+            answered.add(job_id)
+            outcome = self._write_result(batch_id, job_id, entry)
+            if outcome == _WRITTEN:
                 written += 1
+            elif outcome == _DISCARDED:
+                discarded += 1
+            else:
+                errored += 1
 
         if unmapped:
             logger.warning("Batch {}: {} response(s) carried no job id and were skipped",
                            batch_id, unmapped)
+        if discarded:
+            # Not a loss: something else owns those jobs now, either a collector
+            # that got there first or a re-submission. Worth saying out loud
+            # though, because it is why the written count can look short.
+            logger.info("Batch {}: {} response(s) were already claimed elsewhere",
+                        batch_id, discarded)
+        if errored:
+            logger.warning("Batch {}: {} response(s) could not be used and were "
+                           "marked for retry", batch_id, errored)
 
-        remaining = self._db.get_batch_job_ids(batch_id)
+        # Release only what the provider genuinely never answered. Filtering on
+        # `answered` keeps a response we did see from being handed back to the
+        # normal screening path — that would re-screen, and re-pay for, a job
+        # another collector had just written.
+        remaining = [jid for jid in self._db.get_batch_job_ids(batch_id)
+                     if jid not in answered]
         if remaining:
-            # Requests the provider never answered: hand them back to the
-            # normal path rather than leaving them stuck in flight.
             self._db.clear_batch_link(remaining)
             logger.info("Batch {}: {} job(s) had no response, released", batch_id, len(remaining))
 
-        state = "succeeded" if written else "partial"
+        # "succeeded" means every request came back and was usable. A batch that
+        # wrote one row out of 254 is a partial result, not a success.
+        complete = not remaining and not unmapped and not errored
+        state = "succeeded" if complete else "partial"
         self._db.finish_batch_job(batch_id, state, collected=written)
         return written
 
-    def _write_result(self, batch_id: int, job_id: int, entry: dict) -> bool:
-        """Persist one response, but only if the job still belongs to this batch."""
-        if not self._db.job_belongs_to_batch(job_id, batch_id):
+    def _write_result(self, batch_id: int, job_id: int, entry: dict) -> str:
+        """Persist one response, but only if the job still belongs to this batch.
+
+        Claiming comes first and is atomic, so a second collector working the
+        same finished batch loses the claim and discards its copy instead of
+        writing the row a second time.
+        """
+        if not self._db.claim_batch_result(job_id, batch_id):
             logger.debug("Job {} no longer belongs to batch {}, discarding result",
                          job_id, batch_id)
-            return False
+            return _DISCARDED
 
         text = self._extract_text(entry)
         if text is None:
-            self._db.clear_batch_link([job_id])
             self._db.mark_screening_error(job_id, "batch response contained no text")
-            return False
+            return _FAILED
 
         try:
             result = _apply_criteria(_parse_screening_json(text), self._config)
         except (ValueError, KeyError, json.JSONDecodeError) as exc:
-            self._db.clear_batch_link([job_id])
             self._db.mark_screening_error(job_id, f"batch parse error: {exc}")
-            return False
+            return _FAILED
 
         self._db.save_screening_result(job_id, result)
-        self._db.clear_batch_link([job_id])
-        return True
+        return _WRITTEN
 
     def _iter_responses(self, batch):
         """Yield response entries as plain dicts, whichever shape the SDK returns."""

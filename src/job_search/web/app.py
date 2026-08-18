@@ -910,6 +910,15 @@ def runner_collect_batches():
         flash(f"Could not collect batches: {exc}", "danger")
         return redirect(url_for("runner_dashboard"))
 
+    if summary.get("skipped"):
+        flash(
+            "A collection is already running (a scheduled task, or the run "
+            "that just started). Its results land in the same place — refresh "
+            "in a moment.",
+            "info",
+        )
+        return redirect(url_for("runner_dashboard"))
+
     if summary["collected"]:
         flash(
             f"Collected {summary['collected']} screening result(s) from "

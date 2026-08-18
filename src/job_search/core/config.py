@@ -163,6 +163,11 @@ class ExecutionConfig(BaseModel):
     max_runtime_hours: int = 8
     lock_file: str = "data/runner.lock"
     lock_stale_after_minutes: int = 120
+    # Batch collection has its own lock: it runs from the hourly collect task,
+    # from a run's startup, and from the web UI button, none of which hold the
+    # runner lock. A collect pass is minutes at most, so it goes stale quickly.
+    collect_lock_file: str = "data/collect.lock"
+    collect_lock_stale_after_minutes: int = 30
     stop_file: str = "data/runner.stop"
     force_stop_grace_seconds: int = 30
     idle_drain_minutes: int = 2   # exit this soon after queues empty (non-search runs)

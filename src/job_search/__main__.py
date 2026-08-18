@@ -303,6 +303,9 @@ def batch_collect(config: str) -> None:
         summary = screener.collect_all(
             stale_after_hours=cfg.screening.batch_stale_after_hours
         )
+        if summary.get("skipped"):
+            click.echo("Another process is already collecting batches; nothing to do.")
+            return
         click.echo(
             f"Batches checked: {summary['checked']}  |  results written: {summary['collected']}"
             f"  |  still running: {summary['still_running']}  |  failed: {summary['failed']}"

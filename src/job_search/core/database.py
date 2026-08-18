@@ -1888,6 +1888,27 @@ class DatabaseManager:
             row = cur.fetchone()
             return row is not None and row[0] == batch_id
 
+    def claim_batch_result(self, job_id: int, batch_id: int) -> bool:
+        """Take exclusive ownership of one batch response, atomically.
+
+        Reading ``job_belongs_to_batch`` and then clearing the link is two
+        statements, so two collectors polling the same finished batch can both
+        pass the check and both write the same row. Folding the check into the
+        UPDATE's WHERE clause makes the claim indivisible: exactly one caller
+        sees rowcount 1, and everyone else knows to discard its copy.
+
+        The link is dropped as part of claiming, so a caller that then fails to
+        parse the response must mark the job as an error (or leave it pending)
+        rather than assume it is still in flight.
+        """
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET batch_job_id = NULL "
+                "WHERE job_id = ? AND batch_job_id = ?",
+                (job_id, batch_id),
+            )
+            return cur.rowcount == 1
+
     def clear_batch_link(self, job_ids: list[int]) -> None:
         """Release jobs from a batch so the normal screening path can take them."""
         with self._cursor() as cur:
@@ -1898,9 +1919,17 @@ class DatabaseManager:
 
     def finish_batch_job(self, batch_id: int, state: str, collected: int = 0,
                          error_message: str | None = None) -> None:
+        """Close a batch, adding to its collected count rather than replacing it.
+
+        Two collectors that split a batch between them each report only their
+        own share. Overwriting would leave whichever finished last on record,
+        which reads as "half the results vanished" when in fact both halves
+        were written.
+        """
         with self._cursor() as cur:
             cur.execute(
-                "UPDATE batch_jobs SET state = ?, collected_count = ?, "
+                "UPDATE batch_jobs SET state = ?, "
+                "collected_count = COALESCE(collected_count, 0) + ?, "
                 "error_message = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (state, collected, error_message, batch_id),
             )

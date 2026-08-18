@@ -43,6 +43,67 @@ class TestRunnerLock:
         assert rc.is_locked(paths["lock"]) is None
         assert rc.acquire_lock(paths["lock"], "scheduled") is True
 
+
+class TestExclusiveLock:
+    """The collect lock: whoever loses steps aside rather than racing."""
+
+    def test_only_one_holder_at_a_time(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "collect.lock")
+        with rc.exclusive(path) as outer:
+            assert outer is True
+            with rc.exclusive(path) as inner:
+                assert inner is False
+
+    def test_released_on_exit(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "collect.lock")
+        with rc.exclusive(path) as held:
+            assert held is True
+        assert not Path(path).exists()
+        with rc.exclusive(path) as held:
+            assert held is True
+
+    def test_released_even_when_the_block_raises(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "collect.lock")
+        with pytest.raises(RuntimeError):
+            with rc.exclusive(path):
+                raise RuntimeError("boom")
+        assert not Path(path).exists()
+
+    def test_a_dead_holder_does_not_block_forever(self, tmp_path: Path) -> None:
+        """A hard kill must not wedge every later collect."""
+        path = tmp_path / "collect.lock"
+        path.write_text(json.dumps({
+            "pid": 999_999_999,          # no such process
+            "started_at": _past(0),
+            "origin": "batch-collect",
+        }), encoding="utf-8")
+
+        with rc.exclusive(str(path)) as held:
+            assert held is True
+
+    def test_an_ancient_holder_is_swept(self, tmp_path: Path) -> None:
+        path = tmp_path / "collect.lock"
+        path.write_text(json.dumps({
+            "pid": os.getpid(),          # alive, but far too old to be real
+            "started_at": _past(3),
+            "origin": "batch-collect",
+        }), encoding="utf-8")
+
+        with rc.exclusive(str(path), stale_after_minutes=30) as held:
+            assert held is True
+
+    def test_a_live_recent_holder_is_respected(self, tmp_path: Path) -> None:
+        path = tmp_path / "collect.lock"
+        path.write_text(json.dumps({
+            "pid": os.getpid(),
+            "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "origin": "batch-collect",
+        }), encoding="utf-8")
+
+        with rc.exclusive(str(path), stale_after_minutes=30) as held:
+            assert held is False
+        assert path.exists()             # not ours, so not deleted
+
     def test_missing_lock_is_not_locked(self, paths) -> None:
         assert rc.is_locked(paths["lock"]) is None
 

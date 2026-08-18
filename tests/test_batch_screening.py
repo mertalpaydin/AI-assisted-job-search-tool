@@ -102,6 +102,135 @@ class TestOwnershipRule:
         assert db.job_belongs_to_batch(99999, 1) is False
 
 
+class TestClaiming:
+    """Only one collector may write a given batch response."""
+
+    def test_first_claim_wins_and_the_second_is_refused(self, db: DatabaseManager) -> None:
+        """Two collectors polling the same finished batch must not both write."""
+        _scraped_job(db, 970)
+        batch_id = db.create_batch_job("providers/batches/claim", "screen", [970])
+
+        assert db.claim_batch_result(970, batch_id) is True
+        assert db.claim_batch_result(970, batch_id) is False
+
+    def test_claiming_releases_the_job(self, db: DatabaseManager) -> None:
+        """A claimed job is no longer in flight, so a failed write can retry."""
+        _scraped_job(db, 971)
+        batch_id = db.create_batch_job("providers/batches/rel", "screen", [971])
+
+        assert db.claim_batch_result(971, batch_id) is True
+        assert db.get_batch_job_ids(batch_id) == []
+        assert 971 in db.get_jobs_pending_screening()
+
+    def test_a_stale_batch_cannot_claim(self, db: DatabaseManager) -> None:
+        """The rule that makes a late arrival after a re-submission harmless."""
+        _scraped_job(db, 972)
+        first = db.create_batch_job("providers/batches/one", "screen", [972])
+        db.abandon_batch_job(first)
+        second = db.create_batch_job("providers/batches/two", "screen", [972])
+
+        assert db.claim_batch_result(972, first) is False
+        assert db.claim_batch_result(972, second) is True
+
+    def test_finish_adds_to_the_collected_count(self, db: DatabaseManager) -> None:
+        """Two collectors splitting a batch must not overwrite each other's tally."""
+        _scraped_job(db, 973)
+        batch_id = db.create_batch_job("providers/batches/split", "screen", [973])
+
+        db.finish_batch_job(batch_id, "partial", collected=129)
+        db.finish_batch_job(batch_id, "partial", collected=124)
+
+        assert db.get_recent_batch_jobs()[0]["collected_count"] == 253
+
+
+class _FakeBatch:
+    """Stands in for the SDK's batch object, inline-response flavour."""
+
+    def __init__(self, responses: list[dict]) -> None:
+        self.dest = type("Dest", (), {"inlined_responses": responses})()
+
+
+def _response(job_id: int, text: str) -> dict:
+    return {
+        "metadata": {"job_id": str(job_id)},
+        "response": {"candidates": [{"content": {"parts": [{"text": text}]}}]},
+    }
+
+
+_GOOD = ('{"cv_match_score": 0.8, "german_requirement_level": "none", '
+         '"reasoning": "fits", "archetype": "A"}')
+
+
+def _collector(db: DatabaseManager):
+    """A BatchScreener with no API client: _collect_one never needs one."""
+    from job_search.ai.batch_screener import BatchScreener
+    from job_search.core.config import Config
+
+    screener = object.__new__(BatchScreener)
+    screener._db = db
+    screener._config = Config(search={"keywords": ["x"],
+                                      "locations": [{"geo_id": "1", "name": "n"}]})
+    return screener
+
+
+class TestCollecting:
+    def test_a_complete_batch_succeeds(self, db: DatabaseManager) -> None:
+        for jid in (980, 981):
+            _scraped_job(db, jid)
+        batch_id = db.create_batch_job("providers/batches/ok", "screen", [980, 981])
+
+        written = _collector(db)._collect_one(
+            batch_id, _FakeBatch([_response(980, _GOOD), _response(981, _GOOD)])
+        )
+
+        assert written == 2
+        recent = db.get_recent_batch_jobs()[0]
+        assert recent["state"] == "succeeded"
+        assert recent["collected_count"] == 2
+        assert db.get_jobs_pending_screening() == []
+
+    def test_a_missing_response_releases_only_that_job(self, db: DatabaseManager) -> None:
+        for jid in (982, 983):
+            _scraped_job(db, jid)
+        batch_id = db.create_batch_job("providers/batches/short", "screen", [982, 983])
+
+        written = _collector(db)._collect_one(batch_id, _FakeBatch([_response(982, _GOOD)]))
+
+        assert written == 1
+        assert db.get_jobs_pending_screening() == [983]
+        assert db.get_recent_batch_jobs()[0]["state"] == "partial"
+
+    def test_a_second_collector_writes_nothing_and_releases_nothing(
+        self, db: DatabaseManager
+    ) -> None:
+        """The batch-6 failure: two collectors on one finished batch.
+
+        The second must not re-write rows, and must not hand answered jobs back
+        to the screening queue just because it found their links already gone.
+        """
+        for jid in (984, 985):
+            _scraped_job(db, jid)
+        batch_id = db.create_batch_job("providers/batches/race", "screen", [984, 985])
+        responses = [_response(984, _GOOD), _response(985, _GOOD)]
+
+        first = _collector(db)._collect_one(batch_id, _FakeBatch(responses))
+        second = _collector(db)._collect_one(batch_id, _FakeBatch(responses))
+
+        assert (first, second) == (2, 0)
+        assert db.get_jobs_pending_screening() == []
+        # Both passes counted honestly, and neither erased the other's tally.
+        assert db.get_recent_batch_jobs()[0]["collected_count"] == 2
+
+    def test_an_unusable_response_marks_the_job_for_retry(self, db: DatabaseManager) -> None:
+        _scraped_job(db, 986)
+        batch_id = db.create_batch_job("providers/batches/junk", "screen", [986])
+
+        written = _collector(db)._collect_one(batch_id, _FakeBatch([_response(986, "not json")]))
+
+        assert written == 0
+        assert db.get_recent_batch_jobs()[0]["state"] == "partial"
+
+
 class TestScreeningStillWorks:
     def test_saving_a_result_is_unaffected(self, db: DatabaseManager) -> None:
         _scraped_job(db, 960)

@@ -186,6 +186,10 @@ class JobSearchCoordinator:
             summary = screener.collect_all(
                 stale_after_hours=self._config.screening.batch_stale_after_hours
             )
+            if summary.get("skipped"):
+                # Another collector has it. Its results land in the same
+                # database, so this run simply proceeds with what is there.
+                return
             if summary["collected"]:
                 logger.info("Collected {} screening result(s) from batches",
                             summary["collected"])
