@@ -11,6 +11,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from job_search.core.session_store import LINKEDIN_COOKIE_DOMAIN, cookie_values
+
 # ---------------------------------------------------------------------------
 # Selector sets — LinkedIn serves at least two different login-page layouts:
 #
@@ -413,16 +415,30 @@ def create_session(
 
     session = requests.Session()
     for cookie in cookies:
-        session.cookies.set(cookie["name"], cookie["value"])
+        # Keep the browser's own domain/path so a later Set-Cookie updates this
+        # entry rather than adding a second one under the same name.
+        session.cookies.set(
+            cookie["name"], cookie["value"],
+            domain=cookie.get("domain") or LINKEDIN_COOKIE_DOMAIN,
+            path=cookie.get("path") or "/",
+        )
 
     logger.info("Session created for {}", email)
     return session
 
 
 def make_headers(session: requests.Session) -> dict[str, str]:
-    """Build the LinkedIn Voyager API headers for a given session."""
-    csrf_token = session.cookies.get("JSESSIONID", "").strip('"')
-    cookie_str = "; ".join(f"{k}={v}" for k, v in session.cookies.items())
+    """Build the LinkedIn Voyager API headers for a given session.
+
+    Reads the jar through ``cookie_values`` rather than ``cookies.get`` and
+    ``cookies.items``. Both are unsafe once the jar holds two cookies of the
+    same name, which LinkedIn causes routinely: ``get`` raises
+    CookieConflictError, and ``items`` would emit the name twice in one Cookie
+    header. Either way the workers stop.
+    """
+    values = cookie_values(session)
+    csrf_token = (values.get("JSESSIONID") or "").strip('"')
+    cookie_str = "; ".join(f"{k}={v}" for k, v in values.items())
     return {
         "Accept": "application/vnd.linkedin.normalized+json+2.1",
         "Accept-Encoding": "gzip, deflate, br",

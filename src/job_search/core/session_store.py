@@ -37,13 +37,53 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# LinkedIn sets its session cookies here. Restoring them under the same domain
+# means a Set-Cookie from the server *replaces* our entry instead of sitting
+# beside it as a second cookie with the same name.
+LINKEDIN_COOKIE_DOMAIN = ".linkedin.com"
+
+
+def _rank(cookie) -> int:
+    """A cookie the server set outranks the bootstrap value we restored."""
+    return 1 if cookie.domain else 0
+
+
+def cookie_values(session_or_jar) -> dict[str, str]:
+    """Collapse a cookie jar to one value per name.
+
+    A jar may legitimately hold several cookies with one name under different
+    domains, and requests' own ``jar.get(name)`` refuses to choose — it raises
+    CookieConflictError. LinkedIn produces exactly that situation: a restored
+    session starts with a domainless JSESSIONID, the first response sets
+    another for .linkedin.com, and from then on every caller that reads the jar
+    by name either crashed or silently picked one at random.
+
+    Server-set cookies win over restored ones, and among those the most
+    recently added wins: that is the value LinkedIn treats as current, and the
+    CSRF token has to match the JSESSIONID actually being sent.
+    """
+    jar = getattr(session_or_jar, "cookies", session_or_jar)
+    if isinstance(jar, dict):
+        return dict(jar)
+
+    chosen: dict[str, object] = {}
+    for cookie in jar:
+        previous = chosen.get(cookie.name)
+        if previous is None or _rank(cookie) >= _rank(previous):
+            chosen[cookie.name] = cookie
+    return {name: (c.value or "") for name, c in chosen.items()}
+
+
 def save_session(session: requests.Session, path: str) -> None:
     """Write the cookie jar to disk with owner-only permissions."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "saved_at": _now_iso(),
-        "cookies": {k: v for k, v in session.cookies.items()},
+        # Not a plain dict comprehension over .items(): with duplicate names
+        # that keeps whichever happens to come last, which is how a stale
+        # JSESSIONID gets persisted over the live one.
+        "cookies": cookie_values(session),
     }
     p.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     try:
@@ -73,7 +113,7 @@ def load_session(path: str) -> requests.Session | None:
 
     session = requests.Session()
     for name, value in cookies.items():
-        session.cookies.set(name, value)
+        session.cookies.set(name, value, domain=LINKEDIN_COOKIE_DOMAIN, path="/")
     return session
 
 
