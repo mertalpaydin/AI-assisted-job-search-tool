@@ -10,6 +10,8 @@ from typing import Any, Generator
 
 from loguru import logger
 
+from job_search.core.backup import assert_healthy
+
 # ---------------------------------------------------------------------------
 # Schema (new format — fresh installs)
 # Existing databases are restructured by _migrate_v2().
@@ -357,10 +359,15 @@ def _serialize(value: Any) -> Any:
 class DatabaseManager:
     """Thread-safe SQLite database manager."""
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str, check_integrity: bool = True) -> None:
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
+        if check_integrity:
+            # Before _init_schema, which runs migrations and therefore writes.
+            # Opening a damaged database and writing to it anyway is how one
+            # bad file becomes several. ~0.3s on a 240MB database.
+            assert_healthy(self._path)
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:

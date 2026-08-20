@@ -100,13 +100,63 @@ def get_blocked_companies() -> list[str]:
     return list(_config.search.blocked_companies)
 
 
+_snapshotter = None
+
+
 def init_app(db: DatabaseManager, config: Config | None = None) -> Flask:
-    global _db, _cl_mode, _config
+    global _db, _cl_mode, _config, _snapshotter
     _db = db
     _config = config
     if config is not None:
         _cl_mode = config.cover_letter.mode
+        _snapshotter = _start_snapshotter(db, config)
     return app
+
+
+def _start_snapshotter(db: DatabaseManager, config: Config):
+    """Protect the decisions made in this UI.
+
+    Applying, skipping, approving and note-taking happen here, and unlike
+    scraped or screened data none of it can be reproduced by re-running
+    anything. The pipeline's own snapshots fire at run boundaries, which a
+    browsing session never reaches, so the UI needs its own trigger.
+    """
+    import atexit
+
+    from job_search.core.backup import IdleSnapshotter, SnapshotManager
+
+    cfg = config.backup
+    if not cfg.enabled:
+        return None
+
+    manager = SnapshotManager(
+        config.database.path, directory=cfg.dir, keep=cfg.keep,
+        tier_hours=tuple(cfg.tier_hours), offsite=cfg.offsite_path or None,
+    )
+    snapshotter = IdleSnapshotter(
+        manager, idle_seconds=cfg.idle_seconds,
+        max_interval_seconds=cfg.max_interval_seconds, reason="webui",
+    )
+    snapshotter.start()
+    # A browsing session usually ends by closing the window, so flush whatever
+    # is still pending rather than relying on a tidy shutdown.
+    atexit.register(snapshotter.flush)
+    return snapshotter
+
+
+@app.after_request
+def _snapshot_after_write(response):
+    """Mark the database dirty after any successful mutation.
+
+    Hooked here rather than on each of the 21 POST routes so a route added
+    later is covered without anyone remembering to opt in. Marking is cheap;
+    the snapshot itself waits for the user to stop clicking.
+    """
+    if (_snapshotter is not None
+            and request.method == "POST"
+            and response.status_code < 400):
+        _snapshotter.mark_dirty()
+    return response
 
 
 # ---------------------------------------------------------------------------

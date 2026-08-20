@@ -67,6 +67,33 @@ concurrency:
   max_cover_letter_workers: 3
 
 # Execution
+# Verified database snapshots.
+#
+# Snapshots are taken with SQLite's VACUUM INTO (a consistent image in well
+# under a second), verified with quick_check before being kept, and verified
+# again before a restore. An unverified backup is not a backup: it is possible
+# to hold several copies of a database and have all of them be the corruption.
+#
+# They are taken at the end of each pipeline run, before bulk or destructive
+# commands (purge-blocked, clean, backfill-sizes), and — because the web UI is
+# where application decisions, notes and approvals are made — once you stop
+# clicking in it. Reads never trigger one.
+#
+# Every database open also runs quick_check first (database.check_integrity_on_open),
+# because opening runs migrations, so an unchecked open writes into a damaged file.
+#
+#   backup:
+#     enabled: true
+#     dir: "data/backups"
+#     keep: 3                  # verified, so 3 is plenty; the tiers give it reach
+#     tier_hours: [0, 12, 168] # newest, ~12h old, ~1 week old
+#     offsite_path: ""         # e.g. a synced folder: version history off this machine
+#     idle_seconds: 120        # snapshot this long after the last web UI edit
+#     max_interval_seconds: 1800   # ...and at least this often during a long session
+#
+# Restore with:  uv run job-search backup --list
+#                uv run job-search restore latest
+
 execution:
   max_runtime_hours: 8
   shutdown_conditions:

@@ -18,6 +18,7 @@ if Path.cwd() != _PROJECT_ROOT:
     os.chdir(_PROJECT_ROOT)
 
 import click
+from loguru import logger
 
 from job_search.core.config import load_config
 from job_search.core.database import APPLICATION_STATUSES
@@ -521,6 +522,7 @@ def clean(config: str, limit: int | None, no_interactive: bool, scheduled: bool,
         click.echo("Another run is in progress. Exiting.")
         return
 
+    _snapshot_before(cfg, "pre-clean")
     db = DatabaseManager(cfg.database.path)
     try:
         cleaner = JobCleaner(db)
@@ -529,6 +531,117 @@ def clean(config: str, limit: int | None, no_interactive: bool, scheduled: bool,
     finally:
         db.close()
         runcontrol.release_lock(cfg.execution.lock_file)
+
+
+# ---------------------------------------------------------------------------
+# backup / restore: verified snapshots
+# ---------------------------------------------------------------------------
+
+def _snapshot_manager(cfg):
+    from job_search.core.backup import SnapshotManager
+
+    b = cfg.backup
+    return SnapshotManager(cfg.database.path, directory=b.dir, keep=b.keep,
+                           tier_hours=tuple(b.tier_hours),
+                           offsite=b.offsite_path or None)
+
+
+def _snapshot_before(cfg, reason: str) -> None:
+    """Snapshot ahead of a bulk or destructive command. Never fatal.
+
+    These are the operations worth being able to undo — a purge, a mass
+    expiry, a migration, a 6,500-company rewrite — and at well under a second
+    there is no reason to rely on someone remembering to do it by hand.
+    """
+    if not getattr(cfg, "backup", None) or not cfg.backup.enabled:
+        return
+    try:
+        _snapshot_manager(cfg).take(reason)
+    except Exception as exc:
+        logger.warning("Pre-operation snapshot skipped: {}", exc)
+
+
+@main.command()
+@click.option("--config", default="config/config.yaml", show_default=True)
+@click.option("--list", "list_only", is_flag=True, default=False,
+              help="Show existing snapshots instead of taking one.")
+@click.option("--offsite", is_flag=True, default=False,
+              help="Also write the compressed copy to backup.offsite_path.")
+@click.option("--reason", default="manual", show_default=True,
+              help="Short label recorded in the snapshot filename.")
+def backup(config: str, list_only: bool, offsite: bool, reason: str) -> None:
+    """Take a verified snapshot of the database, or list existing ones."""
+    cfg = load_config(config)
+    setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)
+    manager = _snapshot_manager(cfg)
+
+    if list_only:
+        snaps = manager.list()
+        if not snaps:
+            click.echo("No snapshots yet.")
+            return
+        click.echo(f"{'snapshot':<38} {'size':>8}  {'age':>10}  reason")
+        for s in snaps:
+            hours = s.age.total_seconds() / 3600
+            age = f"{hours:.1f}h" if hours < 48 else f"{hours / 24:.1f}d"
+            click.echo(f"{s.path.name:<38} {s.size_mb:>7.0f}M  {age:>10}  {s.reason}")
+        return
+
+    snap = manager.take(reason)
+    if snap is None:
+        raise click.ClickException(
+            "No snapshot taken — the database failed its integrity check. "
+            "See the log, and restore with: uv run job-search restore latest"
+        )
+    click.echo(f"Snapshot {snap.path.name} ({snap.size_mb:.0f}MB)")
+    if offsite:
+        target = manager.push_offsite(snap)
+        click.echo(f"Offsite copy: {target}" if target
+                   else "No backup.offsite_path configured.")
+
+
+@main.command()
+@click.option("--config", default="config/config.yaml", show_default=True)
+@click.argument("snapshot", default="latest")
+@click.option("--yes", is_flag=True, default=False, help="Skip the confirmation.")
+def restore(config: str, snapshot: str, yes: bool) -> None:
+    """Restore a verified snapshot, keeping the current database alongside it.
+
+    Pass a snapshot filename from 'job-search backup --list', or "latest".
+    """
+    from job_search.core import runcontrol
+    from job_search.core.backup import DatabaseCorruptError
+
+    cfg = load_config(config)
+    setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)
+
+    holder = runcontrol.is_locked(cfg.execution.lock_file,
+                                  cfg.execution.lock_stale_after_minutes)
+    if holder is not None:
+        raise click.ClickException(
+            f"A run is in progress (pid {holder.pid}). Stop it first: job-search stop"
+        )
+
+    manager = _snapshot_manager(cfg)
+    snaps = manager.list()
+    if not snaps:
+        raise click.ClickException("No snapshots to restore from.")
+    chosen = snaps[0] if snapshot == "latest" else next(
+        (s for s in snaps if s.path.name in (snapshot, f"{snapshot}.db")), None)
+    if chosen is None:
+        raise click.ClickException(f"No snapshot named {snapshot}")
+
+    hours = chosen.age.total_seconds() / 3600
+    click.echo(f"Restoring {chosen.path.name} ({chosen.size_mb:.0f}MB, {hours:.1f}h old).")
+    click.echo("The current database is kept as jobs.db.replaced-<timestamp>.")
+    if not yes:
+        click.confirm("Proceed?", abort=True)
+
+    try:
+        path = manager.restore(chosen.path.name)
+    except DatabaseCorruptError as exc:
+        raise click.ClickException(str(exc))
+    click.echo(f"Restored to {path} — verified.")
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +722,7 @@ def backfill_sizes(config: str, limit: int | None, max_runtime: float | None,
                 return
 
             runcontrol.clear_stop(cfg.execution.stop_file)
+            _snapshot_before(cfg, "pre-backfill")
             backfiller = CompanySizeBackfiller(
                 db, session,
                 delay=cfg.search.rate_limits.delay_between_requests,
@@ -678,6 +792,7 @@ def purge_blocked(config: str, dry_run: bool) -> None:
             click.echo("Dry run: nothing deleted. Re-run without --dry-run to delete.")
             return
 
+        _snapshot_before(cfg, "pre-purge")
         for job_id, _, _, _ in rows:
             db.delete_job(job_id)
         click.echo("")

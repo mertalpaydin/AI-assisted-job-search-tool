@@ -177,8 +177,28 @@ class ExecutionConfig(BaseModel):
     retry_errors_interval_minutes: int = 1  # 0 = disabled; retries errored jobs automatically
 
 
+class BackupConfig(BaseModel):
+    """Verified snapshots. See job_search.core.backup for the reasoning."""
+    enabled: bool = True
+    dir: str = "data/backups"
+    # Three verified snapshots beat five unverified ones; what the count buys
+    # is span, which is why the tiers matter more than the number.
+    keep: int = 3
+    tier_hours: tuple[int, ...] = (0, 12, 168)     # newest, ~12h old, ~1 week old
+    # Optional path in a synced folder. A stable filename gives you the sync
+    # provider's own version history, off this machine.
+    offsite_path: str = ""
+    # Interactive edits (apply/skip/notes/approvals) are snapshotted once the
+    # user stops clicking, not once per click.
+    idle_seconds: float = 120.0
+    max_interval_seconds: float = 1800.0
+
+
 class DatabaseConfig(BaseModel):
     path: str = "data/jobs.db"
+    # Every open runs migrations, so every open is a write. Checking first is
+    # what stops a damaged file quietly accumulating more damage.
+    check_integrity_on_open: bool = True
 
 
 class LoggingConfig(BaseModel):
@@ -206,6 +226,7 @@ class Config(BaseModel):
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    backup: BackupConfig = Field(default_factory=BackupConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     web: WebUIConfig = Field(default_factory=WebUIConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)

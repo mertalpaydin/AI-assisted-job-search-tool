@@ -161,12 +161,37 @@ class JobSearchCoordinator:
         self._shutdown.request_shutdown()
         for t in self._threads:
             t.join(timeout=10)
+        self._snapshot_after_run()
         self._db.close()
         if self._lock_held:
             runcontrol.release_lock(self._config.execution.lock_file)
             runcontrol.clear_stop(self._config.execution.stop_file)
         logger.info("=== Shutdown complete ===")
         self._state.log_stats(cl_mode=self._config.cover_letter.mode)
+
+    def _snapshot_after_run(self) -> None:
+        """Snapshot once the run's work is done. Never fatal.
+
+        After rather than before: the run has just produced the scraping and
+        screening you would least like to repeat, and a pre-run snapshot only
+        captures a state already sitting on disk. Storing damage is not a risk
+        because ``take`` checks the database first and refuses.
+        """
+        cfg = getattr(self._config, "backup", None)
+        if cfg is None or not cfg.enabled:
+            return
+        try:
+            from job_search.core.backup import SnapshotManager
+
+            manager = SnapshotManager(
+                self._config.database.path, directory=cfg.dir, keep=cfg.keep,
+                tier_hours=tuple(cfg.tier_hours), offsite=cfg.offsite_path or None,
+            )
+            snap = manager.take("run")
+            if snap is not None and cfg.offsite_path:
+                manager.push_offsite(snap)
+        except Exception as exc:
+            logger.warning("Post-run snapshot skipped: {}", exc)
 
     def _collect_batches(self) -> None:
         """Write back any finished screening batches. Never fatal."""
