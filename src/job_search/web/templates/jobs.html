@@ -145,10 +145,12 @@
       <i class="bi bi-people me-1"></i>Company Size
       {% if size_filter %}
         <span class="badge bg-dark ms-1">
-          {% if size_filter == 'startup' %}Startup / Scale-up
+          {% if size_filter == 'micro' %}Micro
+          {% elif size_filter == 'startup' %}Startup / Scale-up
           {% elif size_filter == 'mid' %}Mid-size
           {% elif size_filter == 'large' %}Large
           {% elif size_filter == 'enterprise' %}Enterprise
+          {% elif size_filter == 'global' %}Global
           {% elif size_filter == 'unknown' %}Unknown
           {% else %}{{ size_filter }}{% endif %}
         </span>
@@ -158,10 +160,12 @@
       <li><a class="dropdown-item small {% if not size_filter %}active{% endif %}" href="{{ page_url(p=1, sz='') }}">All Sizes</a></li>
       <li><hr class="dropdown-divider"></li>
       <li><div class="px-2 pb-2 text-muted" style="font-size:0.7rem;">By the size band the company declares on LinkedIn. Jobs scraped before that was captured fall back to their LinkedIn member count.</div></li>
-      <li><a class="dropdown-item small {% if size_filter == 'startup' %}active{% endif %}" href="{{ page_url(p=1, sz='startup') }}">Startup / Scale-up <span class="text-muted">(1–200)</span></a></li>
+      <li><a class="dropdown-item small {% if size_filter == 'micro' %}active{% endif %}" href="{{ page_url(p=1, sz='micro') }}">Micro <span class="text-muted">(1–10)</span></a></li>
+      <li><a class="dropdown-item small {% if size_filter == 'startup' %}active{% endif %}" href="{{ page_url(p=1, sz='startup') }}">Startup / Scale-up <span class="text-muted">(11–200)</span></a></li>
       <li><a class="dropdown-item small {% if size_filter == 'mid' %}active{% endif %}" href="{{ page_url(p=1, sz='mid') }}">Mid-size <span class="text-muted">(201–1,000)</span></a></li>
       <li><a class="dropdown-item small {% if size_filter == 'large' %}active{% endif %}" href="{{ page_url(p=1, sz='large') }}">Large <span class="text-muted">(1,001–5,000)</span></a></li>
-      <li><a class="dropdown-item small {% if size_filter == 'enterprise' %}active{% endif %}" href="{{ page_url(p=1, sz='enterprise') }}">Enterprise <span class="text-muted">(5,000+)</span></a></li>
+      <li><a class="dropdown-item small {% if size_filter == 'enterprise' %}active{% endif %}" href="{{ page_url(p=1, sz='enterprise') }}">Enterprise <span class="text-muted">(5,001–10,000)</span></a></li>
+      <li><a class="dropdown-item small {% if size_filter == 'global' %}active{% endif %}" href="{{ page_url(p=1, sz='global') }}">Global <span class="text-muted">(10,001+)</span></a></li>
       <li><hr class="dropdown-divider"></li>
       <li><a class="dropdown-item small {% if size_filter == 'unknown' %}active{% endif %}" href="{{ page_url(p=1, sz='unknown') }}">Unknown <span class="text-muted">(undisclosed)</span></a></li>
     </ul>

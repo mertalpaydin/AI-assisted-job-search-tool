@@ -329,11 +329,18 @@ _SIZE_BOUND_SQL = """COALESCE(
     NULLIF(j.company_staff_count, 0)
 )"""
 
+# Boundaries follow LinkedIn's own bands (1, 2-10, 11-50, 51-200, 201-500,
+# 501-1000, 1001-5000, 5001-10000, 10001+) so a bucket never splits one. The
+# top two are kept apart deliberately: merging them buried 264 companies of
+# 5,001-10,000 inside a bucket that is 75% global corporates, and a Mittelstand
+# employer of 6,000 is not the same search target as Amazon.
 _SIZE_BUCKETS: dict[str, str] = {
-    "startup": f"{_SIZE_BOUND_SQL} BETWEEN 1 AND 200",
+    "micro": f"{_SIZE_BOUND_SQL} BETWEEN 1 AND 10",
+    "startup": f"{_SIZE_BOUND_SQL} BETWEEN 11 AND 200",
     "mid": f"{_SIZE_BOUND_SQL} BETWEEN 201 AND 1000",
     "large": f"{_SIZE_BOUND_SQL} BETWEEN 1001 AND 5000",
-    "enterprise": f"{_SIZE_BOUND_SQL} > 5000",
+    "enterprise": f"{_SIZE_BOUND_SQL} BETWEEN 5001 AND 10000",
+    "global": f"{_SIZE_BOUND_SQL} > 10000",
     "unknown": f"{_SIZE_BOUND_SQL} IS NULL",
 }
 

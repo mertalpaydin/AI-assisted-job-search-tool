@@ -406,18 +406,65 @@ class TestCompanySizeFilter:
             rows, _ = db.get_all_jobs(size_filter=size, limit=100)
             return sorted(r.job_id for r in rows)
 
-        assert ids("startup") == [1, 2]      # 1-200
+        assert ids("micro") == [1]           # 1-10
+        assert ids("startup") == [2]         # 11-200
         assert ids("mid") == [3]             # 201-1000
         assert ids("large") == [4]           # 1001-5000
-        assert ids("enterprise") == [5]      # >5000
+        assert ids("global") == [5]          # 10001+
         assert ids("unknown") == [6]         # 0 / null
         assert len(ids("")) == 6             # no filter returns all
+
+    def test_buckets_never_split_a_linkedin_band(self, db: DatabaseManager) -> None:
+        """Every boundary sits on one of LinkedIn's own band edges.
+
+        LinkedIn reports nine bands. If a bucket boundary fell inside one, the
+        companies in that band would land in different buckets on no evidence
+        at all, since the band is the only size information we have.
+        """
+        bands = [(0, 1), (2, 10), (11, 50), (51, 200), (201, 500),
+                 (501, 1000), (1001, 5000), (5001, 10000), (10001, None)]
+        for jid, (start, end) in enumerate(bands, start=1):
+            db.insert_job(jid, "kw", "loc")
+            db.update_job_details(jid, {"title": "T", "company_name": f"C{jid}",
+                                        "company_staff_range_start": start,
+                                        "company_staff_range_end": end})
+
+        found = {}
+        for size in ("micro", "startup", "mid", "large", "enterprise", "global"):
+            rows, _ = db.get_all_jobs(size_filter=size, limit=100)
+            for r in rows:
+                found[r.job_id] = size
+
+        assert found == {
+            1: "micro", 2: "micro",              # 0-1, 2-10
+            3: "startup", 4: "startup",          # 11-50, 51-200
+            5: "mid", 6: "mid",                  # 201-500, 501-1000
+            7: "large",                          # 1001-5000
+            8: "enterprise",                     # 5001-10000
+            9: "global",                         # 10001+
+        }
+
+    def test_the_top_two_bands_are_no_longer_merged(self, db: DatabaseManager) -> None:
+        """A 6,000-person employer and a global corporate are different targets."""
+        db.insert_job(1, "kw", "loc")
+        db.update_job_details(1, {"title": "T", "company_name": "Mittelstand",
+                                  "company_staff_range_start": 5001,
+                                  "company_staff_range_end": 10000})
+        db.insert_job(2, "kw", "loc")
+        db.update_job_details(2, {"title": "T", "company_name": "Global Corp",
+                                  "company_staff_range_start": 10001,
+                                  "company_staff_range_end": None})
+
+        ent, _ = db.get_all_jobs(size_filter="enterprise", limit=10)
+        glo, _ = db.get_all_jobs(size_filter="global", limit=10)
+        assert [r.job_id for r in ent] == [1]
+        assert [r.job_id for r in glo] == [2]
 
     def test_the_declared_band_beats_the_member_count(self, db: DatabaseManager) -> None:
         """The gategroup case: 2,457 LinkedIn members, but 10,001+ declared.
 
         Bucketing on the member count filed it under "large". The band is what
-        the company says about itself, so it belongs in "enterprise".
+        the company says about itself, so it belongs in "global".
         """
         db.insert_job(1, "kw", "loc")
         db.update_job_details(1, {"title": "T", "company_name": "gategroup",
@@ -436,7 +483,7 @@ class TestCompanySizeFilter:
             rows, _ = db.get_all_jobs(size_filter=size, limit=100)
             return sorted(r.job_id for r in rows)
 
-        assert ids("enterprise") == [1]
+        assert ids("global") == [1]
         assert ids("startup") == [2]
         assert ids("large") == []
 
