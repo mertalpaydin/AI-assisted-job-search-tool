@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-242%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-352%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
 Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
@@ -30,6 +30,8 @@ Automates LinkedIn job discovery, deterministic prefiltering, AI screening again
 - **Cross-Process Run Control** — A runner lock (ignores dead PIDs and stale holders), a stop file for graceful cross-process shutdown, and a schedule pause with lazy auto-resume let the Web UI, CLI, and scheduled tasks coordinate one run at a time.
 - **Unattended Scheduling** — `scripts/install_tasks.ps1` registers Windows Task Scheduler entries (with `StartWhenAvailable`, so a run missed while the laptop slept fires on wake). Scheduled runs skip LinkedIn stages if the session is dead rather than opening a browser.
 - **Concurrent Pipeline** — Parallel search, details, screening, and cover letter workers with graceful shutdown, checkpointing, resume, and errored-job retry.
+- **Company Size From the Declared Band** — LinkedIn reports two different numbers and they disagree badly: `staffCount` is how many members list a company as their employer, while `staffCountRange` is the band the company declares. gategroup declares **10,001+** and has **2,457** members; SAP's member count *exceeds* its real headcount. Both are stored and shown, the size filter buckets on the band, and every bucket boundary sits on one of LinkedIn's nine band edges so a bucket never splits one.
+- **Verified Database Snapshots** — `VACUUM INTO` snapshots (~1s) taken at run boundaries, after Web UI edits, and before destructive commands. Each is integrity-checked before it is kept and before it is restored, so a damaged snapshot can never rotate out a good one. Opening the database runs `quick_check` first — every open runs migrations, so an unchecked open writes into a damaged file. `job-search restore latest` puts a verified copy back.
 - **Application Tracking** — Mark jobs as `applied`, `interviewing`, `offered`, `rejected`, or `clear`.
 - **Web UI Dashboard** — Local Flask web application (`http://127.0.0.1:5000/`) to review jobs, inspect prefiltered rejections, edit Job Title / Company Name / Cover Letter text live, export the exact per-job prompt, generate 1-page PDFs instantly, drive the runner and batch collection, import jobs, and track status.
 
@@ -70,7 +72,7 @@ flowchart LR
 | Phase 0: Data Discovery | Complete | Scraped & cataloged LinkedIn API fields into SQLite tables |
 | Phase 0.5: Cleanup & Organization | Complete | Established modular architecture & dependency management |
 | Phase 1: Project Setup | Complete | Pydantic config schemas, logging, and environment settings |
-| Phase 2: Database & Core | Complete | SQLite thread-safe DatabaseManager with WAL mode (migrations to v8) |
+| Phase 2: Database & Core | Complete | SQLite thread-safe DatabaseManager with WAL mode (migrations to v10) |
 | Phase 3: Scraping Refactor | Complete | Selenium LinkedIn worker with persisted session |
 | Phase 4: AI Screening | Complete | Prefilter + Gemini screener, batch API, role-family archetypes |
 | Phase 5: Cover Letter Generation | Complete | Family-tailored generator with career-narrative layer |
@@ -207,6 +209,43 @@ uv run job-search batch list               # recent batches and their state
 
 Only one collector runs at a time machine-wide (`data/collect.lock`), so this command, the hourly collect task, a run's startup, and the Web UI button can never overlap — whoever arrives second steps aside rather than re-polling the same batch. Results land in the same database either way.
 
+### Company size backfill
+
+```bash
+uv run job-search backfill-sizes --dry-run     # how much is outstanding, largest companies first
+uv run job-search backfill-sizes               # fetch the declared size band for older jobs
+uv run job-search backfill-sizes --limit 200 --max-runtime 2
+```
+
+Company size lives on every job row, so repairing rows scraped before the band was captured could mean one request per *job*. This walks distinct **companies** instead — one request fills in every job row that company owns — and is safe to interrupt: a company already written is skipped next time, so re-running continues where it stopped.
+
+### Database snapshots & recovery
+
+```bash
+uv run job-search backup                   # verified snapshot, ~1s
+uv run job-search backup --list            # existing snapshots with age and size
+uv run job-search backup --offsite         # also write the compressed copy offsite
+uv run job-search restore latest           # verify, swap in, keep the current file
+uv run job-search restore jobs-20260820-135725-run.db
+```
+
+Snapshots use SQLite's `VACUUM INTO`, which writes a transactionally consistent image in well under a second. That is the point: a byte-level copy of a live database — a sync client, a drag in Explorer, `shutil.copy` — reads `jobs.db`, `-wal` and `-shm` at different moments while they are being written, and can produce a file that looks fine and is not.
+
+Every snapshot is verified with `quick_check` before it is kept, and again before a restore. **An unverified backup is not a backup** — it is possible to hold five copies of a database and have three of them be the same corruption. Because each retained snapshot is verified, three of them are worth more than five unchecked ones, and the count stops being the safety margin; what it buys is reach, which is why `tier_hours` spreads the three slots over newest / ~12h / ~1 week rather than over the last twenty minutes.
+
+They are taken automatically:
+
+| trigger | why |
+|---------|-----|
+| End of each pipeline run | after the work, not before — a pre-run snapshot is a state already on disk |
+| Once you stop editing in the Web UI | applying, skipping, approving and note-taking happen there, and no run can reproduce them |
+| Before `purge-blocked`, `clean`, `backfill-sizes` | the operations worth being able to undo |
+| Never on reads | nothing new to capture |
+
+Opening the database also runs `quick_check` first (`database.check_integrity_on_open`). Opening runs migrations, so **every open is a write**: without the check, a damaged file quietly accumulates more damage every time anything touches it. On failure nothing is written and the error names the recovery command.
+
+Set `backup.offsite_path` to a path inside a synced folder (Drive, Dropbox, …) to get a compressed copy under a *stable* filename — the sync provider's own version history then becomes the offsite tier. Syncing a snapshot is safe; syncing the live database is what corrupts it.
+
 ### Terminal listing & application tracking
 
 ```bash
@@ -263,7 +302,7 @@ Open `http://127.0.0.1:5000/` in your browser.
 | Dashboard Page | Capabilities |
 |----------------|--------------|
 | **Dashboard** | Overview metrics, application-stage breakdowns, role-family summary, prefiltered/in-flight counters |
-| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, employee count + industry, a **company-size** filter, and quick actions |
+| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, declared size band + LinkedIn member count, industry, a six-bucket **company-size** filter (micro / startup / mid / large / enterprise / global), and quick actions |
 | **All Jobs** | Master repository of all scraped jobs, with company inclusion/exclusion and company-size filtering |
 | **Prefiltered** | Deterministic rejections grouped by rule and stage, so an over-aggressive rule can be spotted and reversed |
 | **Search Stats** | Conversion-funnel metrics per keyword/location, with a role-family breakdown |
@@ -314,13 +353,16 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-279 automated unit tests covering:
+352 automated unit tests covering:
 - Database CRUD, WAL-mode transaction safety, and schema migrations
 - Pydantic configuration schemas and `.env` credentials loading
 - Deterministic prefilter rules (title and details stages)
 - Role-family archetype validation
 - Gemini API key rotation and exponential backoff
 - Batch screening submission, collection, and in-flight guarding
+- Verified snapshots, retention tiers, restore, and the corruption tripwire
+- Company size bands, bucket boundaries, and the per-company backfill
+- Cookie jars holding duplicate names (LinkedIn sets JSESSIONID twice)
 - Screening-mode routing (instant / batch / auto by origin)
 - Tiered search-term scheduling
 - Cross-process run control (locks, stop file, schedule pause)
@@ -343,6 +385,7 @@ uv run pytest tests/ -v
 │   ├── cover_letter_template.tex    # Executive 1-page LaTeX cover letter template
 │   └── .env.example                 # Credentials template — copy to .env
 ├── data/
+│   ├── backups/                     # Verified database snapshots (gitignored)
 │   ├── export/                      # Default text/CSV/PDF export directory (gitignored)
 │   └── samples/                     # Discovery field catalog and SQL schemas
 ├── docs/
@@ -360,13 +403,15 @@ uv run pytest tests/ -v
 │   └── job_search/
 │       ├── ai/                      # Gemini screener, batch screener, cover letter generator, prompt manager
 │       ├── cleaner/                 # LinkedIn job expiration cleaner
-│       ├── core/                    # Pydantic config, SQLite database manager, prefilter, run control, session store, pipeline state
+│       ├── core/                    # Pydantic config, SQLite database manager, prefilter, run control,
+│       │                            #   session store, verified snapshots (backup.py), pipeline state
 │       ├── export/                  # Text/CSV exporter & 1-page LaTeX PDF exporter
 │       ├── orchestration/           # Parallel pipeline coordinator & worker pools
-│       ├── scraping/                # Selenium LinkedIn auth, search & details workers
+│       ├── scraping/                # Selenium LinkedIn auth, search & details workers,
+│       │                            #   company size backfill (company_backfill.py)
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (242 tests)
+└── tests/                           # Unit test suite (352 tests)
 ```
 
 ---
