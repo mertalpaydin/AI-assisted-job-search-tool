@@ -244,6 +244,9 @@ def jobs():
         german_filter=german_filter,
         min_match=min_match_val,
         apply_type=apply_type,
+        archetype_filter=archetype_filter,
+        prefilter_filter=prefilter_filter,
+        size_filter=size_filter,
     )
     job_list, total = db.get_selected_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -332,6 +335,9 @@ def jobs_all():
         german_filter=german_filter,
         min_match=min_match_val,
         apply_type=apply_type,
+        archetype_filter=archetype_filter,
+        prefilter_filter=prefilter_filter,
+        size_filter=size_filter,
         limit=200,
     )
     job_list, total = db.get_all_jobs(

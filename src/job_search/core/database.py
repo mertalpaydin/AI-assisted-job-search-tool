@@ -391,6 +391,15 @@ def _serialize(value: Any) -> Any:
     return value
 
 
+def _lower_unicode(value):
+    """Case-fold the way Python does, for use inside SQL.
+
+    Registered as lower_u() on every connection. Used wherever a company name
+    is compared case-insensitively against a value that Python lowercased.
+    """
+    return value.lower() if isinstance(value, str) else value
+
+
 class DatabaseManager:
     """Thread-safe SQLite database manager."""
 
@@ -411,6 +420,11 @@ class DatabaseManager:
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
+            # SQLite's own LOWER() only folds ASCII, so LOWER('HÖRMANN') keeps
+            # its Ö while Python's .lower() does not — and the two never match.
+            # That silently made 22 companies unselectable in the UI, all of
+            # them German. Python does the folding instead.
+            conn.create_function("lower_u", 1, _lower_unicode, deterministic=True)
             self._local.conn = conn
         return self._local.conn
 
@@ -890,7 +904,7 @@ class DatabaseManager:
                 placeholders = ",".join("?" * len(chunk))
                 cur.execute(
                     f"SELECT job_id, company_name, title, application_status FROM jobs "
-                    f"WHERE LOWER(company_name) IN ({placeholders}) "
+                    f"WHERE lower_u(company_name) IN ({placeholders}) "
                     f"ORDER BY company_name, job_id",
                     chunk,
                 )
@@ -1512,11 +1526,19 @@ class DatabaseManager:
         limit: int | None = None,
         min_match: float | None = None,
         apply_type: str = "",
+        archetype_filter: str = "",
+        prefilter_filter: str = "",
+        size_filter: str = "",
     ) -> list[tuple[str, int]]:
         """Return (company_name, job_count) sorted by count desc.
 
         Applies the same filters as get_selected_jobs / get_all_jobs so the
         company list always reflects what is visible in the current view.
+
+        Every filter the job queries understand has to be repeated here or the
+        promise above quietly breaks: the dropdown keeps offering companies
+        that the active filters have already removed from the list, with counts
+        that do not match anything on screen.
         """
         conditions: list[str] = ["j.is_selected = 1" if selected_only else "j.scraped = 1"]
         conditions.append("j.company_name IS NOT NULL")
@@ -1528,7 +1550,7 @@ class DatabaseManager:
             params.append(min_match)
 
         if company_search:
-            conditions.append("LOWER(j.company_name) LIKE ?")
+            conditions.append("lower_u(j.company_name) LIKE ?")
             params.append(f"%{company_search.lower()}%")
 
         if search:
@@ -1568,11 +1590,11 @@ class DatabaseManager:
 
         if include_companies:
             placeholders = ",".join("?" * len(include_companies))
-            conditions.append(f"LOWER(j.company_name) IN ({placeholders})")
+            conditions.append(f"lower_u(j.company_name) IN ({placeholders})")
             params.extend(c.lower() for c in include_companies)
         elif exclude_companies:
             placeholders = ",".join("?" * len(exclude_companies))
-            conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
+            conditions.append(f"(j.company_name IS NULL OR lower_u(j.company_name) NOT IN ({placeholders}))")
             params.extend(c.lower() for c in exclude_companies)
 
         if keyword_filter:
@@ -1586,6 +1608,24 @@ class DatabaseManager:
         elif german_filter:
             conditions.append("LOWER(j.german_requirement_level) = LOWER(?)")
             params.append(german_filter)
+
+        if archetype_filter == "unclassified":
+            conditions.append("(j.archetype IS NULL OR j.archetype = '' OR j.archetype = 'none')")
+        elif archetype_filter:
+            conditions.append("UPPER(j.archetype) = UPPER(?)")
+            params.append(archetype_filter)
+
+        size_sql = size_condition(size_filter)
+        if size_sql:
+            conditions.append(size_sql)
+
+        if prefilter_filter == "only":
+            conditions.append("j.prefilter_reason IS NOT NULL")
+        elif prefilter_filter == "hide":
+            conditions.append("j.prefilter_reason IS NULL")
+        elif prefilter_filter.startswith(PREFILTER_REASON_PREFIX):
+            conditions.append("j.prefilter_reason = ?")
+            params.append(prefilter_filter[len(PREFILTER_REASON_PREFIX):])
 
         where = " AND ".join(conditions)
         join = "LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1" if cl_ready else ""
@@ -1677,11 +1717,11 @@ class DatabaseManager:
 
         if include_companies:
             placeholders = ",".join("?" * len(include_companies))
-            conditions.append(f"LOWER(j.company_name) IN ({placeholders})")
+            conditions.append(f"lower_u(j.company_name) IN ({placeholders})")
             params.extend(c.lower() for c in include_companies)
         elif exclude_companies:
             placeholders = ",".join("?" * len(exclude_companies))
-            conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
+            conditions.append(f"(j.company_name IS NULL OR lower_u(j.company_name) NOT IN ({placeholders}))")
             params.extend(c.lower() for c in exclude_companies)
 
         if keyword_filter:
@@ -1869,11 +1909,11 @@ class DatabaseManager:
 
         if include_companies:
             placeholders = ",".join("?" * len(include_companies))
-            conditions.append(f"LOWER(j.company_name) IN ({placeholders})")
+            conditions.append(f"lower_u(j.company_name) IN ({placeholders})")
             params.extend(c.lower() for c in include_companies)
         elif exclude_companies:
             placeholders = ",".join("?" * len(exclude_companies))
-            conditions.append(f"(j.company_name IS NULL OR LOWER(j.company_name) NOT IN ({placeholders}))")
+            conditions.append(f"(j.company_name IS NULL OR lower_u(j.company_name) NOT IN ({placeholders}))")
             params.extend(c.lower() for c in exclude_companies)
 
         if keyword_filter:

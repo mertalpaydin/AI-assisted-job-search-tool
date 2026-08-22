@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-356%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-365%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
 Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
@@ -353,7 +353,7 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-356 automated unit tests covering:
+365 automated unit tests covering:
 - Database CRUD, WAL-mode transaction safety, and schema migrations
 - Pydantic configuration schemas and `.env` credentials loading
 - Deterministic prefilter rules (title and details stages)
@@ -411,7 +411,7 @@ uv run pytest tests/ -v
 │       │                            #   company size backfill (company_backfill.py)
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (356 tests)
+└── tests/                           # Unit test suite (365 tests)
 ```
 
 ---

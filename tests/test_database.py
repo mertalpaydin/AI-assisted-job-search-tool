@@ -557,6 +557,109 @@ class TestCompanySizeFilter:
         assert [r.job_id for r in rows] == [1]
 
 
+class TestCompanyDropdownMatchesTheVisibleJobs:
+    """get_company_counts must apply every filter the job queries apply.
+
+    Otherwise the Companies dropdown offers companies the active filters have
+    already removed from the list, with counts matching nothing on screen.
+    """
+
+    def _seed(self, db: DatabaseManager) -> None:
+        # (job_id, company, staff band end, archetype)
+        rows = [
+            (1, "TinyCo", 10, "A"),
+            (2, "MidCo", 500, "B"),
+            (3, "MidCo", 500, "A"),
+            (4, "HugeCo", None, "A"),      # None end = the 10,001+ band
+        ]
+        for jid, company, end, archetype in rows:
+            db.insert_job(jid, "kw", "loc")
+            db.update_job_details(jid, {
+                "title": "T", "company_name": company,
+                "company_staff_range_start": 1 if end else 10001,
+                "company_staff_range_end": end,
+            })
+            db.save_screening_result(
+                jid, ScreeningResult(0.9, "none", True, "ok", archetype=archetype))
+
+    def test_size_filter_narrows_the_company_list(self, db: DatabaseManager) -> None:
+        """The reported bug: filtering to mid-size still offered every company."""
+        self._seed(db)
+
+        companies = dict(db.get_company_counts(size_filter="mid"))
+        assert companies == {"MidCo": 2}
+
+        rows, _ = db.get_all_jobs(size_filter="mid", limit=50)
+        assert {r.company_name for r in rows} == set(companies)
+
+    def test_a_multi_select_narrows_it_too(self, db: DatabaseManager) -> None:
+        companies = dict(db.get_company_counts(size_filter="mid,global"))
+        assert companies == {}
+        self._seed(db)
+        companies = dict(db.get_company_counts(size_filter="mid,global"))
+        assert companies == {"MidCo": 2, "HugeCo": 1}
+
+    def test_archetype_filter_narrows_the_company_list(self, db: DatabaseManager) -> None:
+        """Same defect, same cause — it was missing this filter too."""
+        self._seed(db)
+        companies = dict(db.get_company_counts(selected_only=True, archetype_filter="B"))
+        assert companies == {"MidCo": 1}
+
+    def test_the_counts_match_the_number_of_visible_jobs(
+        self, db: DatabaseManager
+    ) -> None:
+        """A count in the dropdown should be the count you get by clicking it."""
+        self._seed(db)
+        for size in ("micro", "mid", "global"):
+            for company, count in db.get_company_counts(size_filter=size):
+                _, total = db.get_all_jobs(
+                    size_filter=size, include_companies=[company], limit=50)
+                assert total == count, f"{company} in {size}"
+
+
+class TestNonAsciiCompanyNames:
+    """SQLite's LOWER() folds ASCII only; Python's .lower() folds everything.
+
+    Company filtering compares one against the other, so every company with an
+    accented capital — HÖRMANN, GÖRG, HANS IM GLÜCK — silently matched nothing.
+    In a German job search that is not an edge case.
+    """
+
+    def _seed(self, db: DatabaseManager, company: str) -> None:
+        db.insert_job(1, "kw", "loc")
+        db.update_job_details(1, {"title": "T", "company_name": company})
+
+    def test_including_an_umlaut_company_finds_its_jobs(self, db: DatabaseManager) -> None:
+        self._seed(db, "HÖRMANN Gruppe")
+        rows, total = db.get_all_jobs(include_companies=["HÖRMANN Gruppe"], limit=10)
+        assert total == 1
+        assert rows[0].company_name == "HÖRMANN Gruppe"
+
+    def test_matching_is_still_case_insensitive(self, db: DatabaseManager) -> None:
+        self._seed(db, "HÖRMANN Gruppe")
+        _, total = db.get_all_jobs(include_companies=["hörmann gruppe"], limit=10)
+        assert total == 1
+
+    def test_excluding_an_umlaut_company_removes_its_jobs(self, db: DatabaseManager) -> None:
+        self._seed(db, "GRÜNE'S LEIHHÄUSER GmbH")
+        _, total = db.get_all_jobs(exclude_companies=["GRÜNE'S LEIHHÄUSER GmbH"], limit=10)
+        assert total == 0
+
+    def test_the_dropdown_offers_only_selectable_companies(
+        self, db: DatabaseManager
+    ) -> None:
+        """A name in the list must return jobs when clicked."""
+        self._seed(db, "HÖRMANN Gruppe")
+        for company, count in db.get_company_counts():
+            _, total = db.get_all_jobs(include_companies=[company], limit=10)
+            assert total == count, f"{company} is offered but returns {total}"
+
+    def test_ascii_names_are_unaffected(self, db: DatabaseManager) -> None:
+        self._seed(db, "Deloitte")
+        _, total = db.get_all_jobs(include_companies=["DELOITTE"], limit=10)
+        assert total == 1
+
+
 class TestCompanySizeLabel:
     """What the two numbers are called in the UI."""
 
