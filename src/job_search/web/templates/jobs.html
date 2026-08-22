@@ -138,36 +138,60 @@
     </ul>
   </div>
 
-  {# Company size filter dropdown #}
+  {# Company size filter — multi-select. Buckets are an ordered ladder, so the
+     "and above" links are just its tail, which is the common case. #}
+  {% set size_selected = (size_filter or '').split(',') | select | list %}
+  {% set size_labels = {'micro': ('Micro', '1–10'), 'startup': ('Startup / Scale-up', '11–200'),
+                        'mid': ('Mid-size', '201–1,000'), 'large': ('Large', '1,001–5,000'),
+                        'enterprise': ('Enterprise', '5,001–10,000'), 'global': ('Global', '10,001+'),
+                        'unknown': ('Unknown', 'undisclosed')} %}
+  {% set size_ladder = ['micro', 'startup', 'mid', 'large', 'enterprise', 'global'] %}
   <div class="dropdown" id="sizeFilterDropdown">
-    <button class="btn btn-sm {% if size_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
-            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+    <button class="btn btn-sm {% if size_selected %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
       <i class="bi bi-people me-1"></i>Company Size
-      {% if size_filter %}
+      {% if size_selected %}
         <span class="badge bg-dark ms-1">
-          {% if size_filter == 'micro' %}Micro
-          {% elif size_filter == 'startup' %}Startup / Scale-up
-          {% elif size_filter == 'mid' %}Mid-size
-          {% elif size_filter == 'large' %}Large
-          {% elif size_filter == 'enterprise' %}Enterprise
-          {% elif size_filter == 'global' %}Global
-          {% elif size_filter == 'unknown' %}Unknown
-          {% else %}{{ size_filter }}{% endif %}
+          {% if size_selected | length == 1 %}{{ size_labels[size_selected[0]][0] }}
+          {% else %}{{ size_selected | length }} selected{% endif %}
         </span>
       {% endif %}
     </button>
-    <ul class="dropdown-menu p-2 shadow" style="min-width:230px">
-      <li><a class="dropdown-item small {% if not size_filter %}active{% endif %}" href="{{ page_url(p=1, sz='') }}">All Sizes</a></li>
+    <ul class="dropdown-menu p-2 shadow" style="min-width:290px">
+      <li><a class="dropdown-item small {% if not size_selected %}active{% endif %}" href="{{ page_url(p=1, sz='') }}">All Sizes</a></li>
       <li><hr class="dropdown-divider"></li>
-      <li><div class="px-2 pb-2 text-muted" style="font-size:0.7rem;">By the size band the company declares on LinkedIn. Jobs scraped before that was captured fall back to their LinkedIn member count.</div></li>
-      <li><a class="dropdown-item small {% if size_filter == 'micro' %}active{% endif %}" href="{{ page_url(p=1, sz='micro') }}">Micro <span class="text-muted">(1–10)</span></a></li>
-      <li><a class="dropdown-item small {% if size_filter == 'startup' %}active{% endif %}" href="{{ page_url(p=1, sz='startup') }}">Startup / Scale-up <span class="text-muted">(11–200)</span></a></li>
-      <li><a class="dropdown-item small {% if size_filter == 'mid' %}active{% endif %}" href="{{ page_url(p=1, sz='mid') }}">Mid-size <span class="text-muted">(201–1,000)</span></a></li>
-      <li><a class="dropdown-item small {% if size_filter == 'large' %}active{% endif %}" href="{{ page_url(p=1, sz='large') }}">Large <span class="text-muted">(1,001–5,000)</span></a></li>
-      <li><a class="dropdown-item small {% if size_filter == 'enterprise' %}active{% endif %}" href="{{ page_url(p=1, sz='enterprise') }}">Enterprise <span class="text-muted">(5,001–10,000)</span></a></li>
-      <li><a class="dropdown-item small {% if size_filter == 'global' %}active{% endif %}" href="{{ page_url(p=1, sz='global') }}">Global <span class="text-muted">(10,001+)</span></a></li>
+      <li><div class="px-2 pb-1 text-muted" style="font-size:0.7rem;">By the size band the company declares on LinkedIn. Jobs scraped before that was captured fall back to their LinkedIn member count.</div></li>
+      {% for key in size_ladder %}
+        {% set checked = key in size_selected %}
+        {# Toggling this one on/off, preserving every other selection #}
+        {% set toggled = (size_selected | reject('equalto', key) | list) if checked
+                         else (size_selected + [key]) %}
+        {# Everything from here up the ladder, for "and above" #}
+        {% set and_above = size_ladder[loop.index0:] %}
+        <li class="d-flex align-items-center justify-content-between px-2 py-1">
+          <a class="text-decoration-none flex-grow-1 small {% if checked %}fw-bold text-warning{% else %}text-body{% endif %}"
+             href="{{ page_url(p=1, sz=toggled | join(',')) }}">
+            <i class="bi bi-{{ 'check-square-fill' if checked else 'square' }} me-2"></i>{{ size_labels[key][0] }}
+            <span class="text-muted">({{ size_labels[key][1] }})</span>
+          </a>
+          {% if not loop.last %}
+          <a class="text-decoration-none text-muted ms-2" style="font-size:0.65rem; white-space:nowrap;"
+             title="Select {{ size_labels[key][0] }} and every larger bucket"
+             href="{{ page_url(p=1, sz=and_above | join(',')) }}">&amp; above</a>
+          {% endif %}
+        </li>
+      {% endfor %}
       <li><hr class="dropdown-divider"></li>
-      <li><a class="dropdown-item small {% if size_filter == 'unknown' %}active{% endif %}" href="{{ page_url(p=1, sz='unknown') }}">Unknown <span class="text-muted">(undisclosed)</span></a></li>
+      {% set unknown_checked = 'unknown' in size_selected %}
+      {% set unknown_toggled = (size_selected | reject('equalto', 'unknown') | list) if unknown_checked
+                               else (size_selected + ['unknown']) %}
+      <li class="px-2 py-1">
+        <a class="text-decoration-none small {% if unknown_checked %}fw-bold text-warning{% else %}text-body{% endif %}"
+           href="{{ page_url(p=1, sz=unknown_toggled | join(',')) }}">
+          <i class="bi bi-{{ 'check-square-fill' if unknown_checked else 'square' }} me-2"></i>Unknown
+          <span class="text-muted">(undisclosed)</span>
+        </a>
+      </li>
     </ul>
   </div>
 

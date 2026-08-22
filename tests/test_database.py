@@ -444,6 +444,52 @@ class TestCompanySizeFilter:
             9: "global",                         # 10001+
         }
 
+    def test_several_buckets_can_be_selected_at_once(self, db: DatabaseManager) -> None:
+        """"Large and above" is a union of buckets, not a range."""
+        specs = [(1, 5), (2, 150), (3, 500), (4, 3000), (5, 7000), (6, 50000)]
+        for jid, staff in specs:
+            db.insert_job(jid, "kw", "loc")
+            db.update_job_details(jid, {"title": "T", "company_name": f"C{jid}",
+                                        "company_staff_count": staff})
+
+        def ids(size: str):
+            rows, _ = db.get_all_jobs(size_filter=size, limit=100)
+            return sorted(r.job_id for r in rows)
+
+        assert ids("large,enterprise,global") == [4, 5, 6]
+        assert ids("micro,global") == [1, 6]        # a union no range could express
+        assert ids("large") == [4]                  # a single value still works
+
+    def test_selecting_everything_is_the_same_as_no_filter(
+        self, db: DatabaseManager
+    ) -> None:
+        for jid, staff in ((1, 5), (2, 3000)):
+            db.insert_job(jid, "kw", "loc")
+            db.update_job_details(jid, {"title": "T", "company_name": f"C{jid}",
+                                        "company_staff_count": staff})
+        every = "micro,startup,mid,large,enterprise,global,unknown"
+        assert db.get_all_jobs(size_filter=every, limit=100)[1] == 2
+
+    def test_unknown_bucket_names_are_ignored_not_matched(
+        self, db: DatabaseManager
+    ) -> None:
+        """A stale bookmark should widen the results, never empty them."""
+        db.insert_job(1, "kw", "loc")
+        db.update_job_details(1, {"title": "T", "company_name": "C",
+                                  "company_staff_count": 3000})
+
+        rows, _ = db.get_all_jobs(size_filter="large,bogus", limit=100)
+        assert [r.job_id for r in rows] == [1]
+        # Nothing recognisable at all means no size filter rather than no rows.
+        assert db.get_all_jobs(size_filter="bogus", limit=100)[1] == 1
+
+    def test_whitespace_and_repeats_are_tolerated(self, db: DatabaseManager) -> None:
+        db.insert_job(1, "kw", "loc")
+        db.update_job_details(1, {"title": "T", "company_name": "C",
+                                  "company_staff_count": 3000})
+        rows, _ = db.get_all_jobs(size_filter=" large , large ,, ", limit=100)
+        assert [r.job_id for r in rows] == [1]
+
     def test_the_top_two_bands_are_no_longer_merged(self, db: DatabaseManager) -> None:
         """A 6,000-person employer and a global corporate are different targets."""
         db.insert_job(1, "kw", "loc")

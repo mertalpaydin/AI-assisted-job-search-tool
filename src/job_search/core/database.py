@@ -344,6 +344,34 @@ _SIZE_BUCKETS: dict[str, str] = {
     "unknown": f"{_SIZE_BOUND_SQL} IS NULL",
 }
 
+# Smallest to largest. The buckets are an ordered ladder, which is what makes
+# "large and above" expressible at all — it is the tail of this list.
+SIZE_ORDER: tuple[str, ...] = (
+    "micro", "startup", "mid", "large", "enterprise", "global", "unknown",
+)
+
+
+def size_condition(size_filter: str) -> str | None:
+    """Turn a comma-separated bucket list into one SQL condition.
+
+    Multi-select rather than a single choice, because the useful queries are
+    unions: "large and above" is three buckets, and "micro or global" — tiny
+    agencies and household names, skipping everything in between — is a
+    perfectly reasonable thing to ask for and cannot be expressed as a range.
+
+    Unknown values are ignored rather than treated as a match, so a stale
+    bookmark degrades to a wider result set instead of an empty one. Selecting
+    every bucket means no filter at all.
+    """
+    seen: list[str] = []
+    for key in str(size_filter or "").split(","):
+        key = key.strip()
+        if key in _SIZE_BUCKETS and key not in seen:
+            seen.append(key)
+    if not seen or len(seen) == len(_SIZE_BUCKETS):
+        return None
+    return "(" + " OR ".join(_SIZE_BUCKETS[k] for k in seen) + ")"
+
 # Whitelisted fields for ORDER BY (prevents SQL injection via sort params)
 _SORTABLE_FIELDS: frozenset[str] = frozenset({
     "title", "company_name", "formattedLocation", "cv_match_score",
@@ -1675,8 +1703,10 @@ class DatabaseManager:
             params.append(archetype_filter)
 
         # Company size buckets, cut against the declared band (see _SIZE_BUCKETS).
-        if size_filter in _SIZE_BUCKETS:
-            conditions.append(_SIZE_BUCKETS[size_filter])
+        # size_filter is a comma-separated list: "large,enterprise,global".
+        size_sql = size_condition(size_filter)
+        if size_sql:
+            conditions.append(size_sql)
 
         if prefilter_filter == "only":
             conditions.append("j.prefilter_reason IS NOT NULL")
@@ -1865,8 +1895,10 @@ class DatabaseManager:
             params.append(archetype_filter)
 
         # Company size buckets, cut against the declared band (see _SIZE_BUCKETS).
-        if size_filter in _SIZE_BUCKETS:
-            conditions.append(_SIZE_BUCKETS[size_filter])
+        # size_filter is a comma-separated list: "large,enterprise,global".
+        size_sql = size_condition(size_filter)
+        if size_sql:
+            conditions.append(size_sql)
 
         if prefilter_filter == "only":
             conditions.append("j.prefilter_reason IS NOT NULL")

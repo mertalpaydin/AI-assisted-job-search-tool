@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-352%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-356%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
 Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
@@ -302,7 +302,7 @@ Open `http://127.0.0.1:5000/` in your browser.
 | Dashboard Page | Capabilities |
 |----------------|--------------|
 | **Dashboard** | Overview metrics, application-stage breakdowns, role-family summary, prefiltered/in-flight counters |
-| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, declared size band + LinkedIn member count, industry, a six-bucket **company-size** filter (micro / startup / mid / large / enterprise / global), and quick actions |
+| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, declared size band + LinkedIn member count, industry, a **multi-select company-size** filter over six buckets (micro / startup / mid / large / enterprise / global) with one-click "& above", and quick actions |
 | **All Jobs** | Master repository of all scraped jobs, with company inclusion/exclusion and company-size filtering |
 | **Prefiltered** | Deterministic rejections grouped by rule and stage, so an over-aggressive rule can be spotted and reversed |
 | **Search Stats** | Conversion-funnel metrics per keyword/location, with a role-family breakdown |
@@ -353,7 +353,7 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-352 automated unit tests covering:
+356 automated unit tests covering:
 - Database CRUD, WAL-mode transaction safety, and schema migrations
 - Pydantic configuration schemas and `.env` credentials loading
 - Deterministic prefilter rules (title and details stages)
@@ -411,7 +411,7 @@ uv run pytest tests/ -v
 │       │                            #   company size backfill (company_backfill.py)
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (352 tests)
+└── tests/                           # Unit test suite (356 tests)
 ```
 
 ---
