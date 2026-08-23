@@ -30,6 +30,26 @@ def _parse_screening_json(text: str) -> dict:
     return json.loads(match.group())
 
 
+def threshold_for(archetype: str | None, criteria) -> float:
+    """Minimum match score for one role family.
+
+    One global threshold says every family is equally wanted. They are not: a
+    junior AI engineering role is worth reading even at a mediocre score
+    because it moves in the right direction, while a pure procurement role has
+    to be clearly good before it earns a place on the list.
+
+    Falls back to the global min_cv_match_score for any family without an
+    override, which includes "none", so an unclassified job is never held to a
+    bar nobody chose for it.
+    """
+    overrides = getattr(criteria, "min_cv_match_score_by_archetype", None) or {}
+    key = str(archetype or "none").strip().upper()
+    for family, value in overrides.items():
+        if str(family).strip().upper() == key:
+            return float(value)
+    return float(criteria.min_cv_match_score)
+
+
 def _apply_criteria(raw: dict, config: Config) -> ScreeningResult:
     """Validate model output and apply configured selection thresholds."""
     criteria = config.screening.criteria
@@ -56,7 +76,7 @@ def _apply_criteria(raw: dict, config: Config) -> ScreeningResult:
     max_german_idx = _GERMAN_LEVELS.index(criteria.max_german_level)
     german_ok = _GERMAN_LEVELS.index(german_level) <= max_german_idx
 
-    is_selected = cv_match >= criteria.min_cv_match_score and german_ok
+    is_selected = cv_match >= threshold_for(archetype, criteria) and german_ok
 
     return ScreeningResult(
         cv_match_score=cv_match,

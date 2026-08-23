@@ -90,6 +90,9 @@ class ScreeningModelConfig(BaseModel):
 class ScreeningCriteriaConfig(BaseModel):
     min_cv_match_score: float = 0.65
     max_german_level: str = "low"
+    # Optional per-role-family override of min_cv_match_score, keyed by
+    # archetype letter. Empty means every family uses the single global bar.
+    min_cv_match_score_by_archetype: dict[str, float] = Field(default_factory=dict)
 
 
 class GeminiScreeningConfig(BaseModel):
