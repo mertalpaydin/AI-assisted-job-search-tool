@@ -368,10 +368,10 @@
           <span class="fw-semibold text-light"><i class="bi bi-envelope me-2 text-warning"></i>Cover Letter</span>
           {% if job.cover_letter_text %}
           <div class="btn-group btn-group-sm ms-2" role="group" aria-label="View mode">
-            <button type="button" class="btn btn-outline-secondary py-0 px-2 active" id="btnClReadView" onclick="setClViewMode('read')">
+            <button type="button" class="btn btn-outline-secondary py-0 px-2" id="btnClReadView" onclick="setClViewMode('read')">
               <i class="bi bi-eye me-1"></i>Read
             </button>
-            <button type="button" class="btn btn-outline-secondary py-0 px-2" id="btnClEditView" onclick="setClViewMode('edit')">
+            <button type="button" class="btn btn-outline-secondary py-0 px-2 active" id="btnClEditView" onclick="setClViewMode('edit')">
               <i class="bi bi-pencil me-1"></i>Edit
             </button>
           </div>
@@ -440,16 +440,16 @@
           </div>
 
           <!-- Reading Preview Mode -->
-          <div id="clReadContainer" class="cl-preview-box mb-3">{{ job.cover_letter_text }}</div>
+          <div id="clReadContainer" class="cl-preview-box mb-3 d-none">{{ job.cover_letter_text }}</div>
 
           <!-- Edit Mode Textarea -->
-          <div id="clEditContainer" class="d-none">
+          <div id="clEditContainer">
             <textarea name="cover_letter_text" class="cl-textarea mb-3" id="coverLetterText">{{ job.cover_letter_text }}</textarea>
           </div>
 
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <span class="text-muted small" id="clModeHint">
-              <i class="bi bi-eye me-1"></i>Reading view · Click <strong>Edit</strong> to modify text
+              <i class="bi bi-pencil me-1"></i>Edit mode · Live edits sent to PDF generator
             </span>
             <button type="submit" class="btn btn-sm btn-outline-primary" id="clSaveBtn">
               <i class="bi bi-check2 me-1"></i>Save Edits to DB
