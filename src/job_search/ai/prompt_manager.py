@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -191,8 +192,18 @@ class PromptManager:
         job_location: str | None,
         remote_allowed: bool | None,
         job_description: str | None,
+        employment_status: str | None = None,
+        experience_level: str | None = None,
+        job_functions: str | None = None,
+        industries: str | None = None,
+        company_staff_count: int | None = None,
     ) -> tuple[str, str]:
-        """Return (system_prompt, user_prompt) for the screening task."""
+        """Return (system_prompt, user_prompt) for the screening task.
+
+        The five optional arguments are LinkedIn's own structured labels. They
+        default to None so an older prompts.yaml without the matching
+        placeholders still renders, and so callers that predate them still work.
+        """
         cfg = self._prompts["screening"]
         system = cfg["system_prompt"].strip()
         user = cfg["user_prompt_template"].format(
@@ -201,9 +212,44 @@ class PromptManager:
             company_name=company_name or "Unknown",
             job_location=job_location or "Unknown",
             remote_allowed="Yes" if remote_allowed else "No",
+            employment_status=(employment_status or "Unknown"),
+            experience_level=(experience_level or "Unknown"),
+            job_functions=self._readable_list(job_functions),
+            industries=self._readable_list(industries),
+            company_size=self._readable_size(company_staff_count),
             job_description=(job_description or ""),
         )
         return system, user
+
+    @staticmethod
+    def _readable_list(value: str | None) -> str:
+        """Turn LinkedIn's JSON list columns into a plain comma-separated list.
+
+        Stored as text like '["Business Development", "Sales"]'. Handing that
+        to the model raw invites it to read the brackets as structure that
+        means something.
+        """
+        if not value:
+            return "Unknown"
+        text = str(value).strip()
+        if text.startswith("["):
+            try:
+                items = json.loads(text)
+            except (ValueError, TypeError):
+                return text
+            if isinstance(items, list):
+                cleaned = [str(i).strip() for i in items if str(i).strip()]
+                return ", ".join(cleaned) if cleaned else "Unknown"
+        return text or "Unknown"
+
+    @staticmethod
+    def _readable_size(count: int | None) -> str:
+        """Company headcount as words, or Unknown. Zero is not a real size."""
+        try:
+            n = int(count)
+        except (TypeError, ValueError):
+            return "Unknown"
+        return f"{n:,} employees" if n > 0 else "Unknown"
 
     @staticmethod
     def _escape(text: str) -> str:

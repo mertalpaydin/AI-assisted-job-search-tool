@@ -194,6 +194,13 @@ class JobRow:
     scraped: int
     applyMethod: str | None = None
     archetype: str | None = None
+    # Structured LinkedIn metadata. The screener reads these, because
+    # judging "is this a sales job" from prose is guesswork when the
+    # platform has already labelled it.
+    formattedEmploymentStatus: str | None = None
+    formattedJobFunctions: str | None = None
+    formattedIndustries: str | None = None
+    company_staff_count: int | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -983,7 +990,9 @@ class DatabaseManager:
             cur.execute("""
                 SELECT job_id, title, description, formattedLocation,
                        workRemoteAllowed, formattedExperienceLevel, jobPostingUrl,
-                       company_name, scraped, archetype
+                       company_name, scraped, archetype,
+                       formattedEmploymentStatus, formattedJobFunctions,
+                       formattedIndustries, company_staff_count
                 FROM jobs
                 WHERE job_id = ?
             """, (job_id,))

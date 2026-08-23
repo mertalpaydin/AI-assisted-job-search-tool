@@ -161,6 +161,11 @@ class ScreeningWorker:
             job_location=job.formattedLocation,
             remote_allowed=bool(job.workRemoteAllowed),
             job_description=job.description,
+            employment_status=job.formattedEmploymentStatus,
+            experience_level=job.formattedExperienceLevel,
+            job_functions=job.formattedJobFunctions,
+            industries=job.formattedIndustries,
+            company_staff_count=job.company_staff_count,
         )
 
         raw_output = self._infer(system, user)
@@ -279,6 +284,11 @@ class GeminiScreeningWorker:
             job_location=job.formattedLocation,
             remote_allowed=bool(job.workRemoteAllowed),
             job_description=job.description,
+            employment_status=job.formattedEmploymentStatus,
+            experience_level=job.formattedExperienceLevel,
+            job_functions=job.formattedJobFunctions,
+            industries=job.formattedIndustries,
+            company_staff_count=job.company_staff_count,
         )
 
         raw_output = self._infer(system, user)
