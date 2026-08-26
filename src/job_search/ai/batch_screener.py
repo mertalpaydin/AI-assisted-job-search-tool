@@ -96,6 +96,7 @@ class BatchScreener:
             "config": {
                 "system_instruction": system,
                 "temperature": gemini_cfg.temperature,
+                "seed": gemini_cfg.seed,
                 "max_output_tokens": gemini_cfg.max_tokens,
                 # Same structured output as the instant path. A malformed
                 # response costs more here: it is only discovered at collect

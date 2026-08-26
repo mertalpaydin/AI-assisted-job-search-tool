@@ -98,6 +98,10 @@ class ScreeningCriteriaConfig(BaseModel):
 class GeminiScreeningConfig(BaseModel):
     model: str = "gemini-3.1-flash-lite-preview"  # verify exact ID at ai.google.dev/gemini-api/docs/models
     temperature: float = 0.1
+    # Fixed sampling seed, sent on every screening call. None leaves the API to
+    # pick one per request, which is how the same advert scored 0.10 on one
+    # pass and 0.20 on the next.
+    seed: int | None = None
     # Covers the answer AND the model's own thinking: Gemini 3.x thinks by
     # default and bills those tokens here. The prompt asks for a quoted,
     # multi-part reasoning field before the score, which alone runs 300-400

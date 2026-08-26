@@ -349,6 +349,8 @@ class GeminiScreeningWorker:
                     system_instruction=system_prompt,
                     temperature=gemini_cfg.temperature,
                     max_output_tokens=gemini_cfg.max_tokens,
+                    # Optional[int] in the SDK, so None is a valid "unset".
+                    seed=gemini_cfg.seed,
                     # Structured output: the API guarantees valid JSON rather
                     # than us fishing an object out of prose. Removes the whole
                     # class of "model wrapped it in a fence and dropped the
