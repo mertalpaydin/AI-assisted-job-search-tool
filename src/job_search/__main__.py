@@ -49,8 +49,12 @@ def main() -> None:
               help="Mark as a scheduled run: honours the schedule pause and implies --no-interactive.")
 @click.option("--max-runtime", type=float, default=None,
               help="Override execution.max_runtime_hours for this run.")
+@click.option("--once-daily", default=None, metavar="NAME",
+              help="Skip if NAME already completed today; record it on success. "
+                   "Lets a logon catch-up trigger re-run only what the morning missed.")
 def run(config: str, resume: bool, log_level: str | None, stages: tuple[str, ...],
-        no_interactive: bool, scheduled: bool, max_runtime: float | None) -> None:
+        no_interactive: bool, scheduled: bool, max_runtime: float | None,
+        once_daily: str | None) -> None:
     """Run the full job search pipeline, or a subset of stages.
 
     \b
@@ -74,8 +78,19 @@ def run(config: str, resume: bool, log_level: str | None, stages: tuple[str, ...
         paused = runcontrol.pause_state(cfg.schedule.pause_file)
         if paused is not None:
             remaining = runcontrol.pause_remaining(cfg.schedule.pause_file)
+            # Logged, not just echoed: a scheduled task has no console, so the
+            # old click.echo made a skipped run invisible. Days of scrapes went
+            # missing before anyone could see why.
+            logger.info("Scheduled run skipped: schedule is paused ({} remaining)", remaining)
             click.echo(f"Schedule is paused ({remaining} remaining). Exiting.")
             return
+
+    # The logon catch-up fires whether or not the morning run happened, so it
+    # asks here rather than in the batch file.
+    if once_daily and runcontrol.ran_today(cfg.execution.run_marker_file, once_daily):
+        logger.info("'{}' already completed today — nothing to catch up", once_daily)
+        click.echo(f"'{once_daily}' already ran today. Exiting.")
+        return
 
     active_stages = set(stages) if stages else set(ALL_STAGES)
     coordinator = JobSearchCoordinator(
@@ -101,6 +116,13 @@ def run(config: str, resume: bool, log_level: str | None, stages: tuple[str, ...
         pass
     finally:
         coordinator.cleanup()
+
+    # Only mark the day done if this process actually held the run lock. A run
+    # that exited because another was already in progress has done nothing, and
+    # marking it would suppress the catch-up that should still happen.
+    if once_daily and getattr(coordinator, "_lock_held", False):
+        runcontrol.mark_ran_today(cfg.execution.run_marker_file, once_daily)
+        logger.info("Recorded '{}' as completed for today", once_daily)
 
 
 # ---------------------------------------------------------------------------

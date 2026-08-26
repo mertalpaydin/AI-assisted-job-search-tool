@@ -22,7 +22,11 @@ from google.genai import types as genai_types
 from loguru import logger
 
 from job_search.ai.prompt_manager import PromptManager
-from job_search.ai.screener import _apply_criteria, _parse_screening_json
+from job_search.ai.screener import (
+    SCREENING_RESPONSE_SCHEMA,
+    _apply_criteria,
+    _parse_screening_json,
+)
 from job_search.core import runcontrol
 from job_search.core.config import Config
 from job_search.core.database import DatabaseManager
@@ -93,6 +97,11 @@ class BatchScreener:
                 "system_instruction": system,
                 "temperature": gemini_cfg.temperature,
                 "max_output_tokens": gemini_cfg.max_tokens,
+                # Same structured output as the instant path. A malformed
+                # response costs more here: it is only discovered at collect
+                # time, hours after the batch was paid for.
+                "response_mime_type": "application/json",
+                "response_schema": SCREENING_RESPONSE_SCHEMA,
             },
         }
 

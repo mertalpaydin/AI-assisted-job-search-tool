@@ -98,7 +98,11 @@ class ScreeningCriteriaConfig(BaseModel):
 class GeminiScreeningConfig(BaseModel):
     model: str = "gemini-3.1-flash-lite-preview"  # verify exact ID at ai.google.dev/gemini-api/docs/models
     temperature: float = 0.1
-    max_tokens: int = 512
+    # Covers the answer AND the model's own thinking: Gemini 3.x thinks by
+    # default and bills those tokens here. The prompt asks for a quoted,
+    # multi-part reasoning field before the score, which alone runs 300-400
+    # tokens, so 512 left nothing for the JSON and answers arrived truncated.
+    max_tokens: int = 2048
     requests_per_minute: int = 15         # per API key
 
 
@@ -172,6 +176,9 @@ class ExecutionConfig(BaseModel):
     collect_lock_file: str = "data/collect.lock"
     collect_lock_stale_after_minutes: int = 30
     stop_file: str = "data/runner.stop"
+    # Records which daily legs have completed today, so the logon catch-up
+    # trigger can skip work the morning run already did.
+    run_marker_file: str = "data/last_run.json"
     force_stop_grace_seconds: int = 30
     idle_drain_minutes: int = 2   # exit this soon after queues empty (non-search runs)
     shutdown_conditions: ShutdownConditionsConfig = Field(default_factory=ShutdownConditionsConfig)

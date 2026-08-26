@@ -14,14 +14,20 @@ $repo = Split-Path -Parent $PSScriptRoot
 $bat  = Join-Path $repo "scripts\scheduled_run.bat"
 $prefix = "JobSearch"
 
-# Scrape (search+details) runs for an hour, then a 15-minute gap, then screen
-# and cover letters run together in one process for an hour. Keeping a gap
-# means the single run lock is always free before the next task starts.
+# "daily" runs scraping and then screening+cover-letters back to back in one
+# task, so the second leg starts when the first actually finishes rather than
+# after a guessed 15-minute gap that scraping twice overran.
+#
+# Catchup runs the SAME mode at logon. On a laptop the 07:00 trigger is usually
+# missed because the machine is asleep, and StartWhenAvailable did not reliably
+# recover it — scraping silently stopped happening for days at a time. Both
+# triggers are guarded by --once-daily, so whichever gets there first does the
+# work and the other exits immediately.
 $tasks = @(
-    @{ Name = "$prefix-Scrape";   Mode = "scrape";    Trigger = "Daily 07:00" },
-    @{ Name = "$prefix-ScreenCL"; Mode = "screen-cl"; Trigger = "Daily 08:15" },
-    @{ Name = "$prefix-Collect";  Mode = "collect";   Trigger = "Hourly" },
-    @{ Name = "$prefix-Clean";    Mode = "clean";     Trigger = "Weekly Sunday 03:00" }
+    @{ Name = "$prefix-Daily";   Mode = "daily";   Trigger = "Daily 07:00" },
+    @{ Name = "$prefix-Catchup"; Mode = "daily";   Trigger = "AtLogOn" },
+    @{ Name = "$prefix-Collect"; Mode = "collect"; Trigger = "Hourly" },
+    @{ Name = "$prefix-Clean";   Mode = "clean";   Trigger = "Weekly Sunday 03:00" }
 )
 
 # Remove every existing JobSearch-* task, not just the ones in $tasks, so a
@@ -54,6 +60,14 @@ function New-Trigger($spec) {
                 -RepetitionDuration (New-TimeSpan -Days 3650)).Repetition
             return $t
         }
+        "AtLogOn" {
+            # Five minutes after logon, so it is not competing with everything
+            # else Windows starts. --once-daily makes it a no-op on any day the
+            # 07:00 trigger already did the work.
+            $t = New-ScheduledTaskTrigger -AtLogOn
+            $t.Delay = "PT5M"
+            return $t
+        }
     }
 }
 
@@ -65,8 +79,27 @@ foreach ($t in $tasks) {
     Write-Host "registered $($t.Name)  ($($t.Trigger))"
 }
 
+# Windows keeps no record of why a task did not fire unless this log is on, and
+# it is off by default. That absence is why a scheduled run silently going
+# missing could not be explained after the fact. Needs admin; harmless if it
+# fails, since nothing here depends on it.
+$opLog = "Microsoft-Windows-TaskScheduler/Operational"
+try {
+    $cfg = New-Object System.Diagnostics.Eventing.Reader.EventLogConfiguration $opLog
+    if (-not $cfg.IsEnabled) {
+        $cfg.IsEnabled = $true
+        $cfg.SaveChanges()
+        Write-Host "enabled $opLog (task history)"
+    }
+} catch {
+    Write-Host "note: could not enable $opLog - run as administrator to get task history"
+}
+
 Write-Host ""
 Write-Host "Done. Before the first scheduled run, store a LinkedIn session:"
 Write-Host "    uv run job-search login"
 Write-Host "Check state any time with:"
 Write-Host "    uv run job-search status"
+Write-Host ""
+Write-Host "The daily work now runs from two triggers: 07:00 and 5 minutes after"
+Write-Host "logon. Whichever fires first does the work; the other exits."

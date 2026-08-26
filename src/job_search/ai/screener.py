@@ -17,17 +17,103 @@ from job_search.utils.api_rotation import GeminiAPIRotator
 
 _GERMAN_LEVELS = ("none", "low", "medium", "high")
 
+# Response schema for Gemini's structured output. With this set the API returns
+# syntactically valid JSON by construction: no code fences, no missing braces,
+# nothing for a regex to get wrong. Property order matters — it is the order
+# the model fills them in, and the prompt deliberately asks for the reasoning
+# first so the score follows from it rather than the other way round.
+SCREENING_RESPONSE_SCHEMA: dict = {
+    "type": "OBJECT",
+    "properties": {
+        "reasoning": {"type": "STRING"},
+        "german_requirement_level": {
+            "type": "STRING",
+            "enum": list(_GERMAN_LEVELS),
+        },
+        "cv_match_score": {"type": "NUMBER"},
+        "archetype": {"type": "STRING", "enum": list(ARCHETYPES)},
+    },
+    "required": [
+        "reasoning", "german_requirement_level", "cv_match_score", "archetype",
+    ],
+    "propertyOrdering": [
+        "reasoning", "german_requirement_level", "cv_match_score", "archetype",
+    ],
+}
+
 # Archetypes the screener is allowed to emit. Anything else is normalised to
 # "none" rather than trusted, so a hallucinated label cannot reach the database.
 _ARCHETYPE_ALIASES = {a.lower(): a for a in ARCHETYPES}
 
 
+# Fenced blocks the model wraps its answer in: ```json ... ``` or ``` ... ```
+_FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
+
+
+def _first_json_object(text: str) -> str | None:
+    """Return the first complete, brace-balanced JSON object in text.
+
+    The previous non-greedy ``\\{.*?\\}`` stopped at the first closing brace,
+    so a response containing any nested object would have been silently cut
+    short and parsed into the wrong shape — worse than failing outright.
+    Counting braces (and ignoring those inside strings) keeps whole objects
+    whole.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+    return None
+
+
 def _parse_screening_json(text: str) -> dict:
-    """Extract the first JSON object from model output."""
-    match = re.search(r"\{.*?\}", text, re.DOTALL)
-    if not match:
-        raise ValueError(f"No JSON found in model output: {text}")
-    return json.loads(match.group())
+    """Extract the screening object from model output.
+
+    Structured output makes this a formality, but it stays as the safety net
+    for the free-text paths and for any model that decorates its answer. It
+    handles, in order: a bare object, a fenced block, and an object whose
+    opening brace never arrived — which is exactly how gemini-3.5-flash-lite
+    failed, emitting ```json then the fields then a closing brace.
+    """
+    if not text or not text.strip():
+        raise ValueError("Model returned an empty response")
+
+    candidate = _first_json_object(text)
+    if candidate is not None:
+        return json.loads(candidate)
+
+    # No opening brace anywhere. If what is left looks like the *inside* of an
+    # object, supply the brace the model forgot rather than discarding a
+    # perfectly good answer.
+    stripped = _FENCE.sub("", text.strip()).strip()
+    if stripped.endswith("}") and '"' in stripped:
+        try:
+            return json.loads("{" + stripped)
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"No JSON found in model output: {text[:400]}")
 
 
 def threshold_for(archetype: str | None, criteria) -> float:
@@ -222,8 +308,12 @@ class GeminiScreeningWorker:
     Designed to run as one of N concurrent threads. Each instance shares a
     single GeminiAPIRotator for fair round-robin key rotation and rate limiting.
 
-    NOTE: GenerateContentConfig intentionally omits thinking_config — fast,
-    deterministic JSON output is needed, not extended reasoning.
+    NOTE: this used to say that omitting thinking_config disables thinking.
+    That was true of the 2.x models it was written for. Gemini 3.x thinks by
+    default and charges those tokens against max_output_tokens, which is how a
+    512-token budget ended up split between hidden reasoning and an answer that
+    then arrived truncated. The budget is sized for both now; see
+    ScreeningConfig.gemini.max_tokens.
     """
 
     def __init__(
@@ -259,7 +349,12 @@ class GeminiScreeningWorker:
                     system_instruction=system_prompt,
                     temperature=gemini_cfg.temperature,
                     max_output_tokens=gemini_cfg.max_tokens,
-                    # NO thinking_config — intentional
+                    # Structured output: the API guarantees valid JSON rather
+                    # than us fishing an object out of prose. Removes the whole
+                    # class of "model wrapped it in a fence and dropped the
+                    # opening brace" failure.
+                    response_mime_type="application/json",
+                    response_schema=SCREENING_RESPONSE_SCHEMA,
                 ),
             )
             self._rotator.record_success(key_idx)

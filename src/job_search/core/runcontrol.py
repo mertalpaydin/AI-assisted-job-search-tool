@@ -248,6 +248,52 @@ def exclusive(path: str, stale_after_minutes: int = 30, origin: str = ""):
 
 
 # ---------------------------------------------------------------------------
+# "Did this already run today?"
+# ---------------------------------------------------------------------------
+#
+# A laptop is not a server. The daily tasks fire at 07:00 and this machine is
+# usually asleep then; Task Scheduler's StartWhenAvailable recovery did not
+# reliably pick them up afterwards, so scrape and screening silently stopped
+# running for days. The fix is to stop depending on that recovery: a second
+# trigger runs at logon, and both triggers ask this file whether the day's work
+# is already done.
+#
+# Keyed by leg rather than by task, so a day where scraping ran but screening
+# crashed re-runs only the screening.
+
+def _read_run_markers(path: str) -> dict:
+    data = _read_json(Path(path))
+    return data if isinstance(data, dict) else {}
+
+
+def mark_ran_today(path: str, name: str) -> None:
+    """Record that ``name`` completed a real run today."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    markers = _read_run_markers(path)
+    markers[name] = _now().isoformat(timespec="seconds")
+    try:
+        p.write_text(json.dumps(markers, indent=2, sort_keys=True), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not record run marker {}: {}", name, exc)
+
+
+def ran_today(path: str, name: str) -> bool:
+    """True when ``name`` already completed a run on today's date.
+
+    Local calendar date, not a 24h window: the intent is "today's scrape has
+    happened", so a run at 23:50 should not suppress tomorrow morning's.
+    """
+    raw = _read_run_markers(path).get(name)
+    if not raw:
+        return False
+    try:
+        return datetime.fromisoformat(str(raw)).date() == _now().date()
+    except ValueError:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Stop requests
 # ---------------------------------------------------------------------------
 

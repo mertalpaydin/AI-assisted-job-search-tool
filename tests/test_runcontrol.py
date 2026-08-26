@@ -44,6 +44,58 @@ class TestRunnerLock:
         assert rc.acquire_lock(paths["lock"], "scheduled") is True
 
 
+class TestRanToday:
+    """The guard that lets a 07:00 trigger and a logon trigger share one job."""
+
+    def test_unrecorded_work_has_not_run(self, tmp_path: Path) -> None:
+        assert rc.ran_today(str(tmp_path / "last_run.json"), "scrape") is False
+
+    def test_marking_makes_it_true(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "last_run.json")
+        rc.mark_ran_today(path, "scrape")
+        assert rc.ran_today(path, "scrape") is True
+
+    def test_legs_are_tracked_separately(self, tmp_path: Path) -> None:
+        """A day where scraping worked but screening died re-runs only screening."""
+        path = str(tmp_path / "last_run.json")
+        rc.mark_ran_today(path, "scrape")
+        assert rc.ran_today(path, "scrape") is True
+        assert rc.ran_today(path, "screen-cl") is False
+
+    def test_yesterday_does_not_count(self, tmp_path: Path) -> None:
+        path = tmp_path / "last_run.json"
+        path.write_text(json.dumps({"scrape": _past(hours=30)}), encoding="utf-8")
+        assert rc.ran_today(str(path), "scrape") is False
+
+    def test_it_is_a_calendar_date_not_a_24h_window(self, tmp_path: Path) -> None:
+        """A run at 23:50 must not suppress the next morning's."""
+        path = tmp_path / "last_run.json"
+        just_before_midnight = (datetime.now().astimezone()
+                                .replace(hour=23, minute=50, second=0)
+                                - timedelta(days=1))
+        path.write_text(json.dumps({"scrape": just_before_midnight.isoformat()}),
+                        encoding="utf-8")
+        assert rc.ran_today(str(path), "scrape") is False
+
+    def test_a_corrupt_marker_file_does_not_block_the_run(self, tmp_path: Path) -> None:
+        """Failing open matters: failing closed would skip work indefinitely."""
+        path = tmp_path / "last_run.json"
+        path.write_text("{not json", encoding="utf-8")
+        assert rc.ran_today(str(path), "scrape") is False
+
+    def test_an_unparseable_timestamp_does_not_block_the_run(self, tmp_path: Path) -> None:
+        path = tmp_path / "last_run.json"
+        path.write_text(json.dumps({"scrape": "yesterday-ish"}), encoding="utf-8")
+        assert rc.ran_today(str(path), "scrape") is False
+
+    def test_marking_preserves_other_legs(self, tmp_path: Path) -> None:
+        path = str(tmp_path / "last_run.json")
+        rc.mark_ran_today(path, "scrape")
+        rc.mark_ran_today(path, "screen-cl")
+        assert rc.ran_today(path, "scrape") is True
+        assert rc.ran_today(path, "screen-cl") is True
+
+
 class TestExclusiveLock:
     """The collect lock: whoever loses steps aside rather than racing."""
 

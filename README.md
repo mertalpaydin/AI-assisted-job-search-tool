@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-365%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-410%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
 Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
@@ -22,13 +22,13 @@ Automates LinkedIn job discovery, deterministic prefiltering, AI screening again
   - **Title stage** runs on the search stub and skips both the detail fetch and screening (e.g. non-AI/non-data titles, wrong locations).
   - **Details stage** runs after the detail fetch and skips screening (employment type, experience level, German-fluency requirements).
   - Rejections are reversible (clear the `prefilter_reason` column) and fully reviewable in the Web UI.
-- **Gemini AI Screening** — Scores jobs against your CV, filters out jobs requiring high German proficiency or wrong locations, and assigns a **role-family archetype (A–F)**. Fast parallel screening via the Gemini API with multi-key rotation and exponential backoff retries.
+- **Gemini AI Screening** — Scores jobs against your CV, filters out jobs requiring high German proficiency or wrong locations, and assigns a **role-family archetype (A–F)**. Fast parallel screening via the Gemini API with multi-key rotation and exponential backoff retries. Responses use **structured output** (`response_schema`), so valid JSON is the API's guarantee rather than something a regex has to recover from prose.
 - **Batch Screening (50% cheaper)** — Screening can be submitted to the Gemini **Batch API** and collected later (up to 24h latency). An in-flight guard (`jobs.batch_job_id`) prevents paying twice or overwriting a fresh answer with a stale one, each response is claimed atomically so two collectors can never write the same row, and a machine-wide lock keeps the hourly collect task, a run's startup, and the Web UI button from colliding. `auto` mode keeps small manual runs instant and sends large or scheduled backlogs to batch.
 - **Role-Family-Tailored Cover Letters** — Cover letter prompts are split into a shared instruction set plus one guidance block per family; only the block for the job's own family is sent. An optional **career-narrative layer** (`config/narrative.yaml`) supplies the reasoning, obstacles, and outcomes behind your CV lines so letters can stop restating the CV.
 - **1-Page LaTeX Cover Letter PDF Exporter** — Automated 1-page LaTeX cover letter compiler using local MiKTeX (`xelatex` / `pdflatex`). Features a centered executive header, tagline, transparent signature image, dynamic "a/an" article selection, name-derived sign-off matching, and an auto-fitting font-size algorithm with length-based vertical centering to guarantee single-page output.
 - **Job Expiration Cleaner** — Detects expired or closed LinkedIn postings using the authenticated session with request pacing and rate-limit backoff (`uv run job-search clean`).
 - **Cross-Process Run Control** — A runner lock (ignores dead PIDs and stale holders), a stop file for graceful cross-process shutdown, and a schedule pause with lazy auto-resume let the Web UI, CLI, and scheduled tasks coordinate one run at a time.
-- **Unattended Scheduling** — `scripts/install_tasks.ps1` registers Windows Task Scheduler entries (with `StartWhenAvailable`, so a run missed while the laptop slept fires on wake). Scheduled runs skip LinkedIn stages if the session is dead rather than opening a browser.
+- **Unattended Scheduling** — `scripts/install_tasks.ps1` registers Windows Task Scheduler entries. The daily work has **two triggers** — 07:00 and 5 minutes after logon — because `StartWhenAvailable` did not reliably recover the morning run on a laptop that is asleep at 07:00; a `--once-daily` marker makes whichever fires second a no-op. Scheduled runs skip LinkedIn stages if the session is dead rather than opening a browser.
 - **Concurrent Pipeline** — Parallel search, details, screening, and cover letter workers with graceful shutdown, checkpointing, resume, and errored-job retry.
 - **Company Size From the Declared Band** — LinkedIn reports two different numbers and they disagree badly: `staffCount` is how many members list a company as their employer, while `staffCountRange` is the band the company declares. gategroup declares **10,001+** and has **2,457** members; SAP's member count *exceeds* its real headcount. Both are stored and shown, the size filter buckets on the band, and every bucket boundary sits on one of LinkedIn's nine band edges so a bucket never splits one.
 - **Verified Database Snapshots** — `VACUUM INTO` snapshots (~1s) taken at run boundaries, after Web UI edits, and before destructive commands. Each is integrity-checked before it is kept and before it is restored, so a damaged snapshot can never rotate out a good one. Opening the database runs `quick_check` first — every open runs migrations, so an unchecked open writes into a damaged file. `job-search restore latest` puts a verified copy back.
@@ -278,12 +278,14 @@ powershell -ExecutionPolicy Bypass -File scripts/install_tasks.ps1
 
 | Task | Trigger | What it runs |
 |------|---------|--------------|
-| `JobSearch-Scrape` | Daily 07:00 | Search + details, bounded to 1h |
-| `JobSearch-ScreenCL` | Daily 08:15 | Screening (batch) + cover letters in **one** process, bounded to 1h |
+| `JobSearch-Daily` | Daily 07:00 | Scrape, then screening + cover letters, back to back (each bounded to 1h) |
+| `JobSearch-Catchup` | 5 min after logon | The same daily work, skipped if 07:00 already did it |
 | `JobSearch-Collect` | Hourly | `batch collect` — writes back finished screening batches |
 | `JobSearch-Clean` | Weekly, Sunday 03:00 | Expiry sweep, bounded to 5h |
 
-Scrape and screen are 15 minutes apart so the single run lock is always free before the next task starts. Screening and cover letters share one process for the same reason.
+**Two triggers for one job, because a laptop is not a server.** The 07:00 trigger is missed whenever the machine is asleep, and `StartWhenAvailable` did not reliably recover it — scraping silently stopped happening for days. The logon trigger closes that gap. Both legs carry `--once-daily`, so whichever fires first does the work and the other exits immediately; if scraping succeeded but screening died, the catch-up re-runs only the screening. State lives in `data/last_run.json`, keyed by leg and compared on the calendar date.
+
+Scrape and screen run **in sequence within one task** rather than as two tasks 15 minutes apart. The old gap assumed scraping always finished inside its hour; twice it did not, and screening exited with *"another run is already in progress"* instead of running.
 
 The tasks run `scripts/scheduled_run.bat`, pass `--scheduled`, and use `StartWhenAvailable` so a run missed while the laptop slept fires on wake — note that this means several missed tasks can fire together the moment the machine comes back. Re-running `install_tasks.ps1` clears every `JobSearch-*` task before registering, so a renamed or dropped task cannot be left firing on its old schedule. Pause or resume the whole schedule at any time with `job-search pause` / `job-search resume`, or from the Web UI runner panel.
 
@@ -353,7 +355,7 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-365 automated unit tests covering:
+410 automated unit tests covering:
 - Database CRUD, WAL-mode transaction safety, and schema migrations
 - Pydantic configuration schemas and `.env` credentials loading
 - Deterministic prefilter rules (title and details stages)
@@ -363,6 +365,8 @@ uv run pytest tests/ -v
 - Verified snapshots, retention tiers, restore, and the corruption tripwire
 - Company size bands, bucket boundaries, and the per-company backfill
 - Cookie jars holding duplicate names (LinkedIn sets JSESSIONID twice)
+- Screening-response parsing: fences, nested objects, a missing opening brace
+- The once-daily guard behind the 07:00 / logon catch-up pair
 - Screening-mode routing (instant / batch / auto by origin)
 - Tiered search-term scheduling
 - Cross-process run control (locks, stop file, schedule pause)
@@ -411,7 +415,7 @@ uv run pytest tests/ -v
 │       │                            #   company size backfill (company_backfill.py)
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (365 tests)
+└── tests/                           # Unit test suite (410 tests)
 ```
 
 ---
