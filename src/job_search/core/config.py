@@ -206,6 +206,11 @@ class BackupConfig(BaseModel):
     # user stops clicking, not once per click.
     idle_seconds: float = 120.0
     max_interval_seconds: float = 1800.0
+    # ...and no more often than this. Every pause in an editing session used to
+    # trigger a full VACUUM: eleven snapshots and ~3GB written per browsing
+    # hour. Nothing is lost by waiting — a snapshot copies the whole database,
+    # so the next one covers everything the skipped one would have.
+    min_interval_seconds: float = 900.0
 
 
 class DatabaseConfig(BaseModel):

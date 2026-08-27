@@ -8,7 +8,9 @@ open a damaged file and write migrations into it.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -275,6 +277,125 @@ class TestIdleSnapshotter:
         assert s.flush() is not None
         assert len(m.list()) == 1
         assert s.flush() is None            # nothing pending the second time
+
+
+class TestShutdownIsFast:
+    """A VACUUM during interpreter shutdown got the process killed.
+
+    6-11s on a 265MB database, run from an atexit hook, meant an IDE's stop
+    button terminated it mid-write: exit code -1, no snapshot, and a
+    quarter-gigabyte .partial left behind. Coverage moved to startup instead.
+    """
+
+    def test_a_stale_database_is_detected_at_startup(self, tmp_path: Path) -> None:
+        db = tmp_path / "jobs.db"
+        _make_db(db)
+        m = SnapshotManager(db, tmp_path / "backups")
+        m.take("first")
+        assert m.is_stale() is False
+
+        conn = sqlite3.connect(db)                  # the edit a session ended on
+        conn.execute("INSERT INTO t (v) VALUES ('after')")
+        conn.commit()
+        conn.close()
+        assert m.is_stale() is True
+
+    def test_catch_up_queues_a_snapshot_without_taking_one(self, tmp_path: Path) -> None:
+        """Startup must not block on a VACUUM either — just mark it due."""
+        db = tmp_path / "jobs.db"
+        _make_db(db)
+        m = SnapshotManager(db, tmp_path / "backups")
+        s = IdleSnapshotter(m, idle_seconds=0, min_interval_seconds=0)
+
+        s.catch_up()
+        assert m.list() == []                       # nothing written yet
+        assert s._due() is True                     # but the thread will
+
+    def test_no_snapshots_at_all_counts_as_stale(self, tmp_path: Path) -> None:
+        db = tmp_path / "jobs.db"
+        _make_db(db)
+        assert SnapshotManager(db, tmp_path / "backups").is_stale() is True
+
+    def test_a_missing_database_is_not_stale(self, tmp_path: Path) -> None:
+        assert SnapshotManager(tmp_path / "gone.db", tmp_path / "backups").is_stale() is False
+
+
+class TestSnapshotChurn:
+    """One hour of browsing produced eleven full-database VACUUMs."""
+
+    def test_a_second_snapshot_is_refused_too_soon(self, tmp_path: Path) -> None:
+        db = tmp_path / "jobs.db"
+        _make_db(db)
+        s = IdleSnapshotter(SnapshotManager(db, tmp_path / "backups"),
+                            idle_seconds=0, min_interval_seconds=900)
+        s.mark_dirty()
+        assert s._due() is True
+        s.flush()                                   # sets the floor
+
+        s.mark_dirty()
+        assert s._due() is False, "should wait out min_interval_seconds"
+
+    def test_the_floor_can_be_disabled(self, tmp_path: Path) -> None:
+        db = tmp_path / "jobs.db"
+        _make_db(db)
+        s = IdleSnapshotter(SnapshotManager(db, tmp_path / "backups"),
+                            idle_seconds=0, min_interval_seconds=0)
+        s.mark_dirty()
+        s.flush()
+        s.mark_dirty()
+        assert s._due() is True
+
+    def test_waiting_loses_nothing(self, tmp_path: Path) -> None:
+        """A snapshot copies the whole database, so a later one still covers
+        every edit the skipped one would have."""
+        db = tmp_path / "jobs.db"
+        _make_db(db, rows=2)
+        m = SnapshotManager(db, tmp_path / "backups")
+        s = IdleSnapshotter(m, idle_seconds=0, min_interval_seconds=0)
+
+        conn = sqlite3.connect(db)
+        conn.execute("INSERT INTO t (v) VALUES ('skipped-window')")
+        conn.commit()
+        conn.close()
+        s.mark_dirty()
+        snap = s.flush()
+
+        check = sqlite3.connect(f"file:{snap.path}?mode=ro", uri=True)
+        assert check.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 3
+
+
+class TestAbandonedPartials:
+    def test_an_old_partial_is_swept(self, tmp_path: Path) -> None:
+        """A killed VACUUM leaves a file the size of the whole database."""
+        backups = tmp_path / "backups"
+        backups.mkdir()
+        orphan = backups / "jobs-20260820-141350-webui.db.partial"
+        orphan.write_bytes(b"x" * 1024)
+        os.utime(orphan, (time.time() - 86400, time.time() - 86400))
+
+        SnapshotManager(tmp_path / "jobs.db", backups).sweep_partials()
+        assert not orphan.exists()
+
+    def test_a_vacuum_in_flight_is_left_alone(self, tmp_path: Path) -> None:
+        backups = tmp_path / "backups"
+        backups.mkdir()
+        live = backups / "jobs-now-webui.db.partial"
+        live.write_bytes(b"x")
+
+        SnapshotManager(tmp_path / "jobs.db", backups).sweep_partials()
+        assert live.exists(), "a partial written seconds ago may still be growing"
+
+    def test_taking_a_snapshot_sweeps_them(self, tmp_path: Path) -> None:
+        db = tmp_path / "jobs.db"
+        _make_db(db)
+        backups = tmp_path / "backups"
+        backups.mkdir()
+        orphan = backups / "jobs-old-run.db.partial"
+        orphan.write_bytes(b"x")
+        os.utime(orphan, (time.time() - 86400, time.time() - 86400))
+
+        SnapshotManager(db, backups).take("x")
+        assert not orphan.exists()
 
 
 class TestOffsite:

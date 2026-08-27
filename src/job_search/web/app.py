@@ -121,8 +121,6 @@ def _start_snapshotter(db: DatabaseManager, config: Config):
     anything. The pipeline's own snapshots fire at run boundaries, which a
     browsing session never reaches, so the UI needs its own trigger.
     """
-    import atexit
-
     from job_search.core.backup import IdleSnapshotter, SnapshotManager
 
     cfg = config.backup
@@ -135,12 +133,14 @@ def _start_snapshotter(db: DatabaseManager, config: Config):
     )
     snapshotter = IdleSnapshotter(
         manager, idle_seconds=cfg.idle_seconds,
-        max_interval_seconds=cfg.max_interval_seconds, reason="webui",
+        max_interval_seconds=cfg.max_interval_seconds,
+        min_interval_seconds=cfg.min_interval_seconds, reason="webui",
     )
+    # Coverage is closed at startup rather than at exit. Snapshotting on the
+    # way out meant a 6-11s VACUUM during interpreter shutdown, which an IDE's
+    # stop button killed mid-write; here there is no deadline to miss.
+    snapshotter.catch_up()
     snapshotter.start()
-    # A browsing session usually ends by closing the window, so flush whatever
-    # is still pending rather than relying on a tidy shutdown.
-    atexit.register(snapshotter.flush)
     return snapshotter
 
 

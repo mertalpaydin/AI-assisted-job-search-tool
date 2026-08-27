@@ -121,6 +121,62 @@ class SnapshotManager:
 
     # ------------------------------------------------------------------
 
+    def _database_mtime(self) -> float:
+        """Newest mtime across the database and its journal files.
+
+        In WAL mode a write lands in ``-wal`` and the main file's mtime can lag
+        behind by a long way, so asking jobs.db alone would report a database
+        that has just been edited as untouched.
+        """
+        newest = 0.0
+        for suffix in ("", "-wal", "-shm"):
+            path = self._db.with_name(self._db.name + suffix)
+            try:
+                newest = max(newest, path.stat().st_mtime)
+            except OSError:
+                continue
+        return newest
+
+    def is_stale(self) -> bool:
+        """True when the database has changed since the newest snapshot.
+
+        Lets a process decide at *startup* whether the previous session left
+        edits uncaptured — which is cheaper and safer than trying to snapshot
+        on the way out, when there is no time budget to spend.
+        """
+        if not self._db.exists():
+            return False
+        newest = next(iter(self.list()), None)
+        if newest is None:
+            return True
+        try:
+            return self._database_mtime() > newest.path.stat().st_mtime
+        except OSError:
+            return True
+
+    def sweep_partials(self, older_than_seconds: float = 3600.0) -> list[Path]:
+        """Delete abandoned .partial files.
+
+        take() removes its own on failure, but a process killed mid-VACUUM
+        never gets the chance, and the leftover is the size of the whole
+        database. One sat in data/backups for six days at 238MB before anyone
+        noticed. The age floor keeps this from touching a VACUUM in flight.
+        """
+        removed: list[Path] = []
+        if not self._dir.exists():
+            return removed
+        cutoff = time.time() - older_than_seconds
+        for partial in self._dir.glob("*.partial"):
+            try:
+                if partial.stat().st_mtime < cutoff:
+                    partial.unlink()
+                    removed.append(partial)
+            except OSError:
+                continue
+        if removed:
+            logger.info("Removed {} abandoned snapshot file(s)", len(removed))
+        return removed
+
     def take(self, reason: str = "manual") -> Snapshot | None:
         """Snapshot the database, but only if it is healthy, and verify the result."""
         if not self._db.exists():
@@ -205,6 +261,7 @@ class SnapshotManager:
         return chosen[:self._keep]
 
     def prune(self) -> list[Path]:
+        self.sweep_partials()
         snaps = self.list()
         if len(snaps) <= self._keep:
             return []
@@ -295,18 +352,24 @@ class IdleSnapshotter:
     only mark the database dirty and a background thread waits for quiet.
 
     A ceiling covers the other case — someone working steadily for an hour
-    without ever pausing long enough to trigger the idle path.
+    without ever pausing long enough to trigger the idle path. A floor covers
+    the opposite: every natural pause in an editing session was triggering a
+    full VACUUM, which is eleven snapshots and three gigabytes of writes for
+    one hour of browsing a 265MB database.
     """
 
     def __init__(self, manager: SnapshotManager, idle_seconds: float = 120.0,
-                 max_interval_seconds: float = 1800.0, reason: str = "webui") -> None:
+                 max_interval_seconds: float = 1800.0,
+                 min_interval_seconds: float = 900.0, reason: str = "webui") -> None:
         self._manager = manager
         self._idle = idle_seconds
         self._max_interval = max_interval_seconds
+        self._min_interval = min_interval_seconds
         self._reason = reason
         self._lock = threading.Lock()
         self._dirty_since: float | None = None
         self._last_write: float = 0.0
+        self._last_snapshot: float | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -322,21 +385,48 @@ class IdleSnapshotter:
             if self._dirty_since is None:
                 return False
             now = time.monotonic()
+            if (self._last_snapshot is not None
+                    and now - self._last_snapshot < self._min_interval):
+                return False          # too soon since the last one
             return (now - self._last_write >= self._idle
                     or now - self._dirty_since >= self._max_interval)
 
     def _clear(self) -> None:
         with self._lock:
             self._dirty_since = None
+            self._last_snapshot = time.monotonic()
 
     def flush(self) -> Snapshot | None:
-        """Snapshot now if anything is pending. Used on shutdown."""
+        """Snapshot now if anything is pending.
+
+        Deliberately NOT wired to process exit. A VACUUM of a 265MB database
+        takes six to eleven seconds, and running that during interpreter
+        shutdown meant an IDE's stop button killed the process mid-write: exit
+        code -1, no snapshot, and a quarter-gigabyte .partial left behind. The
+        edits were never at risk — SQLite had already committed them — so the
+        cost of skipping it is a few minutes of backup coverage, which the
+        next startup closes via ``catch_up``.
+        """
         with self._lock:
             pending = self._dirty_since is not None
         if not pending:
             return None
         self._clear()
         return self._manager.take(self._reason)
+
+    def catch_up(self) -> None:
+        """Mark dirty at startup if the last session left edits uncaptured.
+
+        Cheap (two stat calls), non-blocking, and it means shutdown never has
+        to do slow work to keep coverage honest.
+        """
+        try:
+            if self._manager.is_stale():
+                logger.info("Database has changed since the last snapshot — "
+                            "one will be taken shortly")
+                self.mark_dirty()
+        except Exception as exc:
+            logger.warning("Snapshot staleness check failed: {}", exc)
 
     def start(self) -> None:
         if self._thread is not None:
