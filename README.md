@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-410%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-420%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
 Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
@@ -22,7 +22,7 @@ Automates LinkedIn job discovery, deterministic prefiltering, AI screening again
   - **Title stage** runs on the search stub and skips both the detail fetch and screening (e.g. non-AI/non-data titles, wrong locations).
   - **Details stage** runs after the detail fetch and skips screening (employment type, experience level, German-fluency requirements).
   - Rejections are reversible (clear the `prefilter_reason` column) and fully reviewable in the Web UI.
-- **Gemini AI Screening** — Scores jobs against your CV, filters out jobs requiring high German proficiency or wrong locations, and assigns a **role-family archetype (A–F)**. Fast parallel screening via the Gemini API with multi-key rotation and exponential backoff retries. Responses use **structured output** (`response_schema`), so valid JSON is the API's guarantee rather than something a regex has to recover from prose.
+- **Gemini AI Screening** — Scores jobs against your CV, filters out jobs requiring high German proficiency or wrong locations, and assigns a **role-family archetype (A–F)**. Fast parallel screening via the Gemini API with multi-key rotation and exponential backoff retries. Responses use **structured output** (`response_schema`), so valid JSON is the API's guarantee rather than something a regex has to recover from prose. Verdicts are made **reproducible** by pinning a sampling `seed` and dropping temperature to 0 — identical reposts were previously scoring differently on a second pass 43% of the time, flipping the selection decision outright in 6.4% of cases.
 - **Batch Screening (50% cheaper)** — Screening can be submitted to the Gemini **Batch API** and collected later (up to 24h latency). An in-flight guard (`jobs.batch_job_id`) prevents paying twice or overwriting a fresh answer with a stale one, each response is claimed atomically so two collectors can never write the same row, and a machine-wide lock keeps the hourly collect task, a run's startup, and the Web UI button from colliding. `auto` mode keeps small manual runs instant and sends large or scheduled backlogs to batch.
 - **Role-Family-Tailored Cover Letters** — Cover letter prompts are split into a shared instruction set plus one guidance block per family; only the block for the job's own family is sent. An optional **career-narrative layer** (`config/narrative.yaml`) supplies the reasoning, obstacles, and outcomes behind your CV lines so letters can stop restating the CV.
 - **1-Page LaTeX Cover Letter PDF Exporter** — Automated 1-page LaTeX cover letter compiler using local MiKTeX (`xelatex` / `pdflatex`). Features a centered executive header, tagline, transparent signature image, dynamic "a/an" article selection, name-derived sign-off matching, and an auto-fitting font-size algorithm with length-based vertical centering to guarantee single-page output.
@@ -31,7 +31,7 @@ Automates LinkedIn job discovery, deterministic prefiltering, AI screening again
 - **Unattended Scheduling** — `scripts/install_tasks.ps1` registers Windows Task Scheduler entries. The daily work has **two triggers** — 07:00 and 5 minutes after logon — because `StartWhenAvailable` did not reliably recover the morning run on a laptop that is asleep at 07:00; a `--once-daily` marker makes whichever fires second a no-op. Scheduled runs skip LinkedIn stages if the session is dead rather than opening a browser.
 - **Concurrent Pipeline** — Parallel search, details, screening, and cover letter workers with graceful shutdown, checkpointing, resume, and errored-job retry.
 - **Company Size From the Declared Band** — LinkedIn reports two different numbers and they disagree badly: `staffCount` is how many members list a company as their employer, while `staffCountRange` is the band the company declares. gategroup declares **10,001+** and has **2,457** members; SAP's member count *exceeds* its real headcount. Both are stored and shown, the size filter buckets on the band, and every bucket boundary sits on one of LinkedIn's nine band edges so a bucket never splits one.
-- **Verified Database Snapshots** — `VACUUM INTO` snapshots (~1s) taken at run boundaries, after Web UI edits, and before destructive commands. Each is integrity-checked before it is kept and before it is restored, so a damaged snapshot can never rotate out a good one. Opening the database runs `quick_check` first — every open runs migrations, so an unchecked open writes into a damaged file. `job-search restore latest` puts a verified copy back.
+- **Verified Database Snapshots** — `VACUUM INTO` snapshots taken at run boundaries, after Web UI edits, at Web UI startup if the last session left changes uncaptured, and before destructive commands — but never at process exit, where a 6–11s VACUUM on a 265 MB database was getting the process killed mid-write. Each is integrity-checked before it is kept and before it is restored, so a damaged snapshot can never rotate out a good one. Opening the database runs `quick_check` first — every open runs migrations, so an unchecked open writes into a damaged file. `job-search restore latest` puts a verified copy back.
 - **Application Tracking** — Mark jobs as `applied`, `interviewing`, `offered`, `rejected`, or `clear`.
 - **Web UI Dashboard** — Local Flask web application (`http://127.0.0.1:5000/`) to review jobs, inspect prefiltered rejections, edit Job Title / Company Name / Cover Letter text live, export the exact per-job prompt, generate 1-page PDFs instantly, drive the runner and batch collection, import jobs, and track status.
 
@@ -239,8 +239,11 @@ They are taken automatically:
 |---------|-----|
 | End of each pipeline run | after the work, not before — a pre-run snapshot is a state already on disk |
 | Once you stop editing in the Web UI | applying, skipping, approving and note-taking happen there, and no run can reproduce them |
+| Web UI startup, if the database changed since the last snapshot | closes the gap left by a session that ended before its edits were captured |
 | Before `purge-blocked`, `clean`, `backfill-sizes` | the operations worth being able to undo |
-| Never on reads | nothing new to capture |
+| Never on reads, and never at process exit | nothing new to capture; and a shutdown has no time to spend |
+
+**Never at exit, deliberately.** A `VACUUM INTO` of a 265 MB database takes 6–11 seconds. Doing that from an `atexit` hook meant an IDE's stop button killed the process mid-write — exit code `-1`, no snapshot, and a quarter-gigabyte `.partial` left behind. Nothing was ever at risk (SQLite commits a UI edit when the request returns, and a snapshot copies the whole database anyway), so coverage is closed at *startup* instead, where there is no deadline to miss. `min_interval_seconds` also floors how often the Web UI may snapshot: without it, every natural pause in an editing session triggered a full VACUUM — eleven of them in one hour of browsing.
 
 Opening the database also runs `quick_check` first (`database.check_integrity_on_open`). Opening runs migrations, so **every open is a write**: without the check, a damaged file quietly accumulates more damage every time anything touches it. On failure nothing is written and the error names the recovery command.
 
@@ -355,7 +358,7 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-410 automated unit tests covering:
+420 automated unit tests covering:
 - Database CRUD, WAL-mode transaction safety, and schema migrations
 - Pydantic configuration schemas and `.env` credentials loading
 - Deterministic prefilter rules (title and details stages)
@@ -366,6 +369,7 @@ uv run pytest tests/ -v
 - Company size bands, bucket boundaries, and the per-company backfill
 - Cookie jars holding duplicate names (LinkedIn sets JSESSIONID twice)
 - Screening-response parsing: fences, nested objects, a missing opening brace
+- Snapshot staleness at startup, the interval floor, and abandoned .partial sweeps
 - The once-daily guard behind the 07:00 / logon catch-up pair
 - Screening-mode routing (instant / batch / auto by origin)
 - Tiered search-term scheduling
@@ -415,7 +419,7 @@ uv run pytest tests/ -v
 │       │                            #   company size backfill (company_backfill.py)
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (410 tests)
+└── tests/                           # Unit test suite (420 tests)
 ```
 
 ---
