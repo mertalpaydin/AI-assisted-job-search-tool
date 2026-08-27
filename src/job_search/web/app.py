@@ -109,7 +109,13 @@ def init_app(db: DatabaseManager, config: Config | None = None) -> Flask:
     _config = config
     if config is not None:
         _cl_mode = config.cover_letter.mode
-        _snapshotter = _start_snapshotter(db, config)
+        # init_app runs twice in one process: view_db calls it, and starting a
+        # run from the UI builds a coordinator that calls it again. Without
+        # this guard that is a second snapshotter on the same database, free to
+        # VACUUM concurrently with the first and doubling the churn the
+        # interval floor was added to bound.
+        if _snapshotter is None:
+            _snapshotter = _start_snapshotter(db, config)
     return app
 
 

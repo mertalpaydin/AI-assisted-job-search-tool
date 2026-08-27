@@ -70,6 +70,41 @@ def main() -> None:
     finally:
         db.close()
         print("Stopped.")
+        _exit_watchdog()
+
+
+def _exit_watchdog(grace_seconds: float = 5.0) -> None:
+    """Guarantee this process actually exits, and say why if it did not.
+
+    Every thread this app starts is a daemon, so nothing of ours should hold
+    the interpreter open — yet stopping from an IDE has produced exit code -1,
+    which is the IDE giving up and killing a process that would not die. Three
+    attempts to reproduce it exited cleanly, so the cause is still unknown and
+    lives in a library or in the environment.
+
+    Rather than guess again: if we are still alive `grace_seconds` after the
+    shutdown finished, dump every thread's stack — that names the culprit the
+    next time it happens — and then exit. os._exit skips waiting on threads
+    entirely, which is safe here because the database is already closed and
+    committed and nothing is left to flush.
+
+    On a normal exit the interpreter is gone long before the timer fires and
+    none of this runs.
+    """
+    import faulthandler
+    import threading
+
+    def _bail() -> None:
+        print(f"\nStill running {grace_seconds:.0f}s after shutdown — "
+              f"something is holding the interpreter open. Thread stacks:",
+              file=sys.stderr)
+        faulthandler.dump_traceback(file=sys.stderr)
+        sys.stderr.flush()
+        os._exit(0)
+
+    timer = threading.Timer(grace_seconds, _bail)
+    timer.daemon = True          # must not itself become the thing that blocks
+    timer.start()
 
 
 if __name__ == "__main__":
