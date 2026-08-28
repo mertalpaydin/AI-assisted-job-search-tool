@@ -521,8 +521,11 @@ def stop_cmd(config: str) -> None:
 @click.option("--max-runtime", type=float, default=None,
               help="Stop the sweep gracefully after this many hours, releasing the "
                    "lock before Task Scheduler's hard limit can force-kill it.")
+@click.option("--order", default=None,
+              type=click.Choice(["newest", "oldest", "least_checked", "selected"]),
+              help="Which end of the backlog to work from (default: cleaner.order).")
 def clean(config: str, limit: int | None, no_interactive: bool, scheduled: bool,
-          max_runtime: float | None) -> None:
+          max_runtime: float | None, order: str | None) -> None:
     """Discover expired/closed jobs on LinkedIn and mark them as 'expired'."""
     from job_search.core import runcontrol
     from job_search.core.database import DatabaseManager
@@ -553,7 +556,9 @@ def clean(config: str, limit: int | None, no_interactive: bool, scheduled: bool,
             db,
             should_stop=lambda: runcontrol.stop_requested(cfg.execution.stop_file),
         )
-        result = cleaner.clean_pending_jobs(limit=limit, max_runtime_hours=max_runtime)
+        result = cleaner.clean_pending_jobs(
+            limit=limit, max_runtime_hours=max_runtime,
+            order=order or cfg.cleaner.order)
         click.echo(f"Cleaner finished: Checked {result['checked']} jobs, marked {result['expired']} as expired.")
     finally:
         db.close()

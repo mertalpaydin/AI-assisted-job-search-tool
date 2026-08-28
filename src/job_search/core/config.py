@@ -213,6 +213,14 @@ class BackupConfig(BaseModel):
     min_interval_seconds: float = 900.0
 
 
+class CleanerConfig(BaseModel):
+    """Expiry sweep. See database.CLEAN_ORDERS for what the orders mean."""
+    # Scheduled runs get the fair rotation: nobody is watching to alternate,
+    # and a fixed order truncated at the same place every week is what left
+    # thousands of old postings unchecked.
+    order: str = "least_checked"
+
+
 class DatabaseConfig(BaseModel):
     path: str = "data/jobs.db"
     # Every open runs migrations, so every open is a write. Checking first is
@@ -246,6 +254,7 @@ class Config(BaseModel):
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     backup: BackupConfig = Field(default_factory=BackupConfig)
+    cleaner: CleanerConfig = Field(default_factory=CleanerConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     web: WebUIConfig = Field(default_factory=WebUIConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)

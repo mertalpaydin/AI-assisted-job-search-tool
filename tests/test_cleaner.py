@@ -193,3 +193,105 @@ def test_no_should_stop_behaves_as_before(tmp_path):
 
     result = cleaner.clean_pending_jobs()
     assert result["checked"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Ordering. The sweep cannot finish inside its runtime budget — thousands of
+# jobs at one to two seconds each — so every run is truncated. With a fixed
+# order it truncates at the same place every time, which is how newest-first
+# left the oldest postings, the likeliest to have expired, never reached.
+# ---------------------------------------------------------------------------
+
+def _job_aged(db, job_id: int, days_old: int, cleaned_days_ago=None):
+    db.insert_job(job_id, keyword="k", location_id="l")
+    with db._cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET created_at = datetime('now', ?),"
+            "       last_cleaned_at = CASE WHEN ? IS NULL THEN NULL"
+            "                              ELSE datetime('now', ?) END"
+            " WHERE job_id = ?",
+            (f"-{days_old} days", cleaned_days_ago,
+             f"-{cleaned_days_ago or 0} days", job_id),
+        )
+
+
+def test_newest_first_is_still_the_default(tmp_path):
+    db = DatabaseManager(str(tmp_path / "t.db"))
+    _job_aged(db, 1, days_old=60)
+    _job_aged(db, 2, days_old=1)
+
+    ids = [j["job_id"] for j in db.get_pending_jobs_for_cleaner()]
+    assert ids == [2, 1]
+
+
+def test_oldest_first_reverses_it(tmp_path):
+    db = DatabaseManager(str(tmp_path / "t.db"))
+    _job_aged(db, 1, days_old=60)
+    _job_aged(db, 2, days_old=1)
+
+    ids = [j["job_id"] for j in db.get_pending_jobs_for_cleaner(order="oldest")]
+    assert ids == [1, 2], "the old tail must be reachable"
+
+
+def test_least_checked_puts_never_checked_first(tmp_path):
+    """The fair rotation: nothing can be starved by a later run."""
+    db = DatabaseManager(str(tmp_path / "t.db"))
+    _job_aged(db, 1, days_old=10, cleaned_days_ago=4)    # checked recently-ish
+    _job_aged(db, 2, days_old=10, cleaned_days_ago=40)   # checked long ago
+    _job_aged(db, 3, days_old=10)                        # never checked
+
+    ids = [j["job_id"] for j in db.get_pending_jobs_for_cleaner(order="least_checked")]
+    assert ids == [3, 2, 1]
+
+
+def test_selected_only_restricts_the_pile(tmp_path):
+    from job_search.core.database import ScreeningResult
+
+    db = DatabaseManager(str(tmp_path / "t.db"))
+    _job_aged(db, 1, days_old=5)
+    _job_aged(db, 2, days_old=5)
+    db.save_screening_result(1, ScreeningResult(0.9, "none", True, "ok", archetype="A"))
+
+    ids = [j["job_id"] for j in db.get_pending_jobs_for_cleaner(order="selected")]
+    assert ids == [1]
+
+
+def test_an_unknown_order_falls_back_rather_than_failing(tmp_path):
+    """A stale bookmark or hand-edited config must not break the sweep."""
+    db = DatabaseManager(str(tmp_path / "t.db"))
+    _job_aged(db, 1, days_old=60)
+    _job_aged(db, 2, days_old=1)
+
+    ids = [j["job_id"] for j in db.get_pending_jobs_for_cleaner(order="nonsense")]
+    assert ids == [2, 1]
+
+
+def test_every_order_still_skips_recently_checked_jobs(tmp_path):
+    """The interval guard must hold whichever end we work from."""
+    db = DatabaseManager(str(tmp_path / "t.db"))
+    _job_aged(db, 1, days_old=10, cleaned_days_ago=1)     # inside the 3-day window
+    _job_aged(db, 2, days_old=10, cleaned_days_ago=10)
+
+    for order in ("newest", "oldest", "least_checked"):
+        ids = [j["job_id"] for j in db.get_pending_jobs_for_cleaner(order=order)]
+        assert ids == [2], order
+
+
+def test_the_order_reaches_the_sweep(tmp_path):
+    db = DatabaseManager(str(tmp_path / "t.db"))
+    _job_aged(db, 1, days_old=60)
+    _job_aged(db, 2, days_old=1)
+
+    cleaner = JobCleaner(db)
+    cleaner.is_job_expired = MagicMock(return_value=False)
+    seen: list[int] = []
+    original = db.get_pending_jobs_for_cleaner
+
+    def _spy(*args, **kwargs):
+        rows = original(*args, **kwargs)
+        seen.extend(r["job_id"] for r in rows)
+        return rows
+
+    db.get_pending_jobs_for_cleaner = _spy
+    cleaner.clean_pending_jobs(order="oldest")
+    assert seen[:2] == [1, 2]

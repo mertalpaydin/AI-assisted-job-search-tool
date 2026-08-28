@@ -79,6 +79,7 @@ class JobSearchCoordinator:
         interactive: bool = True,
         origin: str = "manual",
         max_runtime_hours: float | None = None,
+        clean_order: str | None = None,
     ) -> None:
         self._config = config
         self._stages = set(stages) if stages else set(ALL_STAGES)
@@ -93,6 +94,11 @@ class JobSearchCoordinator:
             else config.execution.max_runtime_hours
         )
         self._lock_held = False
+        # Which end of the cleaner backlog this run works from. The sweep cannot
+        # finish inside its budget, so a run that always starts at the same end
+        # never reaches the other one; picking per run is what makes alternating
+        # possible. Falls back to the configured default for scheduled runs.
+        self.clean_order = clean_order or config.cleaner.order
         # Set when LinkedIn stages were skipped because no valid session exists.
         self.linkedin_session_invalid = False
         # True once this run has committed to batch screening. Screening
@@ -458,7 +464,7 @@ class JobSearchCoordinator:
                     self._db, session=session,
                     should_stop=self._shutdown.should_shutdown,
                 )
-                cleaner.clean_pending_jobs()
+                cleaner.clean_pending_jobs(order=self.clean_order)
             self._spawn("cleaner", run_cleaner)
 
         logger.info(

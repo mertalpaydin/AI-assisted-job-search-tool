@@ -379,6 +379,46 @@ def size_condition(size_filter: str) -> str | None:
         return None
     return "(" + " OR ".join(_SIZE_BUCKETS[k] for k in seen) + ")"
 
+# How the expiry cleaner walks the backlog.
+#
+# The sweep cannot finish inside its runtime budget — the eligible pile is
+# thousands of jobs at one to two seconds each — so every run is truncated. A
+# fixed order truncates at the same place every time, which is why newest-first
+# left thousands of month-old postings, the likeliest to have expired, never
+# reached. Being able to pick the order is what makes full coverage possible.
+#
+# The leading CASE keeps the shortlist ahead of unscreened jobs, and both ahead
+# of already-rejected ones. "least_checked" deliberately omits it: mixing a
+# priority into a fair rotation is what lets a subset starve in the first place.
+_SELECTED_FIRST = ("CASE WHEN is_selected = 1 THEN 0 "
+                   "WHEN is_selected IS NULL THEN 1 ELSE 2 END")
+
+
+@dataclass(frozen=True)
+class CleanOrder:
+    sql: str
+    label: str
+    only_selected: bool = False
+
+
+CLEAN_ORDERS: dict[str, CleanOrder] = {
+    "newest": CleanOrder(
+        f"{_SELECTED_FIRST}, created_at DESC, job_id DESC",
+        "Newest first"),
+    "oldest": CleanOrder(
+        f"{_SELECTED_FIRST}, created_at ASC, job_id ASC",
+        "Oldest first"),
+    # NULLs sort first here, so never-checked jobs lead, then the ones checked
+    # longest ago. Nothing can be starved by a later run.
+    "least_checked": CleanOrder(
+        "last_cleaned_at IS NOT NULL, last_cleaned_at ASC, created_at ASC",
+        "Least recently checked"),
+    "selected": CleanOrder(
+        "created_at DESC, job_id DESC",
+        "Selected jobs only", only_selected=True),
+}
+
+
 # Whitelisted fields for ORDER BY (prevents SQL injection via sort params)
 _SORTABLE_FIELDS: frozenset[str] = frozenset({
     "title", "company_name", "formattedLocation", "cv_match_score",
@@ -2222,33 +2262,61 @@ class DatabaseManager:
         limit: int = 500,
         exclude_ids: set[int] | None = None,
         min_clean_interval_days: int = 3,
+        order: str = "newest",
     ) -> list[dict]:
-        """Return pending jobs to inspect for expired status, skipping jobs checked in the last N days."""
+        """Return pending jobs to inspect for expired status.
+
+        Jobs checked within the last ``min_clean_interval_days`` are skipped.
+
+        ``order`` matters more than it looks. A sweep of the current backlog
+        takes longer than the runtime budget allows, so every run is cut off
+        part-way — and with a fixed order it is cut off at the same place every
+        time. Newest-first leaves the oldest postings, the ones most likely to
+        have actually expired, permanently at the back of the queue.
+        See CLEAN_ORDERS for what each value is for.
+        """
+        clause = CLEAN_ORDERS.get(order, CLEAN_ORDERS["newest"])
+
+        conditions = [
+            "application_status IS NULL",
+            f"(last_cleaned_at IS NULL OR last_cleaned_at < datetime('now', '-{int(min_clean_interval_days)} days'))",
+        ]
+        if clause.only_selected:
+            conditions.append("is_selected = 1")
+
+        params: list = []
+        if exclude_ids:
+            placeholders = ",".join("?" * len(exclude_ids))
+            conditions.append(f"job_id NOT IN ({placeholders})")
+            params.extend(exclude_ids)
+        params.append(limit)
+
+        sql = f"""
+            SELECT job_id, jobPostingUrl
+            FROM jobs
+            WHERE {" AND ".join(conditions)}
+            ORDER BY {clause.sql}
+            LIMIT ?
+        """
         with self._cursor() as cur:
-            if exclude_ids:
-                placeholders = ",".join("?" * len(exclude_ids))
-                sql = f"""
-                    SELECT job_id, jobPostingUrl
-                    FROM jobs
-                    WHERE application_status IS NULL
-                      AND (last_cleaned_at IS NULL OR last_cleaned_at < datetime('now', '-{min_clean_interval_days} days'))
-                      AND job_id NOT IN ({placeholders})
-                    ORDER BY CASE WHEN is_selected = 1 THEN 0 WHEN is_selected IS NULL THEN 1 ELSE 2 END, created_at DESC, job_id DESC
-                    LIMIT ?
-                """
-                params = list(exclude_ids) + [limit]
-            else:
-                sql = f"""
-                    SELECT job_id, jobPostingUrl
-                    FROM jobs
-                    WHERE application_status IS NULL
-                      AND (last_cleaned_at IS NULL OR last_cleaned_at < datetime('now', '-{min_clean_interval_days} days'))
-                    ORDER BY CASE WHEN is_selected = 1 THEN 0 WHEN is_selected IS NULL THEN 1 ELSE 2 END, created_at DESC, job_id DESC
-                    LIMIT ?
-                """
-                params = [limit]
             cur.execute(sql, params)
             return [dict(row) for row in cur.fetchall()]
+
+    def count_jobs_pending_clean(self, min_clean_interval_days: int = 3) -> int:
+        """How many jobs the cleaner would consider right now.
+
+        Shown next to the order picker: the sweep runs at roughly one to two
+        seconds a job, so this number is what tells you whether a run can
+        realistically reach the far end of the backlog.
+        """
+        with self._cursor() as cur:
+            cur.execute(f"""
+                SELECT COUNT(*) FROM jobs
+                WHERE application_status IS NULL
+                  AND (last_cleaned_at IS NULL
+                       OR last_cleaned_at < datetime('now', '-{int(min_clean_interval_days)} days'))
+            """)
+            return int(cur.fetchone()[0])
 
     def mark_jobs_cleaned_batch(self, job_ids: list[int]) -> int:
         """Batch update last_cleaned_at = CURRENT_TIMESTAMP for specified job_ids."""

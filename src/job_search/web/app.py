@@ -23,6 +23,7 @@ from job_search.core.config import Config, load_config
 from job_search.core.database import (
     APPLICATION_STATUSES,
     ARCHETYPE_LABELS,
+    CLEAN_ORDERS,
     DatabaseManager,
 )
 from job_search.utils.formatting import clean_cover_letter_text
@@ -869,6 +870,9 @@ def runner_dashboard():
         session_saved_at=session_saved,
         open_batches=db.get_open_batch_jobs(),
         recent_batches=db.get_recent_batch_jobs(limit=8),
+        clean_orders=CLEAN_ORDERS,
+        clean_order_default=_config.cleaner.order if _config else "newest",
+        clean_backlog=db.count_jobs_pending_clean(),
     )
 
 
@@ -1027,9 +1031,14 @@ def runner_start():
         stages = list(ALL_STAGES)
         
     resume = request.form.get("resume") == "on"
+    # Which end of the cleaner backlog to work from this time. Picked per run
+    # rather than fixed, because the sweep never reaches the far end inside its
+    # runtime budget — alternating is how the whole database gets covered.
+    clean_order = request.form.get("clean_order", "").strip() or None
 
     from job_search.orchestration.coordinator import JobSearchCoordinator
-    _runner_coordinator = JobSearchCoordinator(_config, stages=set(stages))
+    _runner_coordinator = JobSearchCoordinator(
+        _config, stages=set(stages), clean_order=clean_order)
 
     def run_pipeline():
         from job_search.utils.logging import setup_logging

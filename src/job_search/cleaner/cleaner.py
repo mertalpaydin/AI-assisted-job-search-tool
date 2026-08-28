@@ -148,7 +148,8 @@ class JobCleaner:
         return False
 
     def clean_pending_jobs(self, limit: int | None = None, batch_size: int = 500,
-                           max_runtime_hours: float | None = None) -> dict[str, Any]:
+                           max_runtime_hours: float | None = None,
+                           order: str = "newest") -> dict[str, Any]:
         """Scan pending jobs across batches using parallel worker threads until pending jobs are checked.
 
         max_runtime_hours bounds the sweep: it stops gracefully between batches
@@ -165,7 +166,8 @@ class JobCleaner:
             if max_runtime_hours is not None else None
         )
 
-        logger.info("Cleaner: Starting scan across pending jobs ({} parallel workers, batch size {})...", self._max_workers, batch_size)
+        logger.info("Cleaner: Starting scan across pending jobs ({} parallel workers, "
+                    "batch size {}, order={})...", self._max_workers, batch_size, order)
 
         def _check_single(job_id: int) -> tuple[int, bool | None]:
             return job_id, self.is_job_expired(job_id)
@@ -184,7 +186,8 @@ class JobCleaner:
                 )
                 break
 
-            batch = self._db.get_pending_jobs_for_cleaner(limit=batch_size, exclude_ids=checked_ids)
+            batch = self._db.get_pending_jobs_for_cleaner(
+                limit=batch_size, exclude_ids=checked_ids, order=order)
             if not batch:
                 break
 
