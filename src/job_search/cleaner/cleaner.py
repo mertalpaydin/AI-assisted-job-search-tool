@@ -4,7 +4,7 @@ import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import Any, Callable
 
 import requests
 from loguru import logger
@@ -26,11 +26,19 @@ class JobCleaner:
         db: DatabaseManager,
         session: requests.Session | None = None,
         max_workers: int = 1,
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
         self._db = db
         self._session = session
         self._max_workers = max_workers
         self._local = threading.local()
+        self._should_stop = should_stop or (lambda: False)
+
+    def _stopping(self) -> bool:
+        try:
+            return bool(self._should_stop())
+        except Exception:
+            return False
 
     def _get_thread_session(self) -> requests.Session:
         if not hasattr(self._local, "session") or self._local.session is None:
@@ -67,8 +75,17 @@ class JobCleaner:
             False: Job is active.
             None: Rate-limited or blocked (429, 403, 999).
         """
+        # Return before spending anything if a stop landed while this task sat
+        # in the executor queue. These run on ThreadPoolExecutor threads, which
+        # are NOT daemons: concurrent.futures joins them at interpreter
+        # shutdown, so any work still queued here holds the whole process open.
+        if self._stopping():
+            return None
+
         # Pacing delay with random jitter (0.3s to 0.8s) to prevent bursting
         time.sleep(random.uniform(0.3, 0.8))
+        if self._stopping():
+            return None
 
         session = self._get_thread_session()
 
@@ -154,6 +171,11 @@ class JobCleaner:
             return job_id, self.is_job_expired(job_id)
 
         while limit is None or limit <= 0 or total_checked < limit:
+            if self._stopping():
+                logger.info("Cleaner stopping: shutdown requested ({} checked, "
+                            "{} expired so far)", total_checked, len(all_expired_ids))
+                break
+
             if deadline is not None and time.monotonic() >= deadline:
                 logger.warning(
                     "Cleaner stopping early: reached max runtime of {:.1f}h "
@@ -170,13 +192,25 @@ class JobCleaner:
             batch_active: list[int] = []
             rate_limited_count = 0
 
-            with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+            # Deliberately not a `with` block. Its __exit__ calls
+            # shutdown(wait=True), which waits for every one of the up-to-500
+            # queued tasks — ten minutes at one worker and a second of pacing
+            # each. On a stop we want to cancel the queue and wait only for
+            # what is already in flight.
+            executor = ThreadPoolExecutor(max_workers=self._max_workers)
+            stopped_early = False
+            try:
                 futures = {
                     executor.submit(_check_single, item["job_id"]): item["job_id"]
                     for item in batch
                 }
 
+                processed = 0
                 for future in as_completed(futures):
+                    if self._stopping():
+                        stopped_early = True
+                        break
+                    processed += 1
                     job_id = futures[future]
                     try:
                         j_id, expired_status = future.result()
@@ -192,6 +226,20 @@ class JobCleaner:
                             rate_limited_count += 1
                     except Exception as exc:
                         logger.warning("Cleaner error checking job {}: {}", job_id, exc)
+            finally:
+                # cancel_futures drops everything still queued; wait=False means
+                # we do not block on the one request already on the wire. Both
+                # matter, because these threads outlive us otherwise.
+                executor.shutdown(wait=not stopped_early, cancel_futures=stopped_early)
+
+            if stopped_early:
+                logger.info("Cleaner stopped mid-batch: {} of {} check(s) done, "
+                            "the rest cancelled", processed, len(batch))
+                if batch_expired:
+                    self._db.mark_jobs_expired_batch(batch_expired)
+                if batch_active:
+                    self._db.mark_jobs_cleaned_batch(batch_active)
+                break
 
             successfully_checked = len(batch) - rate_limited_count
             total_checked += successfully_checked

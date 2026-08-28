@@ -450,7 +450,14 @@ class JobSearchCoordinator:
         if "clean" in stages:
             def run_cleaner():
                 from job_search.cleaner.cleaner import JobCleaner
-                cleaner = JobCleaner(self._db, session=session)
+                # The cleaner's ThreadPoolExecutor threads are not daemons, so
+                # without this the process cannot exit until the whole batch of
+                # up to 500 paced HTTP checks finishes — minutes after the user
+                # asked it to stop, and long enough that an IDE kills it.
+                cleaner = JobCleaner(
+                    self._db, session=session,
+                    should_stop=self._shutdown.should_shutdown,
+                )
                 cleaner.clean_pending_jobs()
             self._spawn("cleaner", run_cleaner)
 

@@ -547,7 +547,12 @@ def clean(config: str, limit: int | None, no_interactive: bool, scheduled: bool,
     _snapshot_before(cfg, "pre-clean")
     db = DatabaseManager(cfg.database.path)
     try:
-        cleaner = JobCleaner(db)
+        # `job-search stop` should end a standalone sweep too, not only one
+        # running inside the pipeline.
+        cleaner = JobCleaner(
+            db,
+            should_stop=lambda: runcontrol.stop_requested(cfg.execution.stop_file),
+        )
         result = cleaner.clean_pending_jobs(limit=limit, max_runtime_hours=max_runtime)
         click.echo(f"Cleaner finished: Checked {result['checked']} jobs, marked {result['expired']} as expired.")
     finally:
