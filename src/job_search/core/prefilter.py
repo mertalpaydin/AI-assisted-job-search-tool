@@ -41,6 +41,26 @@ def _compile_terms(terms: list[str]) -> list[tuple[str, re.Pattern[str]]]:
     return [(t, _word_pattern(t)) for t in terms if t and t.strip()]
 
 
+def _compound_pattern(term: str) -> re.Pattern[str]:
+    """Match a role noun that ends a word, glued or standing alone.
+
+    German writes compounds as one word, so "entwickler" never matches
+    "Softwareentwickler" under :func:`_word_pattern`, whose left boundary is
+    exactly what makes "intern" safe against "International". This drops the
+    LEFT boundary and keeps the right one, so the term still has to finish the
+    word: "manager" matches "Datenmanager", "intern" would still not match
+    "International" because the word does not end there.
+
+    Only ever applied to the curated require_any_compound list. A suffix match
+    on a two-letter term would be a disaster ("ki" fires on Helsinki).
+    """
+    return re.compile(re.escape(term.lower()) + r"(?:innen|in|en|s|n)?(?![a-z0-9])", re.IGNORECASE)
+
+
+def _compile_compounds(terms: list[str]) -> list[tuple[str, re.Pattern[str]]]:
+    return [(t, _compound_pattern(t)) for t in terms if t and t.strip()]
+
+
 class TitlePrefilter:
     """Title-only rules, evaluated against a search stub."""
 
@@ -50,6 +70,9 @@ class TitlePrefilter:
         self._exclude = _compile_terms(cfg.exclude_any)
         self._exclude_unless_ai = _compile_terms(cfg.exclude_unless_ai)
         self._ai_signal = _compile_terms(cfg.ai_signal)
+        self._require_compound = _compile_compounds(
+            getattr(cfg, "require_any_compound", []) or []
+        )
 
     def has_ai_signal(self, title: str) -> bool:
         """True when the title mentions AI, ML or data work."""
@@ -76,7 +99,9 @@ class TitlePrefilter:
                     return f"title:{term} (no AI signal)"
 
         if self._require and not any(rx.search(title) for _, rx in self._require):
-            return "title:no required keyword"
+            # Second chance for German compounds before rejecting.
+            if not any(rx.search(title) for _, rx in self._require_compound):
+                return "title:no required keyword"
 
         return None
 

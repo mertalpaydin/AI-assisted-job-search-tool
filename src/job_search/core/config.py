@@ -49,6 +49,11 @@ class TitleFilterConfig(BaseModel):
     require_any: list[str] = []  # at least one must match (word-boundary, case-insensitive); empty = disabled
     exclude_any: list[str] = []  # any match rejects the title outright
     exclude_unless_ai: list[str] = []  # rejects only when the title has no AI/data signal
+    # German role nouns that satisfy require_any even when glued to the end of a
+    # compound: "entwickler" here means "Softwareentwickler" passes the gate.
+    # Deliberately NOT the whole require_any list, because a suffix match on a
+    # short term is dangerous ("ki" would fire on Helsinki, "ai" on Dubai).
+    require_any_compound: list[str] = []
     ai_signal: list[str] = Field(default_factory=lambda: list(_DEFAULT_AI_SIGNAL))
 
 
