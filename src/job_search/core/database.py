@@ -77,7 +77,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     application_status TEXT,
     applied_at TIMESTAMP,
     user_cl_approved INTEGER DEFAULT NULL,
-    last_cleaned_at TIMESTAMP
+    last_cleaned_at TIMESTAMP,
+
+    recruiter_message TEXT,
+    recruiter_message_kind TEXT,
+    recruiter_message_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS screening_results (
@@ -249,6 +253,9 @@ class SelectedJobRow:
     formattedIndustries: str | None = None
     company_staff_range_start: int | None = None
     company_staff_range_end: int | None = None
+    recruiter_message: str | None = None
+    recruiter_message_kind: str | None = None
+    recruiter_message_at: str | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -513,6 +520,30 @@ class DatabaseManager:
         self._migrate_v8(conn)
         self._migrate_v9(conn)
         self._migrate_v10(conn)
+        self._migrate_v11(conn)
+
+    def _migrate_v11(self, conn: sqlite3.Connection) -> None:
+        """Add the on-demand recruiter outreach message.
+
+        Columns on jobs rather than a table of its own: cover_letters is a
+        table because a background worker needs generation_status,
+        error_message and retry_count to survive a crash mid-generation. This
+        one is produced synchronously from a button press, so a failure is
+        reported in the HTTP response and never becomes state.
+
+        _kind records which form was generated ("note" or "inmail"), so the
+        page can reopen on the length you last used instead of resetting.
+        """
+        for stmt in (
+            "ALTER TABLE jobs ADD COLUMN recruiter_message TEXT",
+            "ALTER TABLE jobs ADD COLUMN recruiter_message_kind TEXT",
+            "ALTER TABLE jobs ADD COLUMN recruiter_message_at TIMESTAMP",
+        ):
+            try:
+                conn.execute(stmt)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     def _migrate_v10(self, conn: sqlite3.Connection) -> None:
         """Add the declared company size band alongside the member count.
@@ -1096,6 +1127,45 @@ class DatabaseManager:
                     screening_status = -1,
                     screening_reasoning = excluded.screening_reasoning
             """, (job_id, error))
+
+    # ------------------------------------------------------------------
+    # Recruiter messages
+    # ------------------------------------------------------------------
+
+    def save_recruiter_message(
+        self, job_id: int, text: str, kind: str | None = None
+    ) -> None:
+        """Store the outreach draft for a job, replacing any previous one.
+
+        ``kind`` is left alone when None so a manual edit through the Web UI
+        does not erase which form the text was generated as.
+        """
+        with self._cursor() as cur:
+            if kind is None:
+                cur.execute("""
+                    UPDATE jobs SET recruiter_message = ?,
+                                    recruiter_message_at = CURRENT_TIMESTAMP,
+                                    updated_at = CURRENT_TIMESTAMP
+                    WHERE job_id = ?
+                """, (text, job_id))
+            else:
+                cur.execute("""
+                    UPDATE jobs SET recruiter_message = ?,
+                                    recruiter_message_kind = ?,
+                                    recruiter_message_at = CURRENT_TIMESTAMP,
+                                    updated_at = CURRENT_TIMESTAMP
+                    WHERE job_id = ?
+                """, (text, kind, job_id))
+
+    def clear_recruiter_message(self, job_id: int) -> None:
+        with self._cursor() as cur:
+            cur.execute("""
+                UPDATE jobs SET recruiter_message = NULL,
+                                recruiter_message_kind = NULL,
+                                recruiter_message_at = NULL,
+                                updated_at = CURRENT_TIMESTAMP
+                WHERE job_id = ?
+            """, (job_id,))
 
     # ------------------------------------------------------------------
     # Cover Letters
@@ -1855,7 +1925,9 @@ class DatabaseManager:
                     j.user_cl_approved, j.created_at, j.search_keyword,
                     j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason,
                     j.company_staff_count, j.formattedIndustries,
-                    j.company_staff_range_start, j.company_staff_range_end
+                    j.company_staff_range_start, j.company_staff_range_end,
+                    j.recruiter_message, j.recruiter_message_kind,
+                    j.recruiter_message_at
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?

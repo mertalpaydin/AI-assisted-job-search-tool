@@ -19,6 +19,12 @@ _ARCHETYPE_DESCRIPTIONS: dict[str, str] = {
     "none": "not classified",
 }
 
+# The two recruiter-message forms. "note" is a LinkedIn connection request,
+# which the platform truncates at 300 characters; "inmail" is a direct message
+# with no hard ceiling. Keys mirror recruiter_message.length_guidance in
+# config/prompts.yaml.
+RECRUITER_MESSAGE_LENGTHS: tuple[str, ...] = ("note", "inmail")
+
 
 class PromptManager:
     """Loads prompts.yaml and cv.yaml, formats prompts for screening and cover letters."""
@@ -272,6 +278,64 @@ class PromptManager:
         blocks = cfg.get("archetype_guidance") or {}
         key = self._archetype_key(archetype)
         return str(blocks.get(key) or blocks.get("none") or "").rstrip()
+
+    def length_guidance(self, length: str) -> str:
+        """Return the recruiter-message guidance block for one message length.
+
+        Only this block reaches the model, for the same reason the archetype
+        blocks are split: guidance written for the 300-character note has no
+        business shaping an InMail.
+        """
+        cfg = self._prompts.get("recruiter_message", {})
+        blocks = cfg.get("length_guidance") or {}
+        key = self._length_key(length)
+        return str(blocks.get(key) or "").rstrip()
+
+    @staticmethod
+    def _length_key(length: str | None) -> str:
+        """Normalise a recruiter-message length to a guidance key."""
+        key = (length or "").strip().lower()
+        return key if key in RECRUITER_MESSAGE_LENGTHS else "note"
+
+    def format_recruiter_message_prompt(
+        self,
+        job_title: str,
+        company_name: str | None,
+        job_location: str | None,
+        job_description: str | None,
+        archetype: str | None = None,
+        length: str = "note",
+    ) -> tuple[str, str]:
+        """Return (system_prompt, user_prompt) for a recruiter outreach message.
+
+        The system prompt is the shared instruction set with one length block
+        and one role-family block substituted in. Same split as the cover
+        letter: the model never sees guidance written for the other cases.
+        """
+        cfg = self._prompts["recruiter_message"]
+        key = self._archetype_key(archetype)
+
+        # Plain replace rather than str.format, for the same reason as the
+        # cover letter system prompt: it contains literal punctuation that
+        # format() would misread as a field.
+        system = (
+            cfg["system_prompt"]
+            .replace("{length_guidance}", self.length_guidance(length))
+            .replace("{archetype_guidance}", self.archetype_guidance(archetype))
+            .strip()
+        )
+
+        user = cfg["user_prompt_template"].format(
+            cv_text=self._escape(self._cv_text),
+            job_title=self._escape(job_title or ""),
+            company_name=self._escape(company_name or "Unknown"),
+            job_location=self._escape(job_location or "Unknown"),
+            job_description=self._escape(job_description or ""),
+            archetype=self._escape(_ARCHETYPE_DESCRIPTIONS[key]),
+            narrative=self._escape(self.render_narrative(archetype)
+                                   or "(No narrative material provided.)"),
+        )
+        return system, user
 
     def format_cover_letter_prompt(
         self,

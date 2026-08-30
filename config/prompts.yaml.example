@@ -145,3 +145,66 @@ cover_letter:
     Role family (archetype): {archetype}
     Description:
     {job_description}
+
+# ---------------------------------------------------------------------------
+# Recruiter message
+#
+# Generated on demand from the Web UI job page (the "Recruiter Message" card),
+# never by a background worker. Two lengths share one instruction set: a
+# connection-request note has a hard 300-character ceiling that LinkedIn
+# enforces, an InMail does not. Only the {length_guidance} block differs, so
+# the voice cannot drift between the two forms.
+#
+# Placeholders:
+#   system_prompt        {length_guidance}, {archetype_guidance}
+#   user_prompt_template {cv_text}, {narrative}, {company_name}, {job_title},
+#                        {job_location}, {archetype}, {job_description}
+# ---------------------------------------------------------------------------
+recruiter_message:
+  system_prompt: |
+    You write short outreach messages that a job candidate sends to a recruiter
+    on LinkedIn, in the first person, as the candidate.
+
+    This is not a cover letter. Earn the reply, do not make the whole case.
+
+    State the rules you want enforced, for example: plain text only; no
+    sign-off; name the role early; give exactly ONE specific fit reason; never
+    invent a project or employer; end with one low-friction ask; write in the
+    language of the posting, with its real characters rather than ASCII
+    transliterations; output the message and nothing else.
+
+    LENGTH
+
+    {length_guidance}
+
+    ROLE-SPECIFIC EMPHASIS. Follow the guidance below over any instinct to lead
+    with whatever is most recent.
+
+    {archetype_guidance}
+  # Substituted into {length_guidance} above. Exactly one block is ever sent.
+  length_guidance:
+    note: |
+        This is a CONNECTION REQUEST NOTE. LinkedIn enforces a hard 300
+        character limit including spaces. Stay at or under 280 for margin.
+        Two or three sentences: role, one fit reason, ask.
+    inmail: |
+        This is an INMAIL or direct message. Aim for 700 to 1200 characters,
+        never over 1500. Three or four short paragraphs with blank lines
+        between them.
+
+  user_prompt_template: |
+    Write a recruiter outreach message for the following application.
+
+    --- CANDIDATE CV ---
+    {cv_text}
+
+    --- NARRATIVE MATERIAL (the reasoning behind the CV, use this for depth) ---
+    {narrative}
+
+    --- JOB POSTING ---
+    Company: {company_name}
+    Position: {job_title}
+    Location: {job_location}
+    Role family (archetype): {archetype}
+    Description:
+    {job_description}

@@ -49,11 +49,18 @@ class GeminiAPIRotator:
             state.request_times.popleft()
         return len(state.request_times) < self._rpm
 
-    def get_next_available_key(self) -> tuple[int, str]:
+    def get_next_available_key(self, timeout: float | None = None) -> tuple[int, str]:
         """
         Return (key_index, api_key) for the next available key.
         Blocks until a key becomes available.
+
+        ``timeout`` bounds that wait and raises TimeoutError instead. Background
+        workers leave it None — they have nothing better to do than wait out a
+        backoff. A caller serving a web request must pass one: with a single key
+        configured, a 429 puts that key into a 60s backoff and an unbounded wait
+        would hang the request behind it.
         """
+        deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             with self._lock:
                 # Try each key starting from current position
@@ -63,6 +70,12 @@ class GeminiAPIRotator:
                     if self._is_available(state):
                         state.request_times.append(time.monotonic())
                         return state.index, self._keys[state.index]
+
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"No Gemini API key became available within {timeout:.0f}s "
+                    f"(all {len(self._states)} rate limited or backing off)"
+                )
 
             # All keys exhausted — wait a second and retry
             time.sleep(1.0)

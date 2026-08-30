@@ -124,3 +124,73 @@ class TestCoverLetterPrompt:
         long_desc = "y" * 5000
         _, user = pm.format_cover_letter_prompt("Dev", "Co", "loc", long_desc)
         assert "y" * 5000 in user
+
+
+class TestRecruiterMessagePrompt:
+    """Two lengths share one instruction set; only one guidance block is sent."""
+
+    def test_returns_two_strings(self, pm: PromptManager) -> None:
+        system, user = pm.format_recruiter_message_prompt(
+            job_title="AI Engineer", company_name="Acme", job_location="Frankfurt",
+            job_description="Build things.", archetype="E", length="note",
+        )
+        assert isinstance(system, str) and isinstance(user, str)
+        assert system and user
+
+    def test_only_the_selected_length_block_is_sent(self, pm: PromptManager) -> None:
+        note_system, _ = pm.format_recruiter_message_prompt(
+            job_title="AI Engineer", company_name="Acme", job_location="Frankfurt",
+            job_description="d", archetype="E", length="note",
+        )
+        inmail_system, _ = pm.format_recruiter_message_prompt(
+            job_title="AI Engineer", company_name="Acme", job_location="Frankfurt",
+            job_description="d", archetype="E", length="inmail",
+        )
+        assert "HARD 300 CHARACTER LIMIT." in note_system
+        assert "ROOM FOR THREE SHORT PARAGRAPHS." not in note_system
+        assert "ROOM FOR THREE SHORT PARAGRAPHS." in inmail_system
+        assert "HARD 300 CHARACTER LIMIT." not in inmail_system
+
+    def test_only_the_jobs_own_archetype_block_is_sent(self, pm: PromptManager) -> None:
+        system, _ = pm.format_recruiter_message_prompt(
+            job_title="Category Manager", company_name="Acme", job_location="Frankfurt",
+            job_description="d", archetype="F", length="note",
+        )
+        assert "LEAD AS A PROCUREMENT CANDIDATE." in system
+        assert "LEAD WITH THE FRAMEWORKS." not in system
+        assert "BALANCE BOTH SIDES." not in system
+
+    def test_no_placeholder_survives_substitution(self, pm: PromptManager) -> None:
+        system, _ = pm.format_recruiter_message_prompt(
+            job_title="AI Engineer", company_name="Acme", job_location="Frankfurt",
+            job_description="d", archetype="E", length="inmail",
+        )
+        assert "{length_guidance}" not in system
+        assert "{archetype_guidance}" not in system
+
+    def test_unknown_length_falls_back_to_the_note(self, pm: PromptManager) -> None:
+        """A bad length must not silently produce an unbounded message."""
+        system, _ = pm.format_recruiter_message_prompt(
+            job_title="AI Engineer", company_name="Acme", job_location="Frankfurt",
+            job_description="d", archetype="E", length="telegram",
+        )
+        assert "HARD 300 CHARACTER LIMIT." in system
+
+    def test_braces_in_the_description_do_not_break_formatting(
+        self, pm: PromptManager
+    ) -> None:
+        _, user = pm.format_recruiter_message_prompt(
+            job_title="AI Engineer", company_name="Acme", job_location="Frankfurt",
+            job_description='Stack: {"python": true} and {curly}', archetype="E",
+            length="note",
+        )
+        assert '{"python": true}' in user
+        assert "{curly}" in user
+
+    def test_handles_none_fields_gracefully(self, pm: PromptManager) -> None:
+        system, user = pm.format_recruiter_message_prompt(
+            job_title="", company_name=None, job_location=None,
+            job_description=None, archetype=None, length="note",
+        )
+        assert "Unknown" in user
+        assert "BALANCE BOTH SIDES." in system

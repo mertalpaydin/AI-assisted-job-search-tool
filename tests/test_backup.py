@@ -36,11 +36,21 @@ def _make_db(path: Path, rows: int = 5) -> None:
 
 
 def _corrupt(path: Path) -> None:
-    """Scribble over the middle of the file, the way a bad copy would."""
+    """Scribble over the middle half of the file, the way a bad copy would.
+
+    A region rather than a single 1600-byte spot, because one spot lands
+    wherever the current schema happens to put it. Adding three columns to
+    ``jobs`` was enough to move the midpoint onto a page that schema setup
+    never reads, so the file was genuinely corrupt and opening it still
+    succeeded — the tripwire below passed for a reason that had nothing to do
+    with the tripwire. Damaging the whole middle keeps every one of these
+    tests independent of the byte layout.
+    """
     size = path.stat().st_size
+    start, end = size // 4, (size * 3) // 4
     with path.open("r+b") as f:
-        f.seek(size // 2)
-        f.write(b"\xde\xad\xbe\xef" * 400)
+        f.seek(start)
+        f.write(b"\xde\xad\xbe\xef" * max(1, (end - start) // 4))
 
 
 class TestIntegrityCheck:

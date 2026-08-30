@@ -86,6 +86,21 @@ MINIMAL_PROMPTS_YAML = textwrap.dedent("""\
         Location: {job_location}
         Description: {job_description}
         Family: {archetype}
+    recruiter_message:
+      system_prompt: |
+        You write recruiter outreach messages.
+        LENGTH: {length_guidance}
+        FAMILY: {archetype_guidance}
+      length_guidance:
+        note: "HARD 300 CHARACTER LIMIT."
+        inmail: "ROOM FOR THREE SHORT PARAGRAPHS."
+      user_prompt_template: |
+        CV: {cv_text}
+        Company: {company_name}
+        Position: {job_title}
+        Location: {job_location}
+        Description: {job_description}
+        Family: {archetype}
 """)
 
 

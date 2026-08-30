@@ -14,6 +14,22 @@ def client(db: DatabaseManager):
         yield client
 
 
+@pytest.fixture()
+def configured_client(db: DatabaseManager):
+    """A client whose app has a Config, which the generate routes require."""
+    from job_search.core.config import Config
+
+    app = init_app(db, config=Config.model_validate({
+        "search": {
+            "keywords": ["AI Engineer"],
+            "locations": [{"geo_id": "1", "name": "Frankfurt"}],
+        },
+    }))
+    app.config["TESTING"] = True
+    with app.test_client() as client:
+        yield client
+
+
 def test_jobs_route_german_filter(db: DatabaseManager, client) -> None:
     # Setup test jobs
     db.insert_job(40001, "kw", "loc1")
@@ -220,3 +236,133 @@ def test_cover_letter_regenerate_route(db: DatabaseManager, client) -> None:
     assert 95002 in pending
 
 
+
+
+# ---------------------------------------------------------------------------
+# Recruiter message
+#
+# The one route in this UI that calls Gemini inside the request, so the tests
+# monkeypatch the generator and assert the plumbing around it: the length is
+# validated, the result is persisted, and a failure comes back as JSON rather
+# than a traceback.
+# ---------------------------------------------------------------------------
+
+def _seed_job(db: DatabaseManager, job_id: int) -> None:
+    db.insert_job(job_id, "kw", "loc")
+    db.update_job_details(job_id, {"title": "AI Engineer", "company_name": "Acme"})
+    db.save_screening_result(job_id, ScreeningResult(0.9, "none", True, "Pass"))
+
+
+def test_recruiter_message_generate_saves_and_returns_json(
+    db: DatabaseManager, configured_client, monkeypatch
+) -> None:
+    _seed_job(db, 96001)
+
+    from job_search.ai import recruiter_message as rm
+    monkeypatch.setattr(
+        rm, "generate_recruiter_message",
+        lambda **kw: f"Hi, about the {kw['length']} role.",
+    )
+
+    res = configured_client.post(
+        "/jobs/96001/recruiter-message/generate", data={"length": "inmail"}
+    )
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload["success"] is True
+    assert payload["kind"] == "inmail"
+    assert payload["chars"] == len(payload["text"])
+    assert payload["limit"] == 1500
+
+    job = db.get_selected_job(96001)
+    assert job.recruiter_message == payload["text"]
+    assert job.recruiter_message_kind == "inmail"
+    assert job.recruiter_message_at is not None
+
+
+def test_recruiter_message_generate_rejects_unknown_length(
+    db: DatabaseManager, configured_client
+) -> None:
+    _seed_job(db, 96002)
+    res = configured_client.post(
+        "/jobs/96002/recruiter-message/generate", data={"length": "telegram"}
+    )
+    assert res.status_code == 400
+    assert "telegram" in res.get_json()["error"]
+    assert db.get_selected_job(96002).recruiter_message is None
+
+
+def test_recruiter_message_generate_reports_failure_as_json(
+    db: DatabaseManager, configured_client, monkeypatch
+) -> None:
+    """A provider failure must not leave a half-written message behind."""
+    _seed_job(db, 96003)
+
+    from job_search.ai import recruiter_message as rm
+
+    def _boom(**kw):
+        raise rm.RecruiterMessageError("No Gemini API keys configured.")
+
+    monkeypatch.setattr(rm, "generate_recruiter_message", _boom)
+
+    res = configured_client.post(
+        "/jobs/96003/recruiter-message/generate", data={"length": "note"}
+    )
+    assert res.status_code == 502
+    assert "No Gemini API keys" in res.get_json()["error"]
+    assert db.get_selected_job(96003).recruiter_message is None
+
+
+def test_recruiter_message_update_and_clear(db: DatabaseManager, client) -> None:
+    _seed_job(db, 96004)
+    db.save_recruiter_message(96004, "Generated draft", kind="note")
+
+    res = client.post(
+        "/jobs/96004/recruiter-message/update",
+        data={"recruiter_message": "  My edited draft  ", "source": "detail"},
+        follow_redirects=True,
+    )
+    assert res.status_code == 200
+    job = db.get_selected_job(96004)
+    assert job.recruiter_message == "My edited draft"
+    # An edit must not erase which form the text was generated as.
+    assert job.recruiter_message_kind == "note"
+
+    # Saving an empty box clears the message rather than storing "".
+    client.post(
+        "/jobs/96004/recruiter-message/update",
+        data={"recruiter_message": "   ", "source": "detail"},
+        follow_redirects=True,
+    )
+    assert db.get_selected_job(96004).recruiter_message is None
+
+
+def test_recruiter_message_delete_route(db: DatabaseManager, client) -> None:
+    _seed_job(db, 96005)
+    db.save_recruiter_message(96005, "Draft to remove", kind="inmail")
+
+    res = client.post("/jobs/96005/recruiter-message/delete",
+                      data={"source": "detail"}, follow_redirects=True)
+    assert res.status_code == 200
+    job = db.get_selected_job(96005)
+    assert job.recruiter_message is None
+    assert job.recruiter_message_kind is None
+    assert job.recruiter_message_at is None
+
+
+def test_recruiter_message_routes_404_on_unknown_job(client) -> None:
+    assert client.post("/jobs/99999/recruiter-message/update",
+                       data={"recruiter_message": "x"}).status_code == 404
+    assert client.post("/jobs/99999/recruiter-message/delete").status_code == 404
+
+
+def test_job_detail_renders_the_recruiter_card(db: DatabaseManager, client) -> None:
+    _seed_job(db, 96006)
+    db.save_recruiter_message(96006, "Existing draft", kind="inmail")
+
+    body = client.get("/jobs/96006").get_data(as_text=True)
+    assert "Recruiter Message" in body
+    assert "Existing draft" in body
+    # The card must open on the length the message was generated as.
+    assert '"inmail"' in body
+    assert '"note": 300' in body or '"note":300' in body

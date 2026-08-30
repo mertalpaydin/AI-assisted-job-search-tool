@@ -471,6 +471,62 @@
       </div>
     </div>
 
+    <!-- Recruiter Outreach Message (generated on demand, not by the pipeline) -->
+    <div class="card detail-summary-card shadow-sm mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center py-3 flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <span class="fw-semibold text-light"><i class="bi bi-chat-dots me-2 text-info"></i>Recruiter Message</span>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Message length">
+            <button type="button" class="btn btn-outline-secondary py-0 px-2" id="rmLenNote"
+                    onclick="setRecruiterLength('note')" title="LinkedIn connection request — hard 300 character limit">
+              Connection note
+            </button>
+            <button type="button" class="btn btn-outline-secondary py-0 px-2" id="rmLenInmail"
+                    onclick="setRecruiterLength('inmail')" title="InMail or direct message — room for a few short paragraphs">
+              InMail
+            </button>
+          </div>
+        </div>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <span class="text-muted small" id="rmCharCount"></span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="rmCopyBtn" onclick="copyRecruiterMessage()">
+            <i class="bi bi-clipboard me-1"></i>Copy
+          </button>
+          <button type="button" class="btn btn-sm btn-info" id="rmGenerateBtn" onclick="generateRecruiterMessage()">
+            <i class="bi bi-stars me-1"></i><span id="rmGenerateLabel">{{ 'Regenerate' if job.recruiter_message else 'Generate' }}</span>
+          </button>
+          <form method="post" action="/jobs/{{ job.job_id }}/recruiter-message/delete" class="d-inline"
+                onsubmit="return confirm('Clear the saved recruiter message for this job?');">
+            <input type="hidden" name="source" value="detail">
+            <button type="submit" class="btn btn-sm btn-outline-danger" title="Clear the saved message">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </div>
+      </div>
+      <div class="card-body p-4">
+        <div id="rmAlert"></div>
+        <form method="post" action="/jobs/{{ job.job_id }}/recruiter-message/update">
+          <input type="hidden" name="source" value="detail">
+          <textarea name="recruiter_message" class="cl-textarea mb-3" id="recruiterMessageText"
+                    rows="6" placeholder="Pick a length, then press Generate. The draft lands here and is yours to edit before you copy it.">{{ job.recruiter_message or '' }}</textarea>
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span class="text-muted small">
+              {% if job.recruiter_message_at %}
+                <i class="bi bi-clock-history me-1"></i>Generated {{ job.recruiter_message_at | short_date }}
+                {%- if job.recruiter_message_kind %} as {{ 'a connection note' if job.recruiter_message_kind == 'note' else 'an InMail' }}{% endif %}
+              {% else %}
+                <i class="bi bi-info-circle me-1"></i>Not generated yet · costs one API call, nothing is queued
+              {% endif %}
+            </span>
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-check2 me-1"></i>Save Edits to DB
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Job Description -->
     {% if job.description %}
     <div class="card detail-summary-card shadow-sm mb-4">
@@ -749,11 +805,15 @@ const JobReader = {
 };
 
 function autoResizeTextarea() {
-  const textarea = document.getElementById("coverLetterText");
-  if (textarea) {
-    textarea.style.height = "auto";
-    textarea.style.height = (textarea.scrollHeight + 4) + "px";
-  }
+  // Every auto-growing textarea on the page, so a card added later does not
+  // have to remember to wire up its own resize handler.
+  ["coverLetterText", "recruiterMessageText"].forEach(id => {
+    const textarea = document.getElementById(id);
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = (textarea.scrollHeight + 4) + "px";
+    }
+  });
 }
 
 function setClViewMode(mode) {
@@ -917,6 +977,110 @@ function generatePdfLive(event) {
   });
 }
 
+/* ---------------------------------------------------------------------------
+ * Recruiter message
+ *
+ * The only place in this UI that calls Gemini and waits for the answer, so it
+ * owns a spinner and reports its own errors inline instead of flashing and
+ * redirecting.
+ * ------------------------------------------------------------------------- */
+const RM_LIMITS = {{ recruiter_limits | tojson }};
+let rmLength = {{ (job.recruiter_message_kind or 'note') | tojson }};
+
+function setRecruiterLength(kind) {
+  rmLength = kind;
+  const noteBtn = document.getElementById("rmLenNote");
+  const inmailBtn = document.getElementById("rmLenInmail");
+  if (noteBtn) noteBtn.classList.toggle("active", kind === "note");
+  if (inmailBtn) inmailBtn.classList.toggle("active", kind === "inmail");
+  updateRecruiterCharCount();
+}
+
+function updateRecruiterCharCount() {
+  const textarea = document.getElementById("recruiterMessageText");
+  const label = document.getElementById("rmCharCount");
+  if (!textarea || !label) return;
+  const n = textarea.value.length;
+  const limit = RM_LIMITS[rmLength];
+  label.textContent = limit ? `${n} / ${limit}` : `${n}`;
+  // Over the limit is not a style issue for a connection note: LinkedIn
+  // refuses to send it at all, so say so loudly.
+  label.classList.toggle("text-danger", !!limit && n > limit);
+  label.classList.toggle("fw-bold", !!limit && n > limit);
+  label.classList.toggle("text-muted", !(!!limit && n > limit));
+}
+
+function showRecruiterAlert(kind, title, body) {
+  const alertDiv = document.getElementById("rmAlert");
+  if (!alertDiv) return;
+  alertDiv.innerHTML = `
+    <div class="alert alert-${kind} alert-dismissible fade show" role="alert">
+      <i class="bi bi-${kind === 'danger' ? 'exclamation-triangle-fill' : 'check-circle-fill'} me-2"></i>
+      <strong>${title}</strong> ${escapeHtml(body)}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+  `;
+}
+
+function generateRecruiterMessage() {
+  const btn = document.getElementById("rmGenerateBtn");
+  const textarea = document.getElementById("recruiterMessageText");
+  if (!btn || !textarea) return;
+
+  if (textarea.value.trim() &&
+      !confirm("Replace the current message with a new draft? Unsaved edits will be lost.")) {
+    return;
+  }
+
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Drafting...';
+
+  const formData = new FormData();
+  formData.append("length", rmLength);
+
+  fetch("/jobs/{{ job.job_id }}/recruiter-message/generate", { method: "POST", body: formData })
+    .then(res => res.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      if (data.success) {
+        textarea.value = data.text;
+        autoResizeTextarea();
+        updateRecruiterCharCount();
+        const label = document.getElementById("rmGenerateLabel");
+        if (label) label.textContent = "Regenerate";
+        showRecruiterAlert("success", "Draft ready.",
+          `${data.chars} characters. Saved — edit it and press Save if you change anything.`);
+      } else {
+        showRecruiterAlert("danger", "Could not draft a message:", data.error || "Unknown error");
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      showRecruiterAlert("danger", "Request failed:", String(err));
+    });
+}
+
+function copyRecruiterMessage() {
+  const textarea = document.getElementById("recruiterMessageText");
+  if (!textarea) return;
+  const text = textarea.value.trim();
+  if (!text) return;
+
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById("rmCopyBtn");
+    if (!btn) return;
+    btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied!';
+    btn.classList.replace("btn-outline-secondary", "btn-success");
+    setTimeout(() => {
+      btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy';
+      btn.classList.replace("btn-success", "btn-outline-secondary");
+    }, 2000);
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   JobReader.init();
   autoResizeTextarea();
@@ -926,6 +1090,15 @@ document.addEventListener("DOMContentLoaded", () => {
       autoResizeTextarea();
       const readBox = document.getElementById("clReadContainer");
       if (readBox) readBox.textContent = textarea.value;
+    });
+  }
+
+  setRecruiterLength(rmLength);
+  const rmTextarea = document.getElementById("recruiterMessageText");
+  if (rmTextarea) {
+    rmTextarea.addEventListener("input", () => {
+      autoResizeTextarea();
+      updateRecruiterCharCount();
     });
   }
 });

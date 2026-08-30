@@ -149,6 +149,28 @@ class CoverLetterConfig(BaseModel):
     rate_limits: CoverLetterRateLimitConfig = Field(default_factory=CoverLetterRateLimitConfig)
 
 
+class RecruiterMessageConfig(BaseModel):
+    """On-demand LinkedIn outreach drafts, generated from the Web UI job page.
+
+    No worker, no queue and no rate limiter: this fires once when a button is
+    pressed and somebody is watching the spinner, so it gets a small retry
+    budget and no search grounding — a recruiter note is not worth a
+    multi-second web search on top of the generation.
+    """
+
+    model: str = "gemini-3.7-flash"
+    temperature: float = 0.5
+    max_tokens: int = 2048
+    use_search_grounding: bool = False
+    max_retries: int = 2
+    retry_delay: int = 5
+    # Hard ceilings per form. LinkedIn refuses a connection note over 300
+    # characters outright, so that number is the platform's, not a preference.
+    max_chars: dict[str, int] = Field(
+        default_factory=lambda: {"note": 300, "inmail": 1500}
+    )
+
+
 class ConcurrencyConfig(BaseModel):
     max_search_workers: int = 2
     max_details_workers: int = 3
@@ -255,6 +277,7 @@ class Config(BaseModel):
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
     cover_letter: CoverLetterConfig = Field(default_factory=CoverLetterConfig)
+    recruiter_message: RecruiterMessageConfig = Field(default_factory=RecruiterMessageConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)

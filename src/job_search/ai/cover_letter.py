@@ -18,27 +18,18 @@ from tenacity import (
 from job_search.core.config import Config
 from job_search.core.database import DatabaseManager
 from job_search.core.state import ShutdownCoordinator
+from job_search.ai.errors import RateLimitError, TemporaryError, classify_exception
 from job_search.ai.prompt_manager import PromptManager
 from job_search.utils.api_rotation import GeminiAPIRotator
 from job_search.utils.formatting import clean_cover_letter_text
 
 
-class _RateLimitError(Exception):
-    pass
-
-
-class _TemporaryError(Exception):
-    pass
-
-
-def _classify_exception(exc: Exception) -> Exception:
-    """Re-raise API exceptions as retryable or fatal."""
-    msg = str(exc).lower()
-    if "quota" in msg or "rate" in msg or "429" in msg:
-        return _RateLimitError(str(exc))
-    if "503" in msg or "500" in msg or "timeout" in msg:
-        return _TemporaryError(str(exc))
-    return exc
+# Aliases kept so the rest of this module reads as it always did. The
+# definitions moved to ai.errors when the recruiter message needed the same
+# retry classification.
+_RateLimitError = RateLimitError
+_TemporaryError = TemporaryError
+_classify_exception = classify_exception
 
 
 class CoverLetterWorker:

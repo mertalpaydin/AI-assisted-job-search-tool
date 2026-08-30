@@ -19,6 +19,7 @@ from flask import (
     send_file, url_for,
 )
 
+from job_search.ai.prompt_manager import RECRUITER_MESSAGE_LENGTHS
 from job_search.core.config import Config, load_config
 from job_search.core.database import (
     APPLICATION_STATUSES,
@@ -92,6 +93,18 @@ def get_db() -> DatabaseManager:
 
 def get_cl_mode() -> str:
     return _cl_mode
+
+
+def get_recruiter_limits() -> dict[str, int]:
+    """Per-form character ceilings for the recruiter message card.
+
+    Falls back to the model defaults when the app was initialised without a
+    config, which is how the test client builds it.
+    """
+    if _config is None:
+        from job_search.core.config import RecruiterMessageConfig
+        return dict(RecruiterMessageConfig().max_chars)
+    return dict(_config.recruiter_message.max_chars)
 
 
 def get_blocked_companies() -> list[str]:
@@ -403,6 +416,7 @@ def job_detail(job_id: int):
     return render_template("job_detail.html", job=job, statuses=APPLICATION_STATUSES,
                            archetype_labels=ARCHETYPE_LABELS,
                            cl_mode=get_cl_mode(),
+                           recruiter_limits=get_recruiter_limits(),
                            prev_job_id=prev_job_id,
                            next_job_id=next_job_id)
 
@@ -505,6 +519,75 @@ def regenerate_cover_letter(job_id: int):
 
     return _redirect_back(request.form, job_id)
 
+
+
+@app.route("/jobs/<int:job_id>/recruiter-message/generate", methods=["POST"])
+def generate_recruiter_message_route(job_id: int):
+    """Draft a LinkedIn outreach message now and return it as JSON.
+
+    The only synchronous provider call on a job page. Everything else that
+    reaches Gemini from the Web UI hands work to a background worker, but a
+    recruiter message is worth nothing an hour later: you are looking at the
+    posting, so the answer has to arrive in this request.
+    """
+    if _config is None:
+        return jsonify({"error": "Configuration not loaded"}), 500
+
+    db = get_db()
+    job = db.get_selected_job(job_id)
+    if job is None:
+        abort(404)
+
+    length = (request.form.get("length") or request.args.get("length") or "note").strip()
+    if length not in RECRUITER_MESSAGE_LENGTHS:
+        return jsonify({"error": f"Unknown message length: {length}"}), 400
+
+    # Imported here, not at module scope, for the same reason as the batch
+    # collect route: app.py must stay importable without secrets or the SDK.
+    from job_search.ai import recruiter_message as rm
+    from job_search.core.config import load_secrets
+
+    try:
+        api_keys = load_secrets().gemini_api_keys
+        text = rm.generate_recruiter_message(
+            config=_config, db=db, api_keys=api_keys, job=job, length=length,
+        )
+    except rm.RecruiterMessageError as exc:
+        return jsonify({"error": str(exc)}), 502
+    except Exception as exc:
+        from loguru import logger
+        logger.exception("Recruiter message route failed for job {}", job_id)
+        return jsonify({"error": str(exc)}), 500
+
+    db.save_recruiter_message(job_id, text, kind=length)
+    return jsonify({
+        "success": True, "text": text, "kind": length, "chars": len(text),
+        "limit": _config.recruiter_message.max_chars.get(length),
+    })
+
+
+@app.route("/jobs/<int:job_id>/recruiter-message/update", methods=["POST"])
+def update_recruiter_message(job_id: int):
+    """Save an edited draft. kind is left as generated — this is an edit."""
+    db = get_db()
+    if db.get_selected_job(job_id) is None:
+        abort(404)
+    text = request.form.get("recruiter_message", "").strip()
+    if text:
+        db.save_recruiter_message(job_id, text)
+    else:
+        db.clear_recruiter_message(job_id)
+    return _redirect_back(request.form, job_id)
+
+
+@app.route("/jobs/<int:job_id>/recruiter-message/delete", methods=["POST"])
+def delete_recruiter_message(job_id: int):
+    db = get_db()
+    if db.get_selected_job(job_id) is None:
+        abort(404)
+    db.clear_recruiter_message(job_id)
+    flash(f"Recruiter message cleared for job #{job_id}.", "success")
+    return _redirect_back(request.form, job_id)
 
 
 @app.route("/jobs/<int:job_id>/cover-letter/pdf", methods=["GET", "POST"])
