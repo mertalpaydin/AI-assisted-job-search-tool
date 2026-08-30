@@ -269,3 +269,78 @@ class TestSchedulePause:
         first = rc.resolve_resume_at("12h")
         second = rc.resolve_resume_at("12h")
         assert abs((second - first).total_seconds()) < 2
+
+
+class TestLockHeartbeat:
+    """Staleness must mean "no sign of life", not "started a while ago".
+
+    A sweep over a large backlog outlives the two-hour ceiling routinely. Under
+    the old rule it then stopped being protected: the next scheduled task saw a
+    free lock and started alongside it, two processes sharing one LinkedIn
+    session and one database.
+    """
+
+    def test_a_long_run_that_keeps_beating_keeps_its_lock(self, paths) -> None:
+        rc.acquire_lock(paths["lock"], "manual", "clean")
+        _age_lock(paths["lock"], started_hours=9, heartbeat_hours=0)
+
+        assert rc.is_locked(paths["lock"], stale_after_minutes=120) is not None
+        assert rc.acquire_lock(paths["lock"], "scheduled") is False
+
+    def test_a_wedged_run_still_loses_its_lock(self, paths) -> None:
+        rc.acquire_lock(paths["lock"], "manual", "clean")
+        _age_lock(paths["lock"], started_hours=9, heartbeat_hours=5)
+
+        assert rc.is_locked(paths["lock"], stale_after_minutes=120) is None
+
+    def test_refresh_clears_staleness(self, paths) -> None:
+        rc.acquire_lock(paths["lock"], "manual", "clean")
+        _age_lock(paths["lock"], started_hours=9, heartbeat_hours=5)
+        assert rc.is_locked(paths["lock"], stale_after_minutes=120) is None
+
+        rc.refresh_lock(paths["lock"])
+        assert rc.is_locked(paths["lock"], stale_after_minutes=120) is not None
+
+    def test_refresh_preserves_the_rest_of_the_record(self, paths) -> None:
+        rc.acquire_lock(paths["lock"], "scheduled", "clean")
+        before = rc.read_lock(paths["lock"])
+        rc.refresh_lock(paths["lock"])
+        after = rc.read_lock(paths["lock"])
+        assert (after.pid, after.origin, after.stages, after.started_at) == (
+            before.pid, before.origin, before.stages, before.started_at
+        )
+
+    def test_a_foreign_lock_is_not_refreshed(self, paths) -> None:
+        """Only the owner may beat, so a force-stop cannot be undone."""
+        stamp = _past(9)
+        Path(paths["lock"]).write_text(json.dumps({
+            "pid": os.getpid() + 1, "started_at": stamp,
+            "origin": "manual", "stages": "clean", "heartbeat": stamp,
+        }), encoding="utf-8")
+        rc.refresh_lock(paths["lock"])
+        assert rc.read_lock(paths["lock"]).heartbeat == stamp
+
+    def test_a_lock_without_a_heartbeat_falls_back_to_started_at(self, paths) -> None:
+        """Locks written before heartbeats existed must still go stale."""
+        Path(paths["lock"]).write_text(json.dumps({
+            "pid": os.getpid(), "started_at": _past(9),
+            "origin": "manual", "stages": "clean",
+        }), encoding="utf-8")
+        assert rc.is_locked(paths["lock"], stale_after_minutes=120) is None
+
+    def test_age_still_reports_the_real_run_length(self, paths) -> None:
+        """The UI shows how long the run has been going, not time since a beat."""
+        rc.acquire_lock(paths["lock"], "manual", "clean")
+        _age_lock(paths["lock"], started_hours=9, heartbeat_hours=0)
+        info = rc.read_lock(paths["lock"])
+        assert info.age_minutes > 500          # ~9h
+        assert info.silent_minutes < 5
+
+
+def _age_lock(path: str, started_hours: float, heartbeat_hours: float) -> None:
+    """Rewrite a lock's timestamps to simulate a long-running holder."""
+    p = Path(path)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["started_at"] = _past(started_hours)
+    data["heartbeat"] = _past(heartbeat_hours)
+    p.write_text(json.dumps(data), encoding="utf-8")

@@ -89,10 +89,19 @@ class JobSearchCoordinator:
         self._state = StateManager(self._db)
         self._interactive = interactive
         self._origin = origin
-        self._max_runtime_hours = (
-            max_runtime_hours if max_runtime_hours is not None
-            else config.execution.max_runtime_hours
-        )
+        if max_runtime_hours is not None:
+            # Explicitly asked for, so it wins over every default below.
+            self._max_runtime_hours = max_runtime_hours
+        elif self._stages == {"clean"} and origin != "scheduled":
+            # An on-demand expiry sweep runs to completion. The 8h ceiling
+            # exists to stop an unattended pipeline run holding the machine all
+            # day; a sweep you started from the Web UI has nobody queued behind
+            # it, and cutting it off at 8h only means re-checking the same
+            # postings next time. Scheduled sweeps keep their bound — that is
+            # what it is for.
+            self._max_runtime_hours = 0.0
+        else:
+            self._max_runtime_hours = config.execution.max_runtime_hours
         self._lock_held = False
         # Which end of the cleaner backlog this run works from. The sweep cannot
         # finish inside its budget, so a run that always starts at the same end
@@ -147,6 +156,7 @@ class JobSearchCoordinator:
         # in flight, and the run proceeds with what is genuinely outstanding.
         if "screen" in self._stages:
             self._collect_batches()
+            self._warn_if_screening_a_partial_list()
 
         if resume:
             self._cleanup_errors_on_start()
@@ -159,6 +169,30 @@ class JobSearchCoordinator:
 
         self._start_workers()
         self._monitor_loop()
+
+    def _warn_if_screening_a_partial_list(self) -> None:
+        """Say so when this run will screen less than it could.
+
+        Screening is fed by the details stage, not by a poll, so a run that
+        screens without scraping details sees exactly the jobs that already
+        had them and silently leaves the rest for another day. That looked
+        identical to "nothing to do" in the log, which is why a backlog grew
+        for weeks unnoticed. Never fatal — this is a diagnosis, not a gate.
+        """
+        if "details" in self._stages:
+            return
+        try:
+            pending = self._db.get_pipeline_stats(
+                cl_mode=self._config.cover_letter.mode
+            )["details_pending"]
+        except Exception:
+            return
+        if pending:
+            logger.warning(
+                "Screening a PARTIAL list: {} job(s) have no details yet and "
+                "cannot be screened by this run. Add '-s details' to scrape "
+                "them first.", pending,
+            )
 
     def cleanup(self) -> None:
         if self._cleaned_up:
@@ -516,7 +550,11 @@ class JobSearchCoordinator:
     def _monitor_loop(self) -> None:
         cfg = self._config.execution
         check_interval = cfg.shutdown_conditions.check_interval_seconds
-        max_runtime = self._max_runtime_hours * 3600
+        # <= 0 means no ceiling; only the stop file and an empty queue end it.
+        max_runtime = (
+            self._max_runtime_hours * 3600 if self._max_runtime_hours > 0
+            else float("inf")
+        )
         start_time = time.monotonic()
         retry_interval = cfg.retry_errors_interval_minutes * 60
         last_retry = time.monotonic() if retry_interval > 0 else None
@@ -544,6 +582,8 @@ class JobSearchCoordinator:
         if "cover-letter" in self._stages:
             watched_queues.append(self._cover_letter_queue)
 
+        if max_runtime == float("inf"):
+            logger.info("No runtime ceiling for this run — it ends when the work does")
         if retry_interval > 0:
             logger.info(
                 "Monitor loop running (check every {}s, idle limit {}min, error retry every {}min)",
@@ -561,6 +601,12 @@ class JobSearchCoordinator:
 
             elapsed = time.monotonic() - start_time
             no_new_minutes = self._state.minutes_since_last_new_job()
+
+            # Say we are still here. A run that outlives
+            # lock_stale_after_minutes would otherwise stop being protected
+            # and the next scheduled task would start alongside it.
+            if self._lock_held:
+                runcontrol.refresh_lock(exec_cfg.lock_file)
 
             self._state.log_stats(cl_mode=self._config.cover_letter.mode)
 
@@ -613,12 +659,23 @@ class JobSearchCoordinator:
         logger.info("Monitor loop exiting — waiting for workers to finish…")
         self._drain_queues(timeout=60)
 
-    def _batch_upkeep(self) -> None:
+        # After the drain, so the last details writes are in the database and
+        # visible to get_jobs_pending_screening().
+        if self._batch_routed:
+            self._batch_upkeep(final=True)
+
+    def _batch_upkeep(self, final: bool = False) -> None:
         """Collect finished batches, and submit another if enough work waits.
 
         Runs on the monitor loop's tick. Deliberately never fatal: a screening
         batch is an optimisation, and a provider hiccup should not take down a
         run that is otherwise scraping happily.
+
+        ``final`` drops the threshold check for the last pass of a run. Mid-run
+        the threshold is right — waiting for a full batch is what makes them
+        cheap. At the end there is no later batch to wait for, so anything
+        still pending would simply sit unscreened until tomorrow, which is the
+        exact failure this run exists to stop.
         """
         try:
             if self._db.get_open_batch_jobs():
@@ -635,14 +692,23 @@ class JobSearchCoordinator:
                 return
 
             pending = self._db.get_jobs_pending_screening()
+            if not pending:
+                return
             threshold = self._config.screening.batch_threshold
-            if len(pending) < threshold:
+            if not final and len(pending) < threshold:
                 return
 
-            logger.info(
-                "{} job(s) have accumulated since the last batch, submitting another",
-                len(pending),
-            )
+            if final:
+                logger.info(
+                    "Final batch: submitting the {} job(s) this run scraped but "
+                    "had not yet sent, so they are not left for tomorrow",
+                    len(pending),
+                )
+            else:
+                logger.info(
+                    "{} job(s) have accumulated since the last batch, submitting another",
+                    len(pending),
+                )
             self._submit_batch(pending, api_keys[0])
         except Exception as exc:
             logger.warning("Batch upkeep skipped this tick: {}", exc)

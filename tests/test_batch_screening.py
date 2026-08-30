@@ -243,3 +243,74 @@ class TestScreeningStillWorks:
         assert job.cv_match_score == pytest.approx(0.9)
         assert job.archetype == "A"
         assert 960 not in db.get_jobs_pending_screening()
+
+
+class TestFinalBatchFlush:
+    """A run must not exit holding work it scraped but never submitted.
+
+    Mid-run the threshold is right: waiting for a full batch is what makes
+    batches cheap. On the last pass there is no later batch to wait for, so
+    anything still pending would sit unscreened until the next day — the exact
+    failure the details-then-screen leg exists to prevent.
+    """
+
+    def _coordinator(self, db: DatabaseManager, tmp_path, monkeypatch):
+        from job_search.core.config import Config
+        from job_search.orchestration.coordinator import JobSearchCoordinator
+
+        cfg = Config.model_validate({
+            "search": {"keywords": ["AI"],
+                       "locations": [{"geo_id": "1", "name": "F"}]},
+            "database": {"path": str(db._path)},
+            "screening": {"batch_threshold": 100},
+            "execution": {"lock_file": str(tmp_path / "runner.lock"),
+                          "stop_file": str(tmp_path / "runner.stop")},
+        })
+        c = JobSearchCoordinator(cfg, stages={"screen"})
+        c._db = db
+        c._batch_routed = True
+        monkeypatch.setattr(
+            type(c._secrets), "gemini_api_keys", property(lambda self: ["k"])
+        )
+
+        submitted: list[list[int]] = []
+        monkeypatch.setattr(
+            c, "_submit_batch", lambda pending, key: submitted.append(list(pending)) or True
+        )
+        return c, submitted
+
+    def test_below_threshold_is_held_back_mid_run(self, db, tmp_path, monkeypatch) -> None:
+        c, submitted = self._coordinator(db, tmp_path, monkeypatch)
+        for jid in range(1, 6):
+            _scraped_job(db, jid)
+
+        c._batch_upkeep()
+        assert submitted == []
+
+    def test_below_threshold_is_submitted_on_the_final_pass(
+        self, db, tmp_path, monkeypatch
+    ) -> None:
+        c, submitted = self._coordinator(db, tmp_path, monkeypatch)
+        for jid in range(1, 6):
+            _scraped_job(db, jid)
+
+        c._batch_upkeep(final=True)
+        assert len(submitted) == 1
+        assert sorted(submitted[0]) == [1, 2, 3, 4, 5]
+
+    def test_nothing_pending_submits_nothing(self, db, tmp_path, monkeypatch) -> None:
+        """An empty final pass must not create an empty batch."""
+        c, submitted = self._coordinator(db, tmp_path, monkeypatch)
+        c._batch_upkeep(final=True)
+        assert submitted == []
+
+    def test_already_screened_jobs_are_not_resubmitted(
+        self, db, tmp_path, monkeypatch
+    ) -> None:
+        c, submitted = self._coordinator(db, tmp_path, monkeypatch)
+        for jid in range(1, 4):
+            _scraped_job(db, jid)
+        db.save_screening_result(2, ScreeningResult(0.9, "none", True, "done"))
+
+        c._batch_upkeep(final=True)
+        assert sorted(submitted[0]) == [1, 3]

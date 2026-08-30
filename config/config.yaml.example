@@ -102,6 +102,20 @@ execution:
   pickup_on_restart: true
   checkpoint_interval_minutes: 5
 
+# Expiry sweep.
+#   order  which end of the backlog a run works from. least_checked is the fair
+#          rotation: a fixed order truncated at the same place every week is
+#          what left thousands of old postings unchecked.
+#   scheduled_max_runtime_hours
+#          bounds a SCHEDULED sweep only, where it shares the machine with the
+#          daily scrape and screen legs. An on-demand sweep (the CLI, or the
+#          Web UI's Clean Expired button) has no bound: nothing is queued
+#          behind it, and stopping half way only means re-checking the same
+#          postings next time. Set to 0 to drop the bound for scheduled runs too.
+#   cleaner:
+#     order: "least_checked"    # newest | oldest | least_checked | selected
+#     scheduled_max_runtime_hours: 2.0
+
 # Screening mode. Batch costs half as much and does not need the laptop awake,
 # at the price of up to 24h latency. "auto" keeps the daily delta instant and
 # switches to batch for a backlog, which is usually what you want.

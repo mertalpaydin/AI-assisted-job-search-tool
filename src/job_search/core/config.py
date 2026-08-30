@@ -246,6 +246,12 @@ class CleanerConfig(BaseModel):
     # and a fixed order truncated at the same place every week is what left
     # thousands of old postings unchecked.
     order: str = "least_checked"
+    # Bounds a SCHEDULED sweep only. The Sunday clean shares the machine with
+    # the daily scrape and screen legs, and a sweep that runs into them is
+    # what made this necessary. An on-demand sweep gets no bound at all:
+    # you started it deliberately, nothing is queued behind it, and stopping
+    # half way only means checking the same postings again next time.
+    scheduled_max_runtime_hours: float = 2.0
 
 
 class DatabaseConfig(BaseModel):

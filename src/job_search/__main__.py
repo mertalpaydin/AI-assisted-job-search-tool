@@ -520,7 +520,9 @@ def stop_cmd(config: str) -> None:
               help="Honour the schedule pause and imply --no-interactive.")
 @click.option("--max-runtime", type=float, default=None,
               help="Stop the sweep gracefully after this many hours, releasing the "
-                   "lock before Task Scheduler's hard limit can force-kill it.")
+                   "lock before Task Scheduler's hard limit can force-kill it. "
+                   "Defaults to cleaner.scheduled_max_runtime_hours under "
+                   "--scheduled, and to no bound at all otherwise.")
 @click.option("--order", default=None,
               type=click.Choice(["newest", "oldest", "least_checked", "selected"]),
               help="Which end of the backlog to work from (default: cleaner.order).")
@@ -556,9 +558,23 @@ def clean(config: str, limit: int | None, no_interactive: bool, scheduled: bool,
             db,
             should_stop=lambda: runcontrol.stop_requested(cfg.execution.stop_file),
         )
+        # An explicit --max-runtime always wins. Otherwise only a scheduled
+        # sweep is bounded: it shares the machine with the daily legs. A sweep
+        # you started by hand runs until it is done.
+        if max_runtime is None and scheduled:
+            max_runtime = cfg.cleaner.scheduled_max_runtime_hours
+        if max_runtime is not None and max_runtime <= 0:
+            max_runtime = None
+        logger.info(
+            "Cleaner runtime bound: {}",
+            f"{max_runtime:.1f}h" if max_runtime else "none (runs to completion)",
+        )
         result = cleaner.clean_pending_jobs(
             limit=limit, max_runtime_hours=max_runtime,
-            order=order or cfg.cleaner.order)
+            order=order or cfg.cleaner.order,
+            # Keep the lock alive across a long sweep so nothing starts beside it.
+            on_batch=lambda: runcontrol.refresh_lock(cfg.execution.lock_file),
+        )
         click.echo(f"Cleaner finished: Checked {result['checked']} jobs, marked {result['expired']} as expired.")
     finally:
         db.close()

@@ -39,20 +39,42 @@ def _read_json(path: Path) -> dict | None:
 # Runner lock
 # ---------------------------------------------------------------------------
 
+# Remembers which wedged holder we have already complained about, keyed by
+# (lock file, pid) and reset when that holder's started_at changes.
+_stale_warned: dict[tuple[str, int], str] = {}
+
 @dataclass
 class LockInfo:
     pid: int
     started_at: str
     origin: str          # "manual" | "scheduled"
     stages: str = ""
+    # Last time the holder said it was still working. Absent on locks written
+    # before heartbeats existed, which then fall back to started_at.
+    heartbeat: str = ""
 
     @property
     def age_minutes(self) -> float:
+        """How long this run has been going, for display."""
+        return self._minutes_since(self.started_at)
+
+    @property
+    def silent_minutes(self) -> float:
+        """How long since the holder last showed a sign of life.
+
+        This, not age, is what staleness is about. A sweep that has run for
+        six hours and is still checking postings is healthy; a lock whose
+        owner stopped touching it an hour ago is not.
+        """
+        return self._minutes_since(self.heartbeat or self.started_at)
+
+    @staticmethod
+    def _minutes_since(stamp: str) -> float:
         try:
-            started = datetime.fromisoformat(self.started_at)
+            when = datetime.fromisoformat(stamp)
         except ValueError:
             return 0.0
-        return (_now() - started).total_seconds() / 60.0
+        return (_now() - when).total_seconds() / 60.0
 
 
 def _pid_alive_windows(pid: int) -> bool:
@@ -113,6 +135,7 @@ def read_lock(path: str) -> LockInfo | None:
         started_at=str(data.get("started_at", "")),
         origin=str(data.get("origin", "manual")),
         stages=str(data.get("stages", "")),
+        heartbeat=str(data.get("heartbeat", "")),
     )
 
 
@@ -138,12 +161,20 @@ def is_locked(path: str, stale_after_minutes: int = 120) -> LockInfo | None:
         except OSError:
             pass
         return None
-    if info.age_minutes > stale_after_minutes:
-        logger.warning(
-            "Ignoring runner lock held for {:.0f} min (limit {})",
-            info.age_minutes, stale_after_minutes,
-        )
+    if info.silent_minutes > stale_after_minutes:
+        # Logged once per (pid, lock file). The runner-status endpoint polls
+        # every 2s and each poll lands here, so an unconditional warning was
+        # 1800 identical lines an hour for as long as the run lasted.
+        key = (str(path), info.pid)
+        if _stale_warned.get(key) != info.started_at:
+            _stale_warned[key] = info.started_at
+            logger.warning(
+                "Ignoring runner lock: pid {} has shown no sign of life for "
+                "{:.0f} min (limit {}). It may be wedged.",
+                info.pid, info.silent_minutes, stale_after_minutes,
+            )
         return None
+    _stale_warned.pop((str(path), info.pid), None)
     return info
 
 
@@ -154,13 +185,39 @@ def acquire_lock(path: str, origin: str, stages: str = "",
         return False
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
+    now = _now().isoformat(timespec="seconds")
     p.write_text(json.dumps({
         "pid": os.getpid(),
-        "started_at": _now().isoformat(timespec="seconds"),
+        "started_at": now,
         "origin": origin,
         "stages": stages,
+        "heartbeat": now,
     }, indent=2), encoding="utf-8")
     return True
+
+
+def refresh_lock(path: str) -> None:
+    """Tell the world this run is still alive. Never fatal.
+
+    Without this, staleness measured time since the run *started*, so any run
+    outliving the ceiling silently stopped being protected: the next scheduled
+    task saw a free lock and started alongside it, two processes sharing one
+    LinkedIn session and one database. An expiry sweep over a large backlog
+    does outlive it, which is exactly the run you least want duplicated.
+
+    Only the owner may refresh, so a force-stop that dropped the lock cannot be
+    undone by a straggler.
+    """
+    p = Path(path)
+    info = read_lock(path)
+    if info is None or info.pid != os.getpid():
+        return
+    try:
+        data = _read_json(p) or {}
+        data["heartbeat"] = _now().isoformat(timespec="seconds")
+        p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logger.debug("Could not refresh runner lock: {}", exc)
 
 
 def release_lock(path: str) -> None:

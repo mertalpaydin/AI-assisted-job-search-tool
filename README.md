@@ -189,6 +189,7 @@ uv run job-search resume        # resume scheduled runs immediately
 ```bash
 uv run job-search clean                    # detect closed postings, mark them expired
 uv run job-search clean --limit 50
+uv run job-search clean                    # on demand: no time bound, runs until the backlog is done
 uv run job-search clean --max-runtime 5    # stop between batches after 5h, releasing the lock cleanly
 
 uv run job-search reset-errors             # reset all error types for retry
@@ -282,14 +283,18 @@ powershell -ExecutionPolicy Bypass -File scripts/install_tasks.ps1
 
 | Task | Trigger | What it runs |
 |------|---------|--------------|
-| `JobSearch-Daily` | Daily 07:00 | Scrape, then screening + cover letters, back to back (each bounded to 1h) |
+| `JobSearch-Daily` | Daily 07:00 | Scrape (1h), then **scrape-details-then-screen** + cover letters (2h) |
 | `JobSearch-Catchup` | 5 min after logon | The same daily work, skipped if 07:00 already did it |
 | `JobSearch-Collect` | Hourly | `batch collect` — writes back finished screening batches |
-| `JobSearch-Clean` | Weekly, Sunday 03:00 | Expiry sweep, bounded to 5h |
+| `JobSearch-Clean` | Weekly, Sunday 03:00 | Expiry sweep, bounded by `cleaner.scheduled_max_runtime_hours` (2h) |
 
 **Two triggers for one job, because a laptop is not a server.** The 07:00 trigger is missed whenever the machine is asleep, and `StartWhenAvailable` did not reliably recover it — scraping silently stopped happening for days. The logon trigger closes that gap. Both legs carry `--once-daily`, so whichever fires first does the work and the other exits immediately; if scraping succeeded but screening died, the catch-up re-runs only the screening. State lives in `data/last_run.json`, keyed by leg and compared on the calendar date.
 
 Scrape and screen run **in sequence within one task** rather than as two tasks 15 minutes apart. The old gap assumed scraping always finished inside its hour; twice it did not, and screening exited with *"another run is already in progress"* instead of running.
+
+**The screening leg scrapes details before it screens.** Search fills the details queue faster than the detail workers drain it and never stops refilling, so the scrape leg's hour always ended with a backlog — and screening is fed by the details stage rather than by a database poll, so it then ran over whatever happened to be finished and left the rest for the next day, while the next morning piled more on top. The screening leg now carries `-s details` and runs no search worker, so its queue is finite and drains, and the batch it submits covers the day's whole intake. A run also **flushes a final batch on the way out**, ignoring `batch_threshold`: mid-run, waiting for a full batch is what makes batches cheap, but at the end there is no later batch to wait for. A `-s screen` run without `-s details` now says so in the log instead of looking like "nothing to do".
+
+**Only scheduled sweeps get a time bound.** `cleaner.scheduled_max_runtime_hours` (2h) applies under `--scheduled`, where the sweep shares the machine with the daily legs. An on-demand sweep — the CLI, or the Web UI's Clean Expired button — runs to completion: nothing is queued behind it, and stopping half way only means re-checking the same postings next time. A long run now **refreshes its lock**, so staleness means "no sign of life" rather than "started a while ago"; previously any run outliving `lock_stale_after_minutes` silently stopped being protected, and the next scheduled task started alongside it.
 
 The tasks run `scripts/scheduled_run.bat`, pass `--scheduled`, and use `StartWhenAvailable` so a run missed while the laptop slept fires on wake — note that this means several missed tasks can fire together the moment the machine comes back. Re-running `install_tasks.ps1` clears every `JobSearch-*` task before registering, so a renamed or dropped task cannot be left firing on its old schedule. Pause or resume the whole schedule at any time with `job-search pause` / `job-search resume`, or from the Web UI runner panel.
 

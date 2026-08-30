@@ -149,13 +149,20 @@ class JobCleaner:
 
     def clean_pending_jobs(self, limit: int | None = None, batch_size: int = 500,
                            max_runtime_hours: float | None = None,
-                           order: str = "newest") -> dict[str, Any]:
+                           order: str = "newest",
+                           on_batch: Callable[[], None] | None = None) -> dict[str, Any]:
         """Scan pending jobs across batches using parallel worker threads until pending jobs are checked.
 
         max_runtime_hours bounds the sweep: it stops gracefully between batches
         once the deadline passes, so a scheduled clean releases its lock before
         Task Scheduler's hard time limit force-kills it (which would orphan the
-        lock). Remaining jobs are picked up on the next run.
+        lock). Remaining jobs are picked up on the next run. None means no
+        bound, which is what an on-demand sweep gets: nobody is racing it for
+        the machine and stopping half way only means doing it again later.
+
+        on_batch runs between batches. The standalone sweep uses it to refresh
+        the runner lock, so an unbounded run stays protected however long it
+        takes.
         """
         checked_ids: set[int] = set()
         all_expired_ids: list[int] = []
@@ -185,6 +192,9 @@ class JobCleaner:
                     max_runtime_hours, total_checked, len(all_expired_ids),
                 )
                 break
+
+            if on_batch is not None:
+                on_batch()
 
             batch = self._db.get_pending_jobs_for_cleaner(
                 limit=batch_size, exclude_ids=checked_ids, order=order)
