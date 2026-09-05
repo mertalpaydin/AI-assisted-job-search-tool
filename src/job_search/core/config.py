@@ -123,7 +123,7 @@ class ScreeningConfig(BaseModel):
     mode: str = "auto"                    # instant | batch | auto
     # Only applies to MANUAL runs under auto: a backlog too large to sit
     # through goes to batch even though you started it by hand.
-    batch_threshold: int = 250
+    batch_threshold: int = 100
     batch_stale_after_hours: float = 36.0 # warn about a batch open longer than this
     # How often a running pipeline checks open batches and decides whether
     # enough new work has piled up to submit another one. Cheap: with no open

@@ -606,7 +606,7 @@ class JobSearchCoordinator:
             # lock_stale_after_minutes would otherwise stop being protected
             # and the next scheduled task would start alongside it.
             if self._lock_held:
-                runcontrol.refresh_lock(exec_cfg.lock_file)
+                runcontrol.refresh_lock(cfg.lock_file)
 
             self._state.log_stats(cl_mode=self._config.cover_letter.mode)
 

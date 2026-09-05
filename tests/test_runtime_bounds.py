@@ -84,3 +84,34 @@ class TestScheduledSweepBound:
         if max_runtime is not None and max_runtime <= 0:
             max_runtime = None
         assert max_runtime == expected
+
+
+class TestCoordinatorLockRefresh:
+    def test_monitor_loop_refreshes_lock_without_name_error(self, config, monkeypatch) -> None:
+        """A live coordinator holding the lock must refresh it on tick without crashing."""
+        from job_search.core import runcontrol as rc
+        from tests.test_runcontrol import _age_lock
+
+        rc.acquire_lock(config.execution.lock_file, "manual", "clean")
+        _age_lock(config.execution.lock_file, started_hours=1, heartbeat_hours=1)
+
+        c = _coordinator(config, stages={"clean"}, origin="manual")
+        c._lock_held = True
+
+        calls = 0
+        def fake_wait(timeout):
+            nonlocal calls
+            calls += 1
+            if calls >= 2:
+                c._shutdown.request_shutdown()
+            return c._shutdown.should_shutdown()
+
+        monkeypatch.setattr(c._shutdown, "wait", fake_wait)
+        monkeypatch.setattr(c, "_drain_queues", lambda timeout: None)
+
+        c._monitor_loop()
+
+        lock = rc.read_lock(config.execution.lock_file)
+        assert lock is not None
+        assert lock.silent_minutes < 1
+
