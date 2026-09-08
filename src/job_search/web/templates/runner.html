@@ -272,8 +272,7 @@
                 </div>
                 <div class="fs-4 fw-bold text-light" id="cntScreenPending">—</div>
                 <div class="text-muted small" style="font-size:0.75rem;">
-                    Jobs awaiting screening<span id="cntInFlightWrap" style="display:none">,
-                        <span id="cntInFlight">0</span> in batch</span>
+                    <span id="cntScreenAutoWrap"><span id="cntScreenAuto" class="text-success fw-semibold">0</span> auto, <span id="cntScreenDeferred" class="text-warning fw-semibold">0</span> deferred</span><span id="cntInFlightWrap" style="display:none">, <span id="cntInFlight">0</span> in batch</span>
                 </div>
             </div>
         </div>
@@ -609,6 +608,10 @@
                     const st = data.pipeline_stats;
                     document.getElementById('cntDetailsPending').textContent = st.details_pending || 0;
                     document.getElementById('cntScreenPending').textContent = st.screen_pending || 0;
+                    if (document.getElementById('cntScreenAuto')) {
+                        document.getElementById('cntScreenAuto').textContent = st.screen_pending_auto || 0;
+                        document.getElementById('cntScreenDeferred').textContent = st.screen_deferred || 0;
+                    }
                     document.getElementById('cntClPending').textContent = st.cl_pending || 0;
                     document.getElementById('cntPrefiltered').textContent = st.prefiltered_total || 0;
                     const inFlight = st.screen_in_flight || 0;

@@ -242,6 +242,7 @@ def jobs():
     archetype_filter = request.args.get("archetype", "").strip()
     prefilter_filter = request.args.get("prefiltered", "").strip()
     size_filter    = request.args.get("size", "").strip()
+    language_filter = request.args.get("lang", "").strip()
     min_match_param = request.args.get("min_match", "").strip()
     try:
         min_match_val = float(min_match_param) if min_match_param else None
@@ -267,6 +268,7 @@ def jobs():
         archetype_filter=archetype_filter,
         prefilter_filter=prefilter_filter,
         size_filter=size_filter,
+        language_filter=language_filter,
     )
     job_list, total = db.get_selected_jobs(
         sort_by=sort_by, sort_dir=sort_dir,
@@ -284,6 +286,7 @@ def jobs():
         archetype_filter=archetype_filter,
         prefilter_filter=prefilter_filter,
         size_filter=size_filter,
+        language_filter=language_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -308,6 +311,7 @@ def jobs():
         archetype_labels=ARCHETYPE_LABELS,
         prefilter_filter=prefilter_filter,
         size_filter=size_filter,
+        language_filter=language_filter,
         prefilter_counts=db.get_prefilter_counts(),
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
@@ -333,6 +337,8 @@ def jobs_all():
     archetype_filter = request.args.get("archetype", "").strip()
     prefilter_filter = request.args.get("prefiltered", "").strip()
     size_filter    = request.args.get("size", "").strip()
+    screened_filter = request.args.get("screened", "").strip()
+    language_filter = request.args.get("lang", "").strip()
     min_match_param = request.args.get("min_match", "").strip()
     try:
         min_match_val = float(min_match_param) if min_match_param else None
@@ -358,6 +364,7 @@ def jobs_all():
         archetype_filter=archetype_filter,
         prefilter_filter=prefilter_filter,
         size_filter=size_filter,
+        language_filter=language_filter,
         limit=200,
     )
     job_list, total = db.get_all_jobs(
@@ -376,6 +383,8 @@ def jobs_all():
         archetype_filter=archetype_filter,
         prefilter_filter=prefilter_filter,
         size_filter=size_filter,
+        screened_filter=screened_filter,
+        language_filter=language_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -400,6 +409,110 @@ def jobs_all():
         archetype_labels=ARCHETYPE_LABELS,
         prefilter_filter=prefilter_filter,
         size_filter=size_filter,
+        screened_filter=screened_filter,
+        language_filter=language_filter,
+        prefilter_counts=db.get_prefilter_counts(),
+        distinct_keywords=distinct_keywords,
+        page=page, total_pages=total_pages, total=total,
+    )
+
+
+@app.route("/jobs/unscreened")
+def jobs_unscreened():
+    db = get_db()
+    status_filter  = request.args.get("status", "")
+    sort_by        = request.args.get("sort", "created_at")
+    sort_dir       = request.args.get("dir", "desc")
+    search         = request.args.get("search", "").strip()
+    remote_filter  = request.args.get("remote", "")
+    cl_filter      = request.args.get("cl_ready", "")
+    date_from      = request.args.get("date_from", "")
+    date_to        = request.args.get("date_to", "")
+    exclude_companies = request.args.getlist("exc")
+    include_companies = request.args.getlist("inc")
+    keyword_filter = request.args.get("kw", "").strip()
+    german_filter  = request.args.get("german", "").strip()
+    apply_type     = request.args.get("apply_type", "").strip()
+    archetype_filter = request.args.get("archetype", "").strip()
+    prefilter_filter = request.args.get("prefiltered", "").strip()
+    size_filter    = request.args.get("size", "").strip()
+    screened_filter = "unscreened"
+    language_filter = request.args.get("lang", "").strip()
+    min_match_param = request.args.get("min_match", "").strip()
+    try:
+        min_match_val = float(min_match_param) if min_match_param else None
+    except ValueError:
+        min_match_val = None
+    page           = _get_page()
+    offset         = (page - 1) * _PAGE_SIZE
+
+    all_excluded = list(dict.fromkeys(exclude_companies))
+    all_included = list(dict.fromkeys(include_companies))
+
+    company_counts = db.get_company_counts(
+        selected_only=False,
+        status=status_filter, remote_filter=remote_filter,
+        date_from=date_from, date_to=date_to,
+        search=search, cl_ready=bool(cl_filter),
+        exclude_companies=all_excluded or None,
+        include_companies=all_included or None,
+        keyword_filter=keyword_filter,
+        german_filter=german_filter,
+        min_match=min_match_val,
+        apply_type=apply_type,
+        archetype_filter=archetype_filter,
+        prefilter_filter=prefilter_filter,
+        size_filter=size_filter,
+        screened_filter=screened_filter,
+        language_filter=language_filter,
+        limit=200,
+    )
+    job_list, total = db.get_all_jobs(
+        sort_by=sort_by, sort_dir=sort_dir,
+        search=search, status=status_filter,
+        remote_filter=remote_filter,
+        cl_ready=bool(cl_filter),
+        date_from=date_from, date_to=date_to,
+        exclude_companies=all_excluded or None,
+        include_companies=all_included or None,
+        limit=_PAGE_SIZE, offset=offset,
+        keyword_filter=keyword_filter,
+        german_filter=german_filter,
+        min_match=min_match_val,
+        apply_type=apply_type,
+        archetype_filter=archetype_filter,
+        prefilter_filter=prefilter_filter,
+        size_filter=size_filter,
+        screened_filter=screened_filter,
+        language_filter=language_filter,
+    )
+    total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    distinct_keywords = db.get_distinct_keywords()
+
+    return render_template(
+        "jobs.html", jobs=job_list, status_filter=status_filter,
+        statuses=APPLICATION_STATUSES, show_all=True, is_unscreened=True,
+        page_title="Unscreened Jobs",
+        base_url="/jobs/unscreened",
+        current_sort=sort_by, current_dir=sort_dir,
+        cl_mode=get_cl_mode(),
+        search_query=search,
+        remote_filter=remote_filter, cl_filter=cl_filter,
+        date_from=date_from, date_to=date_to,
+        company_counts=company_counts,
+        exclude_companies=exclude_companies,
+        include_companies=include_companies,
+        keyword_filter=keyword_filter,
+        german_filter=german_filter,
+        min_match=min_match_param,
+        apply_type=apply_type,
+        archetype_filter=archetype_filter,
+        archetype_counts=db.get_archetype_counts(selected_only=True),
+        archetype_labels=ARCHETYPE_LABELS,
+        prefilter_filter=prefilter_filter,
+        size_filter=size_filter,
+        screened_filter=screened_filter,
+        language_filter=language_filter,
         prefilter_counts=db.get_prefilter_counts(),
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,
@@ -804,6 +917,64 @@ def batch_cl_approve():
     return _redirect_to_list(request.form)
 
 
+@app.route("/jobs/<int:job_id>/screen", methods=["POST"])
+def screen_job_now(job_id: int):
+    global _config
+    if _config is None:
+        abort(500, "Configuration not loaded")
+    db = get_db()
+    job = db.get_job_details(job_id)
+    if job is None:
+        abort(404, f"Job #{job_id} not found")
+
+    try:
+        from job_search.ai.screener import screen_single_job
+        result = screen_single_job(job_id, _config, db)
+        status_label = "SELECTED" if result.is_selected else "NOT SELECTED"
+        pct = int(round((result.cv_match_score or 0) * 100))
+        flash(f"Job #{job_id} screened successfully: {status_label} (Match: {pct}%)", "success")
+    except Exception as exc:
+        flash(f"Error screening job #{job_id}: {exc}", "danger")
+
+    return _redirect_back(request.form, job_id)
+
+
+@app.route("/jobs/batch-screen", methods=["POST"])
+def batch_screen_jobs():
+    global _config
+    if _config is None:
+        abort(500, "Configuration not loaded")
+    db = get_db()
+    raw_ids = request.form.getlist("job_ids")
+    job_ids = [int(i) for i in raw_ids if str(i).isdigit()]
+    if not job_ids:
+        flash("No jobs selected for batch screening.", "warning")
+        return _redirect_to_list(request.form)
+
+    from job_search.core.config import load_secrets
+    api_keys = load_secrets().gemini_api_keys
+    if not api_keys:
+        flash("No Gemini API key configured, cannot reach the Batch API.", "danger")
+        return _redirect_to_list(request.form)
+
+    try:
+        from job_search.ai.batch_screener import BatchScreener
+        screener = BatchScreener(_config, db, api_key=api_keys[0])
+        batch_id = screener.submit(job_ids)
+        if batch_id is not None:
+            flash(
+                f"Submitted {len(job_ids)} job(s) for batch screening (Batch #{batch_id}). "
+                "Collect results from the Runner tab once processing completes.",
+                "success",
+            )
+        else:
+            flash("No eligible jobs could be submitted for batch screening.", "warning")
+    except Exception as exc:
+        flash(f"Error submitting batch screening: {exc}", "danger")
+
+    return _redirect_to_list(request.form)
+
+
 def _redirect_back(form, job_id: int):
     """Redirect to job detail or job list depending on the 'source' form field."""
     if form.get("source") == "detail":
@@ -819,6 +990,9 @@ def _redirect_to_list(form) -> "Response":
             return redirect(referrer)
 
     status_filter = form.get("status_filter", "")
+    is_unscreened = form.get("is_unscreened", "")
+    if is_unscreened:
+        return redirect(url_for("jobs_unscreened", status=status_filter) if status_filter else url_for("jobs_unscreened"))
     show_all = form.get("show_all", "")
     if show_all:
         return redirect(url_for("jobs_all", status=status_filter) if status_filter else url_for("jobs_all"))

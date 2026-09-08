@@ -9,11 +9,12 @@ import requests
 from loguru import logger
 
 from job_search.core.config import Config
-from job_search.core.database import DatabaseManager
+from job_search.core.database import DatabaseManager, is_auto_screen_eligible
 from job_search.core.prefilter import DetailsPrefilter
 from job_search.core.state import ShutdownCoordinator
 from job_search.scraping.auth import make_headers
 from job_search.scraping.models import CompanyData, ParsedJobDetails
+from job_search.utils.language import detect_language
 
 class _JobNotFoundError(Exception):
     def __init__(self, job_id: int) -> None:
@@ -230,6 +231,11 @@ class DetailsWorker:
             self._db.delete_job(job_id)
             return
 
+        desc = parsed.job_fields.get("description")
+        lang, ratio = detect_language(desc)
+        parsed.job_fields["detected_language"] = lang
+        parsed.job_fields["german_stopword_ratio"] = ratio
+
         self._db.update_job_details(job_id, parsed.job_fields)
 
         # If this job came from a remote-only geo search but LinkedIn says it's
@@ -254,6 +260,29 @@ class DetailsWorker:
             self._db.mark_prefiltered(job_id, reason)
             logger.debug("Prefiltered ({}) after details: job {}", reason, job_id)
             return
+
+        # Selective automated screening: German ads and small companies are
+        # saved normally in the DB, but deferred from automated pipeline screening.
+        # They remain available for on-demand or batch screening via the Web UI.
+        auto_cfg = self._config.screening.auto_screen
+        if auto_cfg.enabled:
+            eligible = is_auto_screen_eligible(
+                company_staff_count=parsed.job_fields.get("company_staff_count"),
+                company_staff_range_start=parsed.job_fields.get("company_staff_range_start"),
+                company_staff_range_end=parsed.job_fields.get("company_staff_range_end"),
+                detected_language=lang,
+                german_stopword_ratio=ratio,
+                min_company_size=auto_cfg.min_company_size,
+                allow_unknown_size=auto_cfg.allow_unknown_size,
+                exclude_fully_german=auto_cfg.exclude_fully_german,
+                german_ratio_threshold=auto_cfg.german_ratio_threshold,
+            )
+            if not eligible:
+                logger.debug(
+                    "Job {} saved but deferred from automated screening (lang={}, ratio={:.2f})",
+                    job_id, lang, ratio,
+                )
+                return
 
         self._screening_queue.put(job_id)
         logger.debug("Details saved for job {}", job_id)

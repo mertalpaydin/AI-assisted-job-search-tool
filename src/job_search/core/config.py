@@ -115,6 +115,14 @@ class GeminiScreeningConfig(BaseModel):
     requests_per_minute: int = 15         # per API key
 
 
+class AutoScreenConfig(BaseModel):
+    enabled: bool = True
+    min_company_size: str = "mid"         # "mid" = 201+, "large" = 1001+, etc.
+    allow_unknown_size: bool = False      # whether undisclosed company sizes auto-screen
+    exclude_fully_german: bool = True     # exclude predominantly German ads from auto-screening
+    german_ratio_threshold: float = 0.50   # German stopword ratio cutoff
+
+
 class ScreeningConfig(BaseModel):
     backend: str = "local"                # "local" | "gemini"
     # auto routes on who is waiting: a scheduled run batches (nobody is
@@ -132,6 +140,7 @@ class ScreeningConfig(BaseModel):
     model: ScreeningModelConfig = Field(default_factory=ScreeningModelConfig)
     gemini: GeminiScreeningConfig = Field(default_factory=GeminiScreeningConfig)
     criteria: ScreeningCriteriaConfig = Field(default_factory=ScreeningCriteriaConfig)
+    auto_screen: AutoScreenConfig = Field(default_factory=AutoScreenConfig)
 
 
 class CoverLetterRateLimitConfig(BaseModel):

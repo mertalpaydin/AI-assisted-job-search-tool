@@ -436,3 +436,67 @@ class GeminiScreeningWorker:
                 self._screening_queue.task_done()
 
         logger.info("Gemini screening worker-{} stopped", self._worker_id)
+
+
+def screen_single_job(
+    job_id: int,
+    config: Config,
+    db: DatabaseManager,
+    api_key: str | None = None,
+    prompt_manager: PromptManager | None = None,
+) -> ScreeningResult:
+    """Screen one job synchronously on demand using Gemini."""
+    job = db.get_job_details(job_id)
+    if job is None:
+        raise ValueError(f"Job {job_id} not found in database")
+    if not job.description:
+        raise ValueError(f"Job {job_id} has no scraped description")
+
+    prompts = prompt_manager or PromptManager()
+    system, user = prompts.format_screening_prompt(
+        job_title=job.title or "",
+        company_name=job.company_name,
+        job_location=job.formattedLocation,
+        remote_allowed=bool(job.workRemoteAllowed),
+        job_description=job.description,
+        employment_status=job.formattedEmploymentStatus,
+        experience_level=job.formattedExperienceLevel,
+        job_functions=job.formattedJobFunctions,
+        industries=job.formattedIndustries,
+        company_staff_count=job.company_staff_count,
+    )
+
+    if not api_key:
+        from job_search.core.config import load_secrets
+        keys = load_secrets().gemini_api_keys
+        if not keys:
+            raise RuntimeError("No Gemini API keys configured in config/.env")
+        api_key = keys[0]
+
+    client = genai.Client(api_key=api_key)
+    gemini_cfg = config.screening.gemini
+
+    response = client.models.generate_content(
+        model=gemini_cfg.model,
+        contents=user,
+        config=genai_types.GenerateContentConfig(
+            system_instruction=system,
+            temperature=gemini_cfg.temperature,
+            max_output_tokens=gemini_cfg.max_tokens,
+            seed=gemini_cfg.seed,
+            response_mime_type="application/json",
+            response_schema=SCREENING_RESPONSE_SCHEMA,
+        ),
+    )
+    raw = _parse_screening_json(response.text)
+    result = _apply_criteria(raw, config)
+
+    # Save to database and clear any existing prefilter_reason or batch_job_id
+    db.save_screening_result(job_id, result)
+    with db._cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET prefilter_reason = NULL, batch_job_id = NULL WHERE job_id = ?",
+            (job_id,),
+        )
+    return result
+

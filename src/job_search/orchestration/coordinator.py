@@ -165,7 +165,11 @@ class JobSearchCoordinator:
                 screening_pending=self._screening_queue if "screen" in self._stages else None,
                 cover_letter_pending=self._cover_letter_queue if "cover-letter" in self._stages else None,
             )
-            self._state.resume(queues, cl_mode=self._config.cover_letter.mode)
+            self._state.resume(
+                queues,
+                cl_mode=self._config.cover_letter.mode,
+                auto_screen_cfg=self._config.screening.auto_screen,
+            )
 
         self._start_workers()
         self._monitor_loop()
@@ -330,6 +334,18 @@ class JobSearchCoordinator:
         threading.Thread(target=_run, name="web-ui", daemon=True).start()
         logger.info("Web UI started → http://{}:{}/", host, port)
 
+    def _get_pipeline_pending_screening(self) -> list[int]:
+        auto_cfg = self._config.screening.auto_screen
+        if auto_cfg and auto_cfg.enabled:
+            return self._db.get_jobs_pending_screening(
+                auto_only=True,
+                min_size=auto_cfg.min_company_size,
+                allow_unknown_size=auto_cfg.allow_unknown_size,
+                exclude_german=auto_cfg.exclude_fully_german,
+                german_ratio_threshold=auto_cfg.german_ratio_threshold,
+            )
+        return self._db.get_jobs_pending_screening(auto_only=False)
+
     def _start_workers(self) -> None:
         cfg = self._config
         stages = self._stages
@@ -408,7 +424,7 @@ class JobSearchCoordinator:
         # still screened without a restart.
         screening_mode = getattr(cfg.screening, "mode", "instant")
         if "screen" in stages and screening_backend == "gemini" and api_keys:
-            pending = self._db.get_jobs_pending_screening()
+            pending = self._get_pipeline_pending_screening()
             self._batch_routed = batch_routed(
                 screening_mode, self._origin, len(pending), cfg.screening.batch_threshold
             )
@@ -691,7 +707,7 @@ class JobSearchCoordinator:
             if not api_keys:
                 return
 
-            pending = self._db.get_jobs_pending_screening()
+            pending = self._get_pipeline_pending_screening()
             if not pending:
                 return
             threshold = self._config.screening.batch_threshold

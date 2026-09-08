@@ -86,7 +86,12 @@ class StateManager:
         with self._lock:
             return (time.monotonic() - self._last_new_job_time) / 60.0
 
-    def resume(self, queues: PipelineQueues, cl_mode: str = "auto") -> None:
+    def resume(
+        self,
+        queues: PipelineQueues,
+        cl_mode: str = "auto",
+        auto_screen_cfg=None,
+    ) -> None:
         """
         Populate queues from the database for jobs that were interrupted
         mid-processing in a previous run.
@@ -94,7 +99,17 @@ class StateManager:
         import queue as q
 
         pending_details = self._db.get_jobs_pending_details()
-        pending_screening = self._db.get_jobs_pending_screening()
+        if auto_screen_cfg and auto_screen_cfg.enabled:
+            pending_screening = self._db.get_jobs_pending_screening(
+                auto_only=True,
+                min_size=auto_screen_cfg.min_company_size,
+                allow_unknown_size=auto_screen_cfg.allow_unknown_size,
+                exclude_german=auto_screen_cfg.exclude_fully_german,
+                german_ratio_threshold=auto_screen_cfg.german_ratio_threshold,
+            )
+        else:
+            pending_screening = self._db.get_jobs_pending_screening(auto_only=False)
+
         pending_cover_letters = self._db.get_jobs_pending_cover_letter(mode=cl_mode)
 
         if queues.details_pending is not None:

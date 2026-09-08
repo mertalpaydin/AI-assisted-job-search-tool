@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ "All Jobs" if show_all else "Selected Jobs" }}{% endblock %}
+{% block title %}{{ page_title if page_title else ("All Jobs" if show_all else "Selected Jobs") }}{% endblock %}
 
 {#
   page_url — build a URL carrying ALL active filter params, overriding
@@ -10,8 +10,9 @@
                   rm=remote_filter, cl=cl_filter,
                   df=date_from, dt=date_to, ex=exclude_companies,
                   kw=keyword_filter, ger=german_filter, mm=min_match, at=apply_type,
-                  ar=archetype_filter, pf=prefilter_filter, sz=size_filter) -%}
-  {{ "/jobs/all" if show_all else "/jobs" }}?page={{ p }}&sort={{ s }}&dir={{ d }}
+                  ar=archetype_filter, pf=prefilter_filter, sz=size_filter,
+                  sc=screened_filter, lg=language_filter) -%}
+  {{ base_url if base_url else ("/jobs/all" if show_all else "/jobs") }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
   {%- if rm %}&remote={{ rm }}{% endif %}
@@ -25,6 +26,8 @@
   {%- if ar %}&archetype={{ ar }}{% endif %}
   {%- if sz %}&size={{ sz }}{% endif %}
   {%- if pf %}&prefiltered={{ pf | urlencode }}{% endif %}
+  {%- if sc %}&screened={{ sc }}{% endif %}
+  {%- if lg %}&lang={{ lg }}{% endif %}
   {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
 
@@ -40,15 +43,15 @@
 {% endmacro %}
 
 {% block content %}
-{% set base_url = "/jobs/all" if show_all else "/jobs" %}
+{% set current_base = base_url if base_url else ("/jobs/all" if show_all else "/jobs") %}
 
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="mb-0 fw-semibold">
-    {{ "All Scraped Jobs" if show_all else "Selected Jobs" }}
+    {{ page_title if page_title else ("All Scraped Jobs" if show_all else "Selected Jobs") }}
     <span class="badge bg-secondary ms-2">{{ total }}</span>
   </h4>
-  {% if status_filter or search_query or remote_filter or cl_filter or min_match or date_from or date_to or exclude_companies or keyword_filter or german_filter %}
-  <a href="{{ base_url }}" class="btn btn-sm btn-outline-secondary">
+  {% if status_filter or search_query or remote_filter or cl_filter or min_match or date_from or date_to or exclude_companies or keyword_filter or german_filter or (screened_filter and not is_unscreened) or language_filter %}
+  <a href="{{ current_base }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear all filters
   </a>
   {% endif %}
@@ -93,6 +96,33 @@
   <a href="{{ page_url(p=1, mm='0.8') }}" class="btn btn-outline-warning btn-sm">
     <i class="bi bi-star me-1"></i>&ge;80% Match
   </a>
+  {% endif %}
+
+  {# Screening status filter dropdown #}
+  {% if show_all and not is_unscreened %}
+  <div class="dropdown" id="screenedFilterDropdown">
+    <button class="btn btn-sm {% if screened_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-cpu me-1"></i>Screening
+      {% if screened_filter %}
+        <span class="badge bg-dark ms-1">{{ screened_filter }}</span>
+      {% endif %}
+    </button>
+    <ul class="dropdown-menu p-2 shadow" style="min-width:180px">
+      <li><a class="dropdown-item small {% if not screened_filter %}active{% endif %}" href="{{ page_url(p=1, sc='') }}">All Screening States</a></li>
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <a class="dropdown-item small {% if screened_filter == 'unscreened' %}active{% endif %}" href="{{ page_url(p=1, sc='unscreened') }}">
+          <i class="bi bi-hourglass-split me-1 text-warning"></i>Unscreened only
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item small {% if screened_filter == 'screened' %}active{% endif %}" href="{{ page_url(p=1, sc='screened') }}">
+          <i class="bi bi-check-circle me-1 text-success"></i>Screened only
+        </a>
+      </li>
+    </ul>
+  </div>
   {% endif %}
 
   {# Date range #}
@@ -333,6 +363,35 @@
     </ul>
   </div>
 
+  {# Ad Language filter dropdown #}
+  <div class="dropdown" id="languageFilterDropdown">
+    <button class="btn btn-sm {% if language_filter %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-chat-left-text me-1"></i>Ad Lang
+      {% if language_filter %}
+        <span class="badge bg-dark ms-1">{{ 'German' if language_filter == 'de' else ('English' if language_filter == 'en' else language_filter) }}</span>
+      {% endif %}
+    </button>
+    <ul class="dropdown-menu p-2 shadow" style="min-width:170px">
+      <li>
+        <a class="dropdown-item small {% if not language_filter %}active{% endif %}" href="{{ page_url(p=1, lg='') }}">
+          All Languages
+        </a>
+      </li>
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <a class="dropdown-item small {% if language_filter == 'en' %}active{% endif %}" href="{{ page_url(p=1, lg='en') }}">
+          <span class="badge bg-info-subtle text-info border border-info-subtle me-1">EN</span> English Ads
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item small {% if language_filter == 'de' %}active{% endif %}" href="{{ page_url(p=1, lg='de') }}">
+          <span class="badge bg-danger-subtle text-danger border border-danger-subtle me-1">DE</span> German Ads
+        </a>
+      </li>
+    </ul>
+  </div>
+
   {# Keyword filter dropdown #}
   {% if distinct_keywords %}
   <div class="dropdown" id="keywordFilterDropdown">
@@ -463,6 +522,7 @@
       <form id="bulkApplyForm" method="post" action="/jobs/batch-status">
         <input type="hidden" name="status_filter" value="{{ status_filter }}">
         {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+        {% if is_unscreened %}<input type="hidden" name="is_unscreened" value="1">{% endif %}
         <input type="hidden" name="status" value="applied">
         <div class="bulk-job-ids-container"></div>
         <button type="submit" class="btn btn-primary btn-sm">
@@ -472,16 +532,27 @@
       <form id="bulkSkipForm" method="post" action="/jobs/batch-status">
         <input type="hidden" name="status_filter" value="{{ status_filter }}">
         {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+        {% if is_unscreened %}<input type="hidden" name="is_unscreened" value="1">{% endif %}
         <input type="hidden" name="status" value="skipped">
         <div class="bulk-job-ids-container"></div>
         <button type="submit" class="btn btn-outline-light btn-sm">
           <i class="bi bi-slash-circle me-1"></i>Skip
         </button>
       </form>
+      <form id="bulkScreenForm" method="post" action="/jobs/batch-screen" onsubmit="return confirm('Submit selected jobs for batch screening via Gemini Batch API?');">
+        <input type="hidden" name="status_filter" value="{{ status_filter }}">
+        {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+        {% if is_unscreened %}<input type="hidden" name="is_unscreened" value="1">{% endif %}
+        <div class="bulk-job-ids-container"></div>
+        <button type="submit" class="btn btn-info btn-sm text-dark fw-semibold">
+          <i class="bi bi-cpu me-1"></i>Batch Screen
+        </button>
+      </form>
       {% if cl_mode == "user_approval" %}
       <form id="bulkApproveForm" method="post" action="/jobs/batch-cl-approve">
         <input type="hidden" name="status_filter" value="{{ status_filter }}">
         {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+        {% if is_unscreened %}<input type="hidden" name="is_unscreened" value="1">{% endif %}
         <input type="hidden" name="action" value="approve">
         <div class="bulk-job-ids-container"></div>
         <button type="submit" class="btn btn-success btn-sm">
@@ -586,7 +657,11 @@
           {% else %}
           <span class="badge bg-secondary badge-match px-2 py-1">{{ pct }}%</span>
           {% endif %}
-          {% else %}—{% endif %}
+          {% elif job.batch_job_id %}
+          <span class="badge bg-info-subtle text-info border border-info-subtle small" title="Batch ID: {{ job.batch_job_id }}">batch #{{ job.batch_job_id }}</span>
+          {% else %}
+          <span class="badge bg-secondary-subtle text-muted border border-secondary-subtle small" title="Unscreened">unscreened</span>
+          {% endif %}
         </td>
         <td class="text-center">
           {% set ar = job.archetype %}
@@ -598,12 +673,22 @@
           {% endif %}
         </td>
         <td class="text-center">
-          {% set gl = job.german_requirement_level or "?" %}
-          {% if gl == "none" %}<span class="badge bg-success-subtle text-success border border-success-subtle small">English</span>
-          {% elif gl == "low" %}<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle small">Low German</span>
-          {% elif gl == "medium" %}<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle small">Med German</span>
-          {% elif gl == "high" %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle small">High German</span>
-          {% else %}<span class="badge bg-light text-muted small">{{ gl }}</span>{% endif %}
+          {% if job.cv_match_score is not none %}
+            {% set gl = job.german_requirement_level or "?" %}
+            {% if gl == "none" %}<span class="badge bg-success-subtle text-success border border-success-subtle small">English</span>
+            {% elif gl == "low" %}<span class="badge bg-info-subtle text-info-emphasis border border-info-subtle small">Low German</span>
+            {% elif gl == "medium" %}<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle small">Med German</span>
+            {% elif gl == "high" %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle small">High German</span>
+            {% else %}<span class="badge bg-light text-muted small">{{ gl }}</span>{% endif %}
+          {% else %}
+            {% if job.detected_language == 'de' %}
+              <span class="badge bg-danger-subtle text-danger border border-danger-subtle small" title="German ad text ({{ ((job.german_stopword_ratio or 0) * 100)|int }}% stopwords)">German Ad</span>
+            {% elif job.detected_language == 'en' %}
+              <span class="badge bg-info-subtle text-info border border-info-subtle small" title="English ad text">English Ad</span>
+            {% else %}
+              <span class="badge bg-light text-muted small">—</span>
+            {% endif %}
+          {% endif %}
         </td>
         {% if show_all %}
         <td class="text-center">
@@ -672,6 +757,7 @@
             <form method="post" action="/jobs/{{ job.job_id }}/quick-apply">
               <input type="hidden" name="status_filter" value="{{ status_filter }}">
               {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+              {% if is_unscreened %}<input type="hidden" name="is_unscreened" value="1">{% endif %}
               {% if job.application_status == "applied" %}
               <button type="submit" class="btn btn-sm btn-success" title="Click to undo applied">
                 <i class="bi bi-check2 me-1"></i>Applied
@@ -686,6 +772,7 @@
             <form method="post" action="/jobs/{{ job.job_id }}/quick-skip">
               <input type="hidden" name="status_filter" value="{{ status_filter }}">
               {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+              {% if is_unscreened %}<input type="hidden" name="is_unscreened" value="1">{% endif %}
               {% if job.application_status == "skipped" %}
               <button type="submit" class="btn btn-sm btn-secondary" title="Click to undo skip">
                 <i class="bi bi-slash-circle me-1"></i>Skipped
@@ -696,6 +783,17 @@
               </button>
               {% endif %}
             </form>
+
+            {% if job.cv_match_score is none %}
+            <form method="post" action="/jobs/{{ job.job_id }}/screen" class="m-0">
+              <input type="hidden" name="status_filter" value="{{ status_filter }}">
+              {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+              {% if is_unscreened %}<input type="hidden" name="is_unscreened" value="1">{% endif %}
+              <button type="submit" class="btn btn-sm btn-outline-info" title="Screen this job on demand with AI">
+                <i class="bi bi-cpu"></i>
+              </button>
+            </form>
+            {% endif %}
 
             <a href="/jobs/{{ job.job_id }}" class="btn btn-sm btn-outline-secondary" title="View details">
               <i class="bi bi-chevron-right"></i>

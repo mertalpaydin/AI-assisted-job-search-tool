@@ -81,7 +81,10 @@ CREATE TABLE IF NOT EXISTS jobs (
 
     recruiter_message TEXT,
     recruiter_message_kind TEXT,
-    recruiter_message_at TIMESTAMP
+    recruiter_message_at TIMESTAMP,
+
+    detected_language TEXT,
+    german_stopword_ratio REAL
 );
 
 CREATE TABLE IF NOT EXISTS screening_results (
@@ -205,6 +208,10 @@ class JobRow:
     formattedJobFunctions: str | None = None
     formattedIndustries: str | None = None
     company_staff_count: int | None = None
+    company_staff_range_start: int | None = None
+    company_staff_range_end: int | None = None
+    detected_language: str | None = None
+    german_stopword_ratio: float | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -256,6 +263,8 @@ class SelectedJobRow:
     recruiter_message: str | None = None
     recruiter_message_kind: str | None = None
     recruiter_message_at: str | None = None
+    detected_language: str | None = None
+    german_stopword_ratio: float | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -326,6 +335,8 @@ _JOBS_COLUMNS: frozenset[str] = frozenset({
     "salaryInsights", "skillsDescription", "inferredBenefits", "benefitsDataSource",
     "companyDescription", "description",
     "application_status", "applied_at",
+    "recruiter_message", "recruiter_message_kind", "recruiter_message_at",
+    "detected_language", "german_stopword_ratio",
 })
 
 # Company size, as a single upper bound the buckets can be cut against.
@@ -454,6 +465,48 @@ def _lower_unicode(value):
     return value.lower() if isinstance(value, str) else value
 
 
+def is_auto_screen_eligible(
+    company_staff_count: int | None = None,
+    company_staff_range_start: int | None = None,
+    company_staff_range_end: int | None = None,
+    detected_language: str | None = None,
+    german_stopword_ratio: float | None = None,
+    min_company_size: str = "mid",
+    allow_unknown_size: bool = False,
+    exclude_fully_german: bool = True,
+    german_ratio_threshold: float = 0.50,
+) -> bool:
+    """True when a job qualifies for automatic screening in pipeline runs.
+
+    Jobs failing this check are saved normally in the database, but skipped by
+    automated screening in both scheduled and on-demand runner runs. They can
+    still be screened on-demand or as batches via the Web UI.
+    """
+    if exclude_fully_german:
+        if detected_language == "de":
+            return False
+        if german_stopword_ratio is not None and german_stopword_ratio >= german_ratio_threshold:
+            return False
+
+    size = None
+    if company_staff_range_end is not None:
+        size = company_staff_range_end
+    elif company_staff_range_start is not None:
+        size = 2147483647
+    elif company_staff_count:
+        size = company_staff_count
+
+    if size is None:
+        return allow_unknown_size
+
+    if min_company_size == "mid" and size < 201:
+        return False
+    elif min_company_size == "large" and size < 1001:
+        return False
+
+    return True
+
+
 class DatabaseManager:
     """Thread-safe SQLite database manager."""
 
@@ -521,6 +574,45 @@ class DatabaseManager:
         self._migrate_v9(conn)
         self._migrate_v10(conn)
         self._migrate_v11(conn)
+        self._migrate_v12(conn)
+
+    def _migrate_v12(self, conn: sqlite3.Connection) -> None:
+        """Add language detection and stopword ratio for selective screening."""
+        for stmt in (
+            "ALTER TABLE jobs ADD COLUMN detected_language TEXT",
+            "ALTER TABLE jobs ADD COLUMN german_stopword_ratio REAL",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_language ON jobs(detected_language)",
+        ):
+            try:
+                conn.execute(stmt)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
+
+        # Backfill detected_language and german_stopword_ratio for existing scraped jobs
+        try:
+            from job_search.utils.language import detect_language
+
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT job_id, description FROM jobs "
+                "WHERE scraped = 1 AND description IS NOT NULL AND detected_language IS NULL"
+            )
+            rows = cur.fetchall()
+            if rows:
+                logger.info("Backfilling language classification for {} jobs...", len(rows))
+                updates = []
+                for jid, desc in rows:
+                    lang, ratio = detect_language(desc)
+                    updates.append((lang, ratio, jid))
+                cur.executemany(
+                    "UPDATE jobs SET detected_language = ?, german_stopword_ratio = ? WHERE job_id = ?",
+                    updates,
+                )
+                conn.commit()
+                logger.info("Language classification backfilled for {} jobs", len(updates))
+        except Exception as exc:
+            logger.warning("Language classification backfill skipped: {}", exc)
 
     def _migrate_v11(self, conn: sqlite3.Connection) -> None:
         """Add the on-demand recruiter outreach message.
@@ -1005,13 +1097,43 @@ class DatabaseManager:
             )
             return [row[0] for row in cur.fetchall()]
 
-    def get_jobs_pending_screening(self) -> list[int]:
+    def get_jobs_pending_screening(
+        self,
+        auto_only: bool = False,
+        min_size: str = "mid",
+        allow_unknown_size: bool = False,
+        exclude_german: bool = True,
+        german_ratio_threshold: float = 0.50,
+    ) -> list[int]:
+        conditions = [
+            "j.scraped = 1",
+            "sr.id IS NULL",
+            "j.prefilter_reason IS NULL",
+            "j.batch_job_id IS NULL",
+        ]
+        if auto_only:
+            if exclude_german:
+                conditions.append(
+                    f"(j.detected_language != 'de' OR j.detected_language IS NULL) "
+                    f"AND (j.german_stopword_ratio < {german_ratio_threshold} OR j.german_stopword_ratio IS NULL)"
+                )
+            if min_size == "mid":
+                if allow_unknown_size:
+                    conditions.append(f"({_SIZE_BOUND_SQL} >= 201 OR {_SIZE_BOUND_SQL} IS NULL)")
+                else:
+                    conditions.append(f"{_SIZE_BOUND_SQL} >= 201")
+            elif min_size == "large":
+                if allow_unknown_size:
+                    conditions.append(f"({_SIZE_BOUND_SQL} >= 1001 OR {_SIZE_BOUND_SQL} IS NULL)")
+                else:
+                    conditions.append(f"{_SIZE_BOUND_SQL} >= 1001")
+
+        where_clause = " AND ".join(conditions)
         with self._cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT j.job_id FROM jobs j
                 LEFT JOIN screening_results sr ON j.job_id = sr.job_id
-                WHERE j.scraped = 1 AND sr.id IS NULL AND j.prefilter_reason IS NULL
-                  AND j.batch_job_id IS NULL
+                WHERE {where_clause}
                 ORDER BY COALESCE(j.workRemoteAllowed, 0) ASC, j.created_at DESC, j.job_id DESC
             """)
             return [row[0] for row in cur.fetchall()]
@@ -1415,6 +1537,20 @@ class DatabaseManager:
             """)
             screen_pending = cur.fetchone()[0]
 
+            auto_cond = (
+                f"(j.detected_language != 'de' OR j.detected_language IS NULL) "
+                f"AND (j.german_stopword_ratio < 0.50 OR j.german_stopword_ratio IS NULL) "
+                f"AND ({_SIZE_BOUND_SQL} >= 201)"
+            )
+            cur.execute(f"""
+                SELECT COUNT(*) FROM jobs j
+                WHERE j.scraped = 1 AND j.cv_match_score IS NULL
+                  AND j.prefilter_reason IS NULL AND j.batch_job_id IS NULL
+                  AND {auto_cond} {where_date}
+            """)
+            screen_pending_auto = cur.fetchone()[0]
+            screen_deferred = max(0, screen_pending - screen_pending_auto)
+
             cur.execute(f"""
                 SELECT COUNT(*) FROM jobs
                 WHERE batch_job_id IS NOT NULL AND cv_match_score IS NULL {and_date}
@@ -1452,6 +1588,8 @@ class DatabaseManager:
             "screened_ok": screened_ok,
             "screened_error": screened_error,
             "screen_pending": screen_pending,
+            "screen_pending_auto": screen_pending_auto,
+            "screen_deferred": screen_deferred,
             "screen_in_flight": screen_in_flight,
             "prefiltered_total": prefiltered_total,
             "screen_pass": screen_pass,
@@ -1648,6 +1786,8 @@ class DatabaseManager:
         archetype_filter: str = "",
         prefilter_filter: str = "",
         size_filter: str = "",
+        screened_filter: str = "",
+        language_filter: str = "",
     ) -> list[tuple[str, int]]:
         """Return (company_name, job_count) sorted by count desc.
 
@@ -1746,6 +1886,17 @@ class DatabaseManager:
             conditions.append("j.prefilter_reason = ?")
             params.append(prefilter_filter[len(PREFILTER_REASON_PREFIX):])
 
+        if screened_filter == "unscreened":
+            conditions.append("j.cv_match_score IS NULL")
+            if not prefilter_filter:
+                conditions.append("j.prefilter_reason IS NULL")
+        elif screened_filter == "screened":
+            conditions.append("j.cv_match_score IS NOT NULL")
+
+        if language_filter:
+            conditions.append("j.detected_language = ?")
+            params.append(language_filter)
+
         where = " AND ".join(conditions)
         join = "LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1" if cl_ready else ""
         limit_clause = f" LIMIT {int(limit)}" if limit is not None else ""
@@ -1783,6 +1934,7 @@ class DatabaseManager:
         archetype_filter: str = "",
         prefilter_filter: str = "",
         size_filter: str = "",
+        language_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated AI-selected jobs with optional filters.
 
@@ -1877,6 +2029,10 @@ class DatabaseManager:
             conditions.append("j.prefilter_reason = ?")
             params.append(prefilter_filter[len(PREFILTER_REASON_PREFIX):])
 
+        if language_filter:
+            conditions.append("j.detected_language = ?")
+            params.append(language_filter)
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
@@ -1902,7 +2058,10 @@ class DatabaseManager:
                     j.user_cl_approved, j.created_at, j.search_keyword,
                     j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason,
                     j.company_staff_count, j.formattedIndustries,
-                    j.company_staff_range_start, j.company_staff_range_end
+                    j.company_staff_range_start, j.company_staff_range_end,
+                    j.recruiter_message, j.recruiter_message_kind,
+                    j.recruiter_message_at,
+                    j.detected_language, j.german_stopword_ratio
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}
@@ -1927,7 +2086,8 @@ class DatabaseManager:
                     j.company_staff_count, j.formattedIndustries,
                     j.company_staff_range_start, j.company_staff_range_end,
                     j.recruiter_message, j.recruiter_message_kind,
-                    j.recruiter_message_at
+                    j.recruiter_message_at,
+                    j.detected_language, j.german_stopword_ratio
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -1978,6 +2138,8 @@ class DatabaseManager:
         archetype_filter: str = "",
         prefilter_filter: str = "",
         size_filter: str = "",
+        screened_filter: str = "",
+        language_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated scraped jobs (selected or not) with optional filters.
 
@@ -2071,6 +2233,17 @@ class DatabaseManager:
             conditions.append("j.prefilter_reason = ?")
             params.append(prefilter_filter[len(PREFILTER_REASON_PREFIX):])
 
+        if screened_filter == "unscreened":
+            conditions.append("j.cv_match_score IS NULL")
+            if not prefilter_filter:
+                conditions.append("j.prefilter_reason IS NULL")
+        elif screened_filter == "screened":
+            conditions.append("j.cv_match_score IS NOT NULL")
+
+        if language_filter:
+            conditions.append("j.detected_language = ?")
+            params.append(language_filter)
+
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
@@ -2095,7 +2268,10 @@ class DatabaseManager:
                     j.user_cl_approved, j.created_at, j.search_keyword,
                     j.user_notes, j.applyMethod, j.archetype, j.prefilter_reason,
                     j.company_staff_count, j.formattedIndustries,
-                    j.company_staff_range_start, j.company_staff_range_end
+                    j.company_staff_range_start, j.company_staff_range_end,
+                    j.recruiter_message, j.recruiter_message_kind,
+                    j.recruiter_message_at,
+                    j.detected_language, j.german_stopword_ratio
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE {where}

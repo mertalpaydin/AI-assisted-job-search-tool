@@ -198,6 +198,11 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'jobs_unscreened' %}active{% endif %}" href="/jobs/unscreened">
+            <i class="bi bi-hourglass-split me-2"></i>Unscreened Jobs
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'jobs_all' %}active{% endif %}" href="/jobs/all">
             <i class="bi bi-grid me-2"></i>All Jobs
           </a>
@@ -226,7 +231,7 @@
           ("skipped",      "bi-slash-circle",    "Skipped"),
           ("expired",      "bi-x-circle",         "Expired"),
         ] %}
-        {% set list_base = "/jobs/all" if request.endpoint == "jobs_all" else "/jobs" %}
+        {% set list_base = "/jobs/unscreened" if request.endpoint == "jobs_unscreened" else ("/jobs/all" if request.endpoint == "jobs_all" else "/jobs") %}
         {% for val, icon, label in status_list %}
         <li class="nav-item">
           <a class="nav-link small {% if request.args.get('status') == val %}active{% endif %}"

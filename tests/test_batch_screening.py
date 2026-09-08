@@ -13,8 +13,14 @@ from job_search.core.database import DatabaseManager, ScreeningResult
 
 def _scraped_job(db: DatabaseManager, job_id: int) -> None:
     db.insert_job(job_id, "kw", "loc")
-    db.update_job_details(job_id, {"title": f"Job {job_id}", "company_name": "ACME",
-                                   "description": "d" * 400})
+    db.update_job_details(job_id, {
+        "title": f"Job {job_id}",
+        "company_name": "ACME",
+        "description": "d" * 400,
+        "company_staff_count": 500,
+        "detected_language": "en",
+        "german_stopword_ratio": 0.05,
+    })
 
 
 class TestInFlightGuard:
