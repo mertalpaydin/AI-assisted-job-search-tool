@@ -26,7 +26,7 @@ $prefix = "JobSearch"
 $tasks = @(
     @{ Name = "$prefix-Daily";   Mode = "daily";   Trigger = "Daily 07:00" },
     @{ Name = "$prefix-Catchup"; Mode = "daily";   Trigger = "AtLogOn" },
-    @{ Name = "$prefix-Collect"; Mode = "collect"; Trigger = "Hourly" },
+    @{ Name = "$prefix-Collect"; Mode = "collect"; Trigger = "Daily 08:00, 20:00" },
     @{ Name = "$prefix-Clean";   Mode = "clean";   Trigger = "Weekly Sunday 03:00" }
 )
 
@@ -47,9 +47,15 @@ $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 6)
 
 function New-Trigger($spec) {
-    $parts = $spec -split " "
+    if ($spec -is [array]) {
+        return $spec | ForEach-Object { New-Trigger $_ }
+    }
+    $parts = $spec -split "\s+"
     switch ($parts[0]) {
-        "Daily"  { return New-ScheduledTaskTrigger -Daily -At $parts[1] }
+        "Daily" {
+            $times = ($parts[1..($parts.Length - 1)] -join " ") -split "[,\s]+" | Where-Object { $_ }
+            return $times | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ }
+        }
         "Weekly" { return New-ScheduledTaskTrigger -Weekly -DaysOfWeek $parts[1] -At $parts[2] }
         "Hourly" {
             # Batch results land within 24h; hourly polling is cheap and keeps
@@ -75,7 +81,7 @@ foreach ($t in $tasks) {
     $action  = New-ScheduledTaskAction -Execute $bat -Argument $t.Mode -WorkingDirectory $repo
     $trigger = New-Trigger $t.Trigger
     Register-ScheduledTask -TaskName $t.Name -Action $action -Trigger $trigger `
-        -Settings $settings -Description "AI job search: $($t.Mode)" | Out-Null
+        -Settings $settings -Description "AI job search: $($t.Mode)" -Force | Out-Null
     Write-Host "registered $($t.Name)  ($($t.Trigger))"
 }
 

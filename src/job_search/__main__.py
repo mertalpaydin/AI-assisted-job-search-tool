@@ -293,7 +293,7 @@ def batch_submit(config: str, limit: int | None) -> None:
     """Submit pending screening work as a batch and exit.
 
     The process does not wait. Results are picked up by any later run, by the
-    hourly collect task, or by 'job-search batch collect'.
+    scheduled collect task, or by 'job-search batch collect'.
     """
     cfg = load_config(config)
     setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)

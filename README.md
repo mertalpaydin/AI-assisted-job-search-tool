@@ -285,7 +285,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install_tasks.ps1
 |------|---------|--------------|
 | `JobSearch-Daily` | Daily 07:00 | Scrape (1h), then **scrape-details-then-screen** + cover letters (2h) |
 | `JobSearch-Catchup` | 5 min after logon | The same daily work, skipped if 07:00 already did it |
-| `JobSearch-Collect` | Hourly | `batch collect` — writes back finished screening batches |
+| `JobSearch-Collect` | Twice daily (08:00, 20:00) | `batch collect` — writes back finished screening batches |
 | `JobSearch-Clean` | Weekly, Sunday 03:00 | Expiry sweep, bounded by `cleaner.scheduled_max_runtime_hours` (2h) |
 
 **Two triggers for one job, because a laptop is not a server.** The 07:00 trigger is missed whenever the machine is asleep, and `StartWhenAvailable` did not reliably recover it — scraping silently stopped happening for days. The logon trigger closes that gap. Both legs carry `--once-daily`, so whichever fires first does the work and the other exits immediately; if scraping succeeded but screening died, the catch-up re-runs only the screening. State lives in `data/last_run.json`, keyed by leg and compared on the calendar date.
