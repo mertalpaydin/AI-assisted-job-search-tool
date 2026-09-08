@@ -61,7 +61,7 @@ class PrefilterConfig(BaseModel):
     """Deterministic checks applied after the detail fetch, before screening."""
 
     enabled: bool = True
-    allowed_employment_status: list[str] = ["Full-time"]
+    allowed_employment_status: list[str] = Field(default_factory=list)
     excluded_experience_levels: list[str] = ["Internship"]
     reject_fluent_german: bool = True
 

@@ -188,14 +188,26 @@ class TestDetailsPrefilter:
     def dp(self) -> DetailsPrefilter:
         return DetailsPrefilter(_config())
 
-    def test_non_fulltime_is_rejected(self, dp: DetailsPrefilter) -> None:
-        assert dp.reason(employment_status="Contract") == "employment:Contract"
+    def test_employment_status_passes_by_default(self, dp: DetailsPrefilter) -> None:
+        """Employment type prefilter is disabled by default to prevent discarding mislabeled jobs."""
+        assert dp.reason(employment_status="Contract") is None
+        assert dp.reason(employment_status="Part-time") is None
+        assert dp.reason(employment_status="Other") is None
         assert dp.reason(employment_status="Full-time") is None
-
-    def test_unknown_employment_status_passes(self, dp: DetailsPrefilter) -> None:
-        """LinkedIn leaves this blank often; absence is not evidence."""
         assert dp.reason(employment_status=None) is None
         assert dp.reason(employment_status="") is None
+
+    def test_configured_employment_filter_rejects(self) -> None:
+        cfg = Config.model_validate({
+            "search": {
+                "keywords": ["x"],
+                "locations": [{"geo_id": "1", "name": "X"}],
+                "prefilter": {"allowed_employment_status": ["Full-time"]},
+            },
+        })
+        dp = DetailsPrefilter(cfg)
+        assert dp.reason(employment_status="Contract") == "employment:Contract"
+        assert dp.reason(employment_status="Full-time") is None
 
     def test_internship_experience_level_is_rejected(self, dp: DetailsPrefilter) -> None:
         assert dp.reason(experience_level="Internship") == "experience:Internship"
