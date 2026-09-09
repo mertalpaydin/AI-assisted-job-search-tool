@@ -523,9 +523,11 @@ class DatabaseManager:
 
     def _connect(self) -> sqlite3.Connection:
         if not hasattr(self._local, "conn") or self._local.conn is None:
-            conn = sqlite3.connect(str(self._path), check_same_thread=False)
+            conn = sqlite3.connect(str(self._path), check_same_thread=False, timeout=30.0)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA foreign_keys=ON")
             # SQLite's own LOWER() only folds ASCII, so LOWER('HÖRMANN') keeps
             # its Ö while Python's .lower() does not — and the two never match.
@@ -549,8 +551,10 @@ class DatabaseManager:
             cur.close()
 
     def _init_schema(self) -> None:
-        conn = sqlite3.connect(str(self._path))
+        conn = sqlite3.connect(str(self._path), timeout=30.0)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
         for statement in SCHEMA_SQL.strip().split(";"):
             stmt = statement.strip()
@@ -2600,5 +2604,9 @@ class DatabaseManager:
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn:
+            try:
+                self._local.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except Exception:
+                pass
             self._local.conn.close()
             self._local.conn = None
