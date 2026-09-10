@@ -198,26 +198,25 @@ def generate_cover_letter_pdf(
         top_space = "0.7cm"
         subject_space = "0.6cm"
         body_space = "0.5cm"
-        bottom_space = "1.2cm"
     elif text_len < 1600:  # Medium cover letter
         top_space = "0.5cm"
         subject_space = "0.4cm"
         body_space = "0.4cm"
-        bottom_space = "0.7cm"
     else:  # Long cover letter
         top_space = "0.35cm"
         subject_space = "0.3cm"
         body_space = "0.3cm"
-        bottom_space = "0.3cm"
 
-    # Auto-fit configurations (Body Font Command, Margin) to guarantee 1 page
+    # Auto-fit configurations (Body Font Command, Margin, Bottom Margin) to guarantee 1 page.
+    # Bottom margin is kept noticeably smaller than the other margins so short letters
+    # don't leave a large dead zone below the signature.
     # Header Name (18pt), Contact (9pt), Date/Subject (12pt) remain fixed
     configs = [
-        ("\\fontsize{11pt}{14.5pt}\\selectfont", "1.8cm"),
-        ("\\fontsize{10.5pt}{14pt}\\selectfont", "1.6cm"),
-        ("\\fontsize{10pt}{13.5pt}\\selectfont", "1.5cm"),
-        ("\\fontsize{9.5pt}{13pt}\\selectfont", "1.4cm"),
-        ("\\fontsize{9pt}{12.5pt}\\selectfont", "1.3cm"),
+        ("\\fontsize{11pt}{14.5pt}\\selectfont", "1.8cm", "1.1cm"),
+        ("\\fontsize{10.5pt}{14pt}\\selectfont", "1.6cm", "1.0cm"),
+        ("\\fontsize{10pt}{13.5pt}\\selectfont", "1.5cm", "0.9cm"),
+        ("\\fontsize{9.5pt}{13pt}\\selectfont", "1.4cm", "0.8cm"),
+        ("\\fontsize{9pt}{12.5pt}\\selectfont", "1.3cm", "0.7cm"),
     ]
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -227,10 +226,11 @@ def generate_cover_letter_pdf(
 
         final_pdf_path = None
 
-        for body_font_cmd, margin in configs:
+        for body_font_cmd, margin, bottom_margin in configs:
             content = template_str
             content = content.replace("VAR_BODY_FONT_CMD", body_font_cmd)
             content = content.replace("VAR_MARGIN", margin)
+            content = content.replace("VAR_BOTTOM_MARGIN", bottom_margin)
             content = content.replace("VAR_CANDIDATE_NAME", escape_latex(candidate_name))
             content = content.replace("VAR_CANDIDATE_ADDRESS", escape_latex(candidate_address))
             content = content.replace("VAR_CANDIDATE_PHONE", escape_latex(candidate_phone))
@@ -245,7 +245,6 @@ def generate_cover_letter_pdf(
             content = content.replace("VAR_TOP_SPACE", top_space)
             content = content.replace("VAR_SUBJECT_SPACE", subject_space)
             content = content.replace("VAR_BODY_SPACE", body_space)
-            content = content.replace("VAR_BOTTOM_SPACE", bottom_space)
 
             tex_file.write_text(content, encoding="utf-8")
 
@@ -263,8 +262,8 @@ def generate_cover_letter_pdf(
                 reader = PdfReader(pdf_file)
                 page_count = len(reader.pages)
                 logger.debug(
-                    "Compiled PDF with body_font={} margin={} -> page_count={}",
-                    body_font_cmd, margin, page_count
+                    "Compiled PDF with body_font={} margin={} bottom_margin={} -> page_count={}",
+                    body_font_cmd, margin, bottom_margin, page_count
                 )
                 if page_count == 1:
                     final_pdf_path = pdf_file
