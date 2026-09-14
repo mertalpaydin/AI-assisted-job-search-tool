@@ -94,3 +94,43 @@ class TestStateManager:
     def test_resume_with_none_queues_does_not_raise(self, db: DatabaseManager) -> None:
         sm = StateManager(db)
         sm.resume(PipelineQueues())  # all queues are None
+
+    def test_log_stats_reports_actual_auto_and_separates_cumulative(self, db: DatabaseManager) -> None:
+        from unittest.mock import patch
+        from job_search.core.config import AutoScreenConfig
+
+        # Job 1: deferred (german)
+        db.insert_job(4001, "kw", "loc")
+        db.update_job_details(4001, {
+            "title": "German Job",
+            "scraped": 1,
+            "detected_language": "de",
+            "german_stopword_ratio": 0.85,
+            "company_staff_count": 500,
+        })
+
+        # Job 2: deferred (small company)
+        db.insert_job(4002, "kw", "loc")
+        db.update_job_details(4002, {
+            "title": "Small Co Job",
+            "scraped": 1,
+            "detected_language": "en",
+            "german_stopword_ratio": 0.02,
+            "company_staff_count": 25,
+        })
+
+        # Job 3: prefiltered
+        db.insert_job(4003, "kw", "loc", prefilter_reason="excluded_keyword")
+
+        auto_cfg = AutoScreenConfig(enabled=True, min_company_size="mid", exclude_fully_german=True)
+        sm = StateManager(db, auto_screen_cfg=auto_cfg)
+
+        with patch("job_search.core.state.logger.info") as mock_logger:
+            sm.log_stats()
+            mock_logger.assert_called_once()
+            log_msg = mock_logger.call_args[0][0].format(*mock_logger.call_args[0][1:])
+            # Actual auto to be screened must be 0, not 2!
+            assert "to be screened: 0" in log_msg
+            assert "Cumulative — deferred: 2 | prefiltered: 1" in log_msg
+            assert "Pending — details: 0 | to be screened: 0 | cover letters: 0 | errors: 0" in log_msg
+

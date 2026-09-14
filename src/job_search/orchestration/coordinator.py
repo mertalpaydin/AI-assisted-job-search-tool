@@ -86,7 +86,7 @@ class JobSearchCoordinator:
         self._secrets = load_secrets()
         self._db = DatabaseManager(config.database.path)
         self._shutdown = ShutdownCoordinator(stop_file=config.execution.stop_file)
-        self._state = StateManager(self._db)
+        self._state = StateManager(self._db, auto_screen_cfg=config.screening.auto_screen)
         self._interactive = interactive
         self._origin = origin
         if max_runtime_hours is not None:
@@ -211,7 +211,10 @@ class JobSearchCoordinator:
             runcontrol.release_lock(self._config.execution.lock_file)
             runcontrol.clear_stop(self._config.execution.stop_file)
         logger.info("=== Shutdown complete ===")
-        self._state.log_stats(cl_mode=self._config.cover_letter.mode)
+        self._state.log_stats(
+            cl_mode=self._config.cover_letter.mode,
+            auto_screen_cfg=self._config.screening.auto_screen,
+        )
 
     def _snapshot_after_run(self) -> None:
         """Snapshot once the run's work is done. Never fatal.
@@ -624,7 +627,10 @@ class JobSearchCoordinator:
             if self._lock_held:
                 runcontrol.refresh_lock(cfg.lock_file)
 
-            self._state.log_stats(cl_mode=self._config.cover_letter.mode)
+            self._state.log_stats(
+                cl_mode=self._config.cover_letter.mode,
+                auto_screen_cfg=self._config.screening.auto_screen,
+            )
 
             # Auto-retry errored jobs
             if last_retry is not None and (time.monotonic() - last_retry) >= retry_interval:

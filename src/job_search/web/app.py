@@ -191,7 +191,8 @@ def index():
     days_val = days_map.get(days_param, None)
 
     stats = db.get_stats()
-    pipeline_stats = db.get_pipeline_stats(days=days_val, cl_mode=get_cl_mode())
+    auto_cfg = _config.screening.auto_screen if _config else None
+    pipeline_stats = db.get_pipeline_stats(days=days_val, cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
     app_counts = db.get_application_counts(days=days_val)
     cl_mode = get_cl_mode()
     _APPROVAL_DAYS = 30
@@ -1117,6 +1118,8 @@ def runner_dashboard():
     is_running = in_process or lock is not None
 
     session_saved = session_saved_at(_config.auth.session_file) if _config else None
+    auto_cfg = _config.screening.auto_screen if _config else None
+    pipeline_stats = db.get_pipeline_stats(cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
     return render_template(
         "runner.html",
         is_running=is_running,
@@ -1130,6 +1133,7 @@ def runner_dashboard():
         clean_orders=CLEAN_ORDERS,
         clean_order_default=_config.cleaner.order if _config else "newest",
         clean_backlog=db.count_jobs_pending_clean(),
+        pipeline_stats=pipeline_stats,
     )
 
 
@@ -1335,7 +1339,8 @@ def runner_status():
     is_running = in_process or lock is not None
 
     db = get_db()
-    pipeline_stats = db.get_pipeline_stats(cl_mode=get_cl_mode())
+    auto_cfg = _config.screening.auto_screen if _config else None
+    pipeline_stats = db.get_pipeline_stats(cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
     return jsonify({
         "is_running": is_running,
         "pipeline_stats": pipeline_stats,

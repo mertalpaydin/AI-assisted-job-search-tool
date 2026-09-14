@@ -1444,7 +1444,8 @@ class DatabaseManager:
         }
 
     def get_pipeline_stats(self, days: float | int | None = None,
-                           cl_mode: str = "auto") -> dict[str, Any]:
+                           cl_mode: str = "auto",
+                           auto_screen_cfg: Any = None) -> dict[str, Any]:
         """Detailed funnel counts at every pipeline stage, including error and pending sub-states.
 
         cl_mode mirrors get_jobs_pending_cover_letter: under "user_approval" a
@@ -1541,19 +1542,41 @@ class DatabaseManager:
             """)
             screen_pending = cur.fetchone()[0]
 
-            auto_cond = (
-                f"(j.detected_language != 'de' OR j.detected_language IS NULL) "
-                f"AND (j.german_stopword_ratio < 0.50 OR j.german_stopword_ratio IS NULL) "
-                f"AND ({_SIZE_BOUND_SQL} >= 201)"
-            )
-            cur.execute(f"""
-                SELECT COUNT(*) FROM jobs j
-                WHERE j.scraped = 1 AND j.cv_match_score IS NULL
-                  AND j.prefilter_reason IS NULL AND j.batch_job_id IS NULL
-                  AND {auto_cond} {where_date}
-            """)
-            screen_pending_auto = cur.fetchone()[0]
-            screen_deferred = max(0, screen_pending - screen_pending_auto)
+            if auto_screen_cfg is not None and not getattr(auto_screen_cfg, "enabled", True):
+                screen_pending_auto = screen_pending
+                screen_deferred = 0
+            else:
+                min_size = getattr(auto_screen_cfg, "min_company_size", "mid") if auto_screen_cfg else "mid"
+                allow_unknown = getattr(auto_screen_cfg, "allow_unknown_size", False) if auto_screen_cfg else False
+                exclude_de = getattr(auto_screen_cfg, "exclude_fully_german", True) if auto_screen_cfg else True
+                ratio_th = getattr(auto_screen_cfg, "german_ratio_threshold", 0.50) if auto_screen_cfg else 0.50
+
+                conds = []
+                if exclude_de:
+                    conds.append(
+                        f"(j.detected_language != 'de' OR j.detected_language IS NULL) "
+                        f"AND (j.german_stopword_ratio < {ratio_th} OR j.german_stopword_ratio IS NULL)"
+                    )
+                if min_size == "mid":
+                    if allow_unknown:
+                        conds.append(f"({_SIZE_BOUND_SQL} >= 201 OR {_SIZE_BOUND_SQL} IS NULL)")
+                    else:
+                        conds.append(f"{_SIZE_BOUND_SQL} >= 201")
+                elif min_size == "large":
+                    if allow_unknown:
+                        conds.append(f"({_SIZE_BOUND_SQL} >= 1001 OR {_SIZE_BOUND_SQL} IS NULL)")
+                    else:
+                        conds.append(f"{_SIZE_BOUND_SQL} >= 1001")
+
+                auto_cond = " AND ".join(conds) if conds else "1=1"
+                cur.execute(f"""
+                    SELECT COUNT(*) FROM jobs j
+                    WHERE j.scraped = 1 AND j.cv_match_score IS NULL
+                      AND j.prefilter_reason IS NULL AND j.batch_job_id IS NULL
+                      AND {auto_cond} {where_date}
+                """)
+                screen_pending_auto = cur.fetchone()[0]
+                screen_deferred = max(0, screen_pending - screen_pending_auto)
 
             cur.execute(f"""
                 SELECT COUNT(*) FROM jobs

@@ -73,8 +73,9 @@ class StateManager:
     Manages pipeline state: resume from checkpoint and no-new-jobs detection.
     """
 
-    def __init__(self, db: DatabaseManager) -> None:
+    def __init__(self, db: DatabaseManager, auto_screen_cfg=None) -> None:
         self._db = db
+        self._auto_screen_cfg = auto_screen_cfg
         self._last_new_job_time: float = time.monotonic()
         self._lock = threading.Lock()
 
@@ -98,14 +99,18 @@ class StateManager:
         """
         import queue as q
 
+        if auto_screen_cfg is not None:
+            self._auto_screen_cfg = auto_screen_cfg
+        auto_cfg = auto_screen_cfg if auto_screen_cfg is not None else self._auto_screen_cfg
+
         pending_details = self._db.get_jobs_pending_details()
-        if auto_screen_cfg and auto_screen_cfg.enabled:
+        if auto_cfg and auto_cfg.enabled:
             pending_screening = self._db.get_jobs_pending_screening(
                 auto_only=True,
-                min_size=auto_screen_cfg.min_company_size,
-                allow_unknown_size=auto_screen_cfg.allow_unknown_size,
-                exclude_german=auto_screen_cfg.exclude_fully_german,
-                german_ratio_threshold=auto_screen_cfg.german_ratio_threshold,
+                min_size=auto_cfg.min_company_size,
+                allow_unknown_size=auto_cfg.allow_unknown_size,
+                exclude_german=auto_cfg.exclude_fully_german,
+                german_ratio_threshold=auto_cfg.german_ratio_threshold,
             )
         else:
             pending_screening = self._db.get_jobs_pending_screening(auto_only=False)
@@ -131,15 +136,17 @@ class StateManager:
             len(pending_cover_letters),
         )
 
-    def log_stats(self, cl_mode: str = "auto") -> None:
+    def log_stats(self, cl_mode: str = "auto", auto_screen_cfg=None) -> None:
         # Report outstanding work, mirroring the web UI's Pipeline Runner tab.
-        # The cumulative totals (total/details/screened) never move during a
-        # screen- or cover-letter-only run, so they carried no signal.
-        stats = self._db.get_pipeline_stats(cl_mode=cl_mode)
+        # Immediate action items are logged under 'Pending', while bypassed and
+        # deferred holdings are logged separately under 'Cumulative'.
+        cfg = auto_screen_cfg if auto_screen_cfg is not None else self._auto_screen_cfg
+        stats = self._db.get_pipeline_stats(cl_mode=cl_mode, auto_screen_cfg=cfg)
         errors = stats["details_error"] + stats["screened_error"] + stats["cl_error"]
         logger.info(
-            "Pending — details: {} | to be screened: {} | prefiltered: {} | "
-            "cover letters: {} | errors: {}",
-            stats["details_pending"], stats["screen_pending"],
-            stats["prefiltered_total"], stats["cl_pending"], errors,
+            "Pending — details: {} | to be screened: {} | cover letters: {} | errors: {} | "
+            "Cumulative — deferred: {} | prefiltered: {}",
+            stats["details_pending"], stats["screen_pending_auto"],
+            stats["cl_pending"], errors,
+            stats["screen_deferred"], stats["prefiltered_total"],
         )

@@ -232,6 +232,26 @@ def test_runner_status_stats(db: DatabaseManager, configured_client) -> None:
     assert stats["screen_pending_auto"] == 1
     assert stats["screen_deferred"] == 1
 
+    # Check /runner dashboard page rendering
+    dash_res = configured_client.get("/runner")
+    assert dash_res.status_code == 200
+    html = dash_res.get_data(as_text=True)
+    assert "Active Backlog" in html
+    assert "Cumulative &amp; Bypassed Stats" in html or "Cumulative & Bypassed Stats" in html
+    assert "DEFERRED FROM AUTO-SCREENING" in html
+    assert "PREFILTERED JOBS" in html
+    assert 'href="/jobs/unscreened"' in html
+
+    # Check main dashboard (/) page rendering
+    index_res = configured_client.get("/")
+    assert index_res.status_code == 200
+    index_html = index_res.get_data(as_text=True)
+    assert "TO BE SCREENED" in index_html
+    # Must render auto-pending count (1), and mention deferred (1)
+    assert "1 deferred" in index_html
+    assert "deferred screening" in index_html
+
+
 
 def test_unscreened_jobs_route(db: DatabaseManager, client) -> None:
     # 1. Unscreened normal job
