@@ -180,11 +180,12 @@
   {# Company size filter — multi-select. Buckets are an ordered ladder, so the
      "and above" links are just its tail, which is the common case. #}
   {% set size_selected = (size_filter or '').split(',') | select | list %}
-  {% set size_labels = {'micro': ('Micro', '1–10'), 'startup': ('Startup / Scale-up', '11–200'),
+  {% set size_labels = {'micro': ('Micro', '1–10'), 'startup': ('Startup', '11–50'),
+                        'scaleup': ('Scale-up', '51–200'), 'scale-up': ('Scale-up', '51–200'),
                         'mid': ('Mid-size', '201–1,000'), 'large': ('Large', '1,001–5,000'),
                         'enterprise': ('Enterprise', '5,001–10,000'), 'global': ('Global', '10,001+'),
                         'unknown': ('Unknown', 'undisclosed')} %}
-  {% set size_ladder = ['micro', 'startup', 'mid', 'large', 'enterprise', 'global'] %}
+  {% set size_ladder = ['micro', 'startup', 'scaleup', 'mid', 'large', 'enterprise', 'global'] %}
   <div class="dropdown" id="sizeFilterDropdown">
     <button class="btn btn-sm {% if size_selected %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
             type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
@@ -751,8 +752,8 @@
           {% elif st == "expired" %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle status-badge">expired</span>
           {% else %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle status-badge">pending</span>{% endif %}
         </td>
-        <td class="text-center">
-          <span class="small text-muted">{{ job.created_at | short_date }}</span>
+        <td class="text-center text-nowrap">
+          <span class="small text-muted">{{ job.created_at | long_date }}</span>
         </td>
         <td class="text-center">
           <div class="d-flex gap-1 align-items-center justify-content-center">

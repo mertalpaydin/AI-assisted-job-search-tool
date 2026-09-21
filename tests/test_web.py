@@ -366,3 +366,17 @@ def test_job_detail_renders_the_recruiter_card(db: DatabaseManager, client) -> N
     # The card must open on the length the message was generated as.
     assert '"inmail"' in body
     assert '"note": 300' in body or '"note":300' in body
+
+
+def test_job_detail_renders_scrape_date(db: DatabaseManager, client) -> None:
+    from job_search.web.app import long_date_filter
+    _seed_job(db, 96007)
+    res = client.get("/jobs/96007")
+    assert res.status_code == 200
+    body = res.get_data(as_text=True)
+    assert "Scrape Date" in body
+    job = db.get_selected_job(96007)
+    assert job is not None and job.created_at is not None
+    assert long_date_filter(job.created_at) in body
+    # Verify format like 'September 12, 2026'
+    assert long_date_filter("2026-09-12 14:30:00") == "September 12, 2026"

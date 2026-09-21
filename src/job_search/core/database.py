@@ -363,7 +363,8 @@ _SIZE_BOUND_SQL = """COALESCE(
 # employer of 6,000 is not the same search target as Amazon.
 _SIZE_BUCKETS: dict[str, str] = {
     "micro": f"{_SIZE_BOUND_SQL} BETWEEN 1 AND 10",
-    "startup": f"{_SIZE_BOUND_SQL} BETWEEN 11 AND 200",
+    "startup": f"{_SIZE_BOUND_SQL} BETWEEN 11 AND 50",
+    "scaleup": f"{_SIZE_BOUND_SQL} BETWEEN 51 AND 200",
     "mid": f"{_SIZE_BOUND_SQL} BETWEEN 201 AND 1000",
     "large": f"{_SIZE_BOUND_SQL} BETWEEN 1001 AND 5000",
     "enterprise": f"{_SIZE_BOUND_SQL} BETWEEN 5001 AND 10000",
@@ -371,10 +372,15 @@ _SIZE_BUCKETS: dict[str, str] = {
     "unknown": f"{_SIZE_BOUND_SQL} IS NULL",
 }
 
+_SIZE_ALIASES: dict[str, str] = {
+    "scale-up": "scaleup",
+    "scale_up": "scaleup",
+}
+
 # Smallest to largest. The buckets are an ordered ladder, which is what makes
 # "large and above" expressible at all — it is the tail of this list.
 SIZE_ORDER: tuple[str, ...] = (
-    "micro", "startup", "mid", "large", "enterprise", "global", "unknown",
+    "micro", "startup", "scaleup", "mid", "large", "enterprise", "global", "unknown",
 )
 
 
@@ -391,8 +397,8 @@ def size_condition(size_filter: str) -> str | None:
     every bucket means no filter at all.
     """
     seen: list[str] = []
-    for key in str(size_filter or "").split(","):
-        key = key.strip()
+    for raw_key in str(size_filter or "").split(","):
+        key = _SIZE_ALIASES.get(raw_key.strip(), raw_key.strip())
         if key in _SIZE_BUCKETS and key not in seen:
             seen.append(key)
     if not seen or len(seen) == len(_SIZE_BUCKETS):

@@ -353,9 +353,14 @@
             </div>
           </div>
 
-          <div class="col-3">
+          <div class="col">
             <div class="text-muted small mb-1">Job ID</div>
             <div class="fw-semibold text-secondary small">{{ job.job_id }}</div>
+          </div>
+
+          <div class="col">
+            <div class="text-muted small mb-1">Scrape Date</div>
+            <div class="fw-semibold text-secondary small" title="{{ job.created_at or '' }}">{{ job.created_at | long_date }}</div>
           </div>
         </div>
 

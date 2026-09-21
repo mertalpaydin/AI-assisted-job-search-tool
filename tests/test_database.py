@@ -395,8 +395,15 @@ def test_easy_apply_cover_letter_exclusion(tmp_path):
 
 class TestCompanySizeFilter:
     def test_get_all_jobs_size_buckets(self, db: DatabaseManager) -> None:
-        # (job_id, company_staff_count)
-        specs = [(1, 5), (2, 150), (3, 500), (4, 3000), (5, 50000), (6, 0)]
+        specs = [
+            (1, 5),
+            (2, 45),
+            (3, 150),
+            (4, 500),
+            (5, 3000),
+            (6, 50000),
+            (7, None),
+        ]
         for jid, staff in specs:
             db.insert_job(jid, "kw", "loc")
             db.update_job_details(jid, {"title": "T", "company_name": f"C{jid}",
@@ -407,12 +414,14 @@ class TestCompanySizeFilter:
             return sorted(r.job_id for r in rows)
 
         assert ids("micro") == [1]           # 1-10
-        assert ids("startup") == [2]         # 11-200
-        assert ids("mid") == [3]             # 201-1000
-        assert ids("large") == [4]           # 1001-5000
-        assert ids("global") == [5]          # 10001+
-        assert ids("unknown") == [6]         # 0 / null
-        assert len(ids("")) == 6             # no filter returns all
+        assert ids("startup") == [2]         # 11-50
+        assert ids("scaleup") == [3]         # 51-200
+        assert ids("scale-up") == [3]        # alias works
+        assert ids("mid") == [4]             # 201-1000
+        assert ids("large") == [5]           # 1001-5000
+        assert ids("global") == [6]          # 10001+
+        assert ids("unknown") == [7]         # 0 / null
+        assert len(ids("")) == 7             # no filter returns all
 
     def test_buckets_never_split_a_linkedin_band(self, db: DatabaseManager) -> None:
         """Every boundary sits on one of LinkedIn's own band edges.
@@ -430,14 +439,15 @@ class TestCompanySizeFilter:
                                         "company_staff_range_end": end})
 
         found = {}
-        for size in ("micro", "startup", "mid", "large", "enterprise", "global"):
+        for size in ("micro", "startup", "scaleup", "mid", "large", "enterprise", "global"):
             rows, _ = db.get_all_jobs(size_filter=size, limit=100)
             for r in rows:
                 found[r.job_id] = size
 
         assert found == {
             1: "micro", 2: "micro",              # 0-1, 2-10
-            3: "startup", 4: "startup",          # 11-50, 51-200
+            3: "startup",                        # 11-50
+            4: "scaleup",                        # 51-200
             5: "mid", 6: "mid",                  # 201-500, 501-1000
             7: "large",                          # 1001-5000
             8: "enterprise",                     # 5001-10000
@@ -467,7 +477,7 @@ class TestCompanySizeFilter:
             db.insert_job(jid, "kw", "loc")
             db.update_job_details(jid, {"title": "T", "company_name": f"C{jid}",
                                         "company_staff_count": staff})
-        every = "micro,startup,mid,large,enterprise,global,unknown"
+        every = "micro,startup,scaleup,mid,large,enterprise,global,unknown"
         assert db.get_all_jobs(size_filter=every, limit=100)[1] == 2
 
     def test_unknown_bucket_names_are_ignored_not_matched(
@@ -530,7 +540,7 @@ class TestCompanySizeFilter:
             return sorted(r.job_id for r in rows)
 
         assert ids("global") == [1]
-        assert ids("startup") == [2]
+        assert ids("scaleup") == [2]
         assert ids("large") == []
 
     def test_rows_without_a_band_fall_back_to_the_member_count(

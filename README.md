@@ -313,7 +313,7 @@ Open `http://127.0.0.1:5000/` in your browser.
 | Dashboard Page | Capabilities |
 |----------------|--------------|
 | **Dashboard** | Overview metrics, application-stage breakdowns, role-family summary, prefiltered/in-flight counters |
-| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, declared size band + LinkedIn member count, industry, a **multi-select company-size** filter over six buckets (micro / startup / mid / large / enterprise / global) with one-click "& above", and quick actions |
+| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, declared size band + LinkedIn member count, industry, a **multi-select company-size** filter over seven buckets (micro / startup / scaleup / mid / large / enterprise / global) with one-click "& above", and quick actions |
 | **All Jobs** | Master repository of all scraped jobs, with company inclusion/exclusion and company-size filtering |
 | **Prefiltered** | Deterministic rejections grouped by rule and stage, so an over-aggressive rule can be spotted and reversed |
 | **Search Stats** | Conversion-funnel metrics per keyword/location, with a role-family breakdown |

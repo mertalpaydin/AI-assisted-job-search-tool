@@ -54,6 +54,18 @@ def short_date_filter(value: str | None) -> str:
         return str(value)[:10]
 
 
+@app.template_filter("long_date")
+def long_date_filter(value: str | None) -> str:
+    """Format a datetime string (e.g. '2026-09-12 12:34:56') as 'September 12, 2026'."""
+    if not value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(str(value).split(".")[0])
+        return f"{dt.strftime('%B')} {dt.day}, {dt.year}"
+    except (ValueError, TypeError):
+        return str(value)[:10]
+
+
 @app.template_filter("thousands")
 def thousands_filter(value) -> str:
     """Format an integer with thousands separators (11350 -> '11,350')."""
