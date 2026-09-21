@@ -147,6 +147,8 @@ CREATE INDEX IF NOT EXISTS idx_jobs_search_kw ON jobs(search_keyword);
 CREATE INDEX IF NOT EXISTS idx_screening_status ON screening_results(screening_status);
 CREATE INDEX IF NOT EXISTS idx_screening_selected ON screening_results(is_selected);
 CREATE INDEX IF NOT EXISTS idx_cover_letter_status ON cover_letters(generation_status);
+CREATE INDEX IF NOT EXISTS idx_cover_letters_job_status ON cover_letters(job_id, generation_status);
+CREATE INDEX IF NOT EXISTS idx_jobs_unscreened ON jobs(created_at DESC) WHERE scraped = 1 AND cv_match_score IS NULL AND prefilter_reason IS NULL;
 CREATE INDEX IF NOT EXISTS idx_processing_state_stage ON processing_state(stage, status);
 CREATE TABLE IF NOT EXISTS batch_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -579,6 +581,19 @@ class DatabaseManager:
         self._migrate_v10(conn)
         self._migrate_v11(conn)
         self._migrate_v12(conn)
+        self._migrate_v13(conn)
+
+    def _migrate_v13(self, conn: sqlite3.Connection) -> None:
+        """Add index on cover_letters(job_id, generation_status) and partial index on unscreened jobs."""
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS idx_cover_letters_job_status ON cover_letters(job_id, generation_status)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_unscreened ON jobs(created_at DESC) WHERE scraped = 1 AND cv_match_score IS NULL AND prefilter_reason IS NULL",
+        ):
+            try:
+                conn.execute(stmt)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     def _migrate_v12(self, conn: sqlite3.Connection) -> None:
         """Add language detection and stopword ratio for selective screening."""
@@ -1815,6 +1830,7 @@ class DatabaseManager:
         size_filter: str = "",
         screened_filter: str = "",
         language_filter: str = "",
+        selected_filter: str = "",
     ) -> list[tuple[str, int]]:
         """Return (company_name, job_count) sorted by count desc.
 
@@ -1863,13 +1879,18 @@ class DatabaseManager:
         elif apply_type == "company":
             conditions.append("(j.applyMethod IS NULL OR NOT (j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%'))")
 
+        if selected_filter == "0":
+            conditions.append("j.is_selected = 0")
+        elif selected_filter == "1":
+            conditions.append("j.is_selected = 1")
+
         if date_from:
-            conditions.append("DATE(j.created_at) >= ?")
-            params.append(date_from)
+            conditions.append("j.created_at >= ?")
+            params.append(date_from if len(date_from) > 10 else f"{date_from} 00:00:00")
 
         if date_to:
-            conditions.append("DATE(j.created_at) <= ?")
-            params.append(date_to)
+            conditions.append("j.created_at <= ?")
+            params.append(date_to if len(date_to) > 10 else f"{date_to} 23:59:59")
 
         if cl_ready:
             conditions.append("cl.cover_letter_text IS NOT NULL")
@@ -2006,12 +2027,12 @@ class DatabaseManager:
             conditions.append("cl.cover_letter_text IS NOT NULL")
 
         if date_from:
-            conditions.append("DATE(j.created_at) >= ?")
-            params.append(date_from)
+            conditions.append("j.created_at >= ?")
+            params.append(date_from if len(date_from) > 10 else f"{date_from} 00:00:00")
 
         if date_to:
-            conditions.append("DATE(j.created_at) <= ?")
-            params.append(date_to)
+            conditions.append("j.created_at <= ?")
+            params.append(date_to if len(date_to) > 10 else f"{date_to} 23:59:59")
 
         if include_companies:
             placeholders = ",".join("?" * len(include_companies))
@@ -2063,10 +2084,11 @@ class DatabaseManager:
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
-            # Always include the CL join so cl.* conditions in WHERE work correctly
+            cl_join = "LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1"
+            count_join = cl_join if cl_ready else ""
             cur.execute(f"""
                 SELECT COUNT(*) FROM jobs j
-                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                {count_join}
                 WHERE {where}
             """, params)
             total: int = cur.fetchone()[0]
@@ -2090,7 +2112,7 @@ class DatabaseManager:
                     j.recruiter_message_at,
                     j.detected_language, j.german_stopword_ratio
                 FROM jobs j
-                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                {cl_join}
                 WHERE {where}
                 ORDER BY j.{sort_col} {sort_order}
                 LIMIT ? OFFSET ?
@@ -2167,6 +2189,7 @@ class DatabaseManager:
         size_filter: str = "",
         screened_filter: str = "",
         language_filter: str = "",
+        selected_filter: str = "",
     ) -> tuple[list[SelectedJobRow], int]:
         """Return paginated scraped jobs (selected or not) with optional filters.
 
@@ -2206,16 +2229,21 @@ class DatabaseManager:
         elif apply_type == "company":
             conditions.append("(j.applyMethod IS NULL OR NOT (j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%'))")
 
+        if selected_filter == "0":
+            conditions.append("j.is_selected = 0")
+        elif selected_filter == "1":
+            conditions.append("j.is_selected = 1")
+
         if cl_ready:
             conditions.append("cl.cover_letter_text IS NOT NULL")
 
         if date_from:
-            conditions.append("DATE(j.created_at) >= ?")
-            params.append(date_from)
+            conditions.append("j.created_at >= ?")
+            params.append(date_from if len(date_from) > 10 else f"{date_from} 00:00:00")
 
         if date_to:
-            conditions.append("DATE(j.created_at) <= ?")
-            params.append(date_to)
+            conditions.append("j.created_at <= ?")
+            params.append(date_to if len(date_to) > 10 else f"{date_to} 23:59:59")
 
         if include_companies:
             placeholders = ",".join("?" * len(include_companies))
@@ -2274,9 +2302,11 @@ class DatabaseManager:
         where = " AND ".join(conditions)
 
         with self._cursor() as cur:
+            cl_join = "LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1"
+            count_join = cl_join if cl_ready else ""
             cur.execute(f"""
                 SELECT COUNT(*) FROM jobs j
-                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                {count_join}
                 WHERE {where}
             """, params)
             total: int = cur.fetchone()[0]
@@ -2300,7 +2330,7 @@ class DatabaseManager:
                     j.recruiter_message_at,
                     j.detected_language, j.german_stopword_ratio
                 FROM jobs j
-                LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
+                {cl_join}
                 WHERE {where}
                 ORDER BY j.{sort_col} {sort_order}
                 LIMIT ? OFFSET ?

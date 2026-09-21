@@ -219,7 +219,7 @@ def generate_cover_letter_pdf(
         ("\\fontsize{9pt}{12.5pt}\\selectfont", "1.3cm", "0.7cm"),
     ]
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         tmp_path = Path(tmp_dir)
         tex_file = tmp_path / "cover_letter.tex"
         pdf_file = tmp_path / "cover_letter.pdf"

@@ -699,3 +699,58 @@ class TestCompanySizeLabel:
                          ).is_small_company is False
         # No band at all: fall back to the count.
         assert self._row(company_staff_count=12).is_small_company is True
+
+
+class TestSelectedFilter:
+    def _seed(self, db: DatabaseManager) -> None:
+        # Job 1: Selected
+        db.insert_job(101, "kw", "loc")
+        db.update_job_details(101, {"title": "Selected Dev", "company_name": "Alpha Corp"})
+        db.save_screening_result(101, ScreeningResult(0.9, "none", True, "Great fit"))
+
+        # Job 2: Non-selected
+        db.insert_job(102, "kw", "loc")
+        db.update_job_details(102, {"title": "Rejected Dev", "company_name": "Alpha Corp"})
+        db.save_screening_result(102, ScreeningResult(0.4, "high", False, "Poor fit"))
+
+        # Job 3: Unscreened
+        db.insert_job(103, "kw", "loc")
+        db.update_job_details(103, {"title": "Pending Dev", "company_name": "Beta Corp"})
+
+        with db._cursor() as cur:
+            cur.execute("UPDATE jobs SET created_at = '2026-09-15 10:00:00' WHERE job_id = 101")
+            cur.execute("UPDATE jobs SET created_at = '2026-09-16 10:00:00' WHERE job_id = 102")
+            cur.execute("UPDATE jobs SET created_at = '2026-09-17 10:00:00' WHERE job_id = 103")
+
+    def test_filter_non_selected_jobs(self, db: DatabaseManager) -> None:
+        self._seed(db)
+        rows, total = db.get_all_jobs(selected_filter="0")
+        assert total == 1
+        assert rows[0].job_id == 102
+        assert rows[0].is_selected == 0
+
+    def test_filter_selected_jobs(self, db: DatabaseManager) -> None:
+        self._seed(db)
+        rows, total = db.get_all_jobs(selected_filter="1")
+        assert total == 1
+        assert rows[0].job_id == 101
+        assert rows[0].is_selected == 1
+
+    def test_company_counts_with_selected_filter(self, db: DatabaseManager) -> None:
+        self._seed(db)
+        counts = dict(db.get_company_counts(selected_filter="0"))
+        assert counts == {"Alpha Corp": 1}
+
+    def test_date_filtering_with_iso_timestamps(self, db: DatabaseManager) -> None:
+        self._seed(db)
+        # Filter date_from = "2026-09-16" should match Job 102 and Job 103, but not 101
+        rows, total = db.get_all_jobs(date_from="2026-09-16")
+        assert total == 2
+        job_ids = {r.job_id for r in rows}
+        assert job_ids == {102, 103}
+
+        # Filter date_to = "2026-09-15" should match only Job 101
+        rows, total = db.get_all_jobs(date_to="2026-09-15")
+        assert total == 1
+        assert rows[0].job_id == 101
+

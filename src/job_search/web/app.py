@@ -340,6 +340,7 @@ def jobs_all():
     size_filter    = request.args.get("size", "").strip()
     screened_filter = request.args.get("screened", "").strip()
     language_filter = request.args.get("lang", "").strip()
+    selected_filter = request.args.get("sel", "").strip()
     min_match_param = request.args.get("min_match", "").strip()
     try:
         min_match_val = float(min_match_param) if min_match_param else None
@@ -366,6 +367,7 @@ def jobs_all():
         prefilter_filter=prefilter_filter,
         size_filter=size_filter,
         language_filter=language_filter,
+        selected_filter=selected_filter,
         limit=200,
     )
     job_list, total = db.get_all_jobs(
@@ -386,6 +388,7 @@ def jobs_all():
         size_filter=size_filter,
         screened_filter=screened_filter,
         language_filter=language_filter,
+        selected_filter=selected_filter,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     distinct_keywords = db.get_distinct_keywords()
@@ -412,6 +415,7 @@ def jobs_all():
         size_filter=size_filter,
         screened_filter=screened_filter,
         language_filter=language_filter,
+        selected_filter=selected_filter,
         prefilter_counts=db.get_prefilter_counts(),
         distinct_keywords=distinct_keywords,
         page=page, total_pages=total_pages, total=total,

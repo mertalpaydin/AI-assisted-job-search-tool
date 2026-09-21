@@ -11,7 +11,7 @@
                   df=date_from, dt=date_to, ex=exclude_companies,
                   kw=keyword_filter, ger=german_filter, mm=min_match, at=apply_type,
                   ar=archetype_filter, pf=prefilter_filter, sz=size_filter,
-                  sc=screened_filter, lg=language_filter) -%}
+                  sc=screened_filter, lg=language_filter, sel=selected_filter) -%}
   {{ base_url if base_url else ("/jobs/all" if show_all else "/jobs") }}?page={{ p }}&sort={{ s }}&dir={{ d }}
   {%- if st %}&status={{ st }}{% endif %}
   {%- if sq %}&search={{ sq | urlencode }}{% endif %}
@@ -28,6 +28,7 @@
   {%- if pf %}&prefiltered={{ pf | urlencode }}{% endif %}
   {%- if sc %}&screened={{ sc }}{% endif %}
   {%- if lg %}&lang={{ lg }}{% endif %}
+  {%- if sel %}&sel={{ sel }}{% endif %}
   {%- for e in ex %}&exc={{ e | urlencode }}{% endfor %}
 {%- endmacro %}
 
@@ -50,7 +51,7 @@
     {{ page_title if page_title else ("All Scraped Jobs" if show_all else "Selected Jobs") }}
     <span class="badge bg-secondary ms-2">{{ total }}</span>
   </h4>
-  {% if status_filter or search_query or remote_filter or cl_filter or min_match or date_from or date_to or exclude_companies or keyword_filter or german_filter or (screened_filter and not is_unscreened) or language_filter %}
+  {% if status_filter or search_query or remote_filter or cl_filter or min_match or date_from or date_to or exclude_companies or keyword_filter or german_filter or (screened_filter and not is_unscreened) or language_filter or selected_filter %}
   <a href="{{ current_base }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-x me-1"></i>Clear all filters
   </a>
@@ -95,6 +96,14 @@
   {% else %}
   <a href="{{ page_url(p=1, mm='0.8') }}" class="btn btn-outline-warning btn-sm">
     <i class="bi bi-star me-1"></i>&ge;80% Match
+  </a>
+  {% endif %}
+
+  {# Non-selected filter toggle #}
+  {% if show_all and not is_unscreened %}
+  <a href="{{ page_url(p=1, sel='' if selected_filter == '0' else '0') }}"
+     class="btn btn-sm {{ 'btn-secondary' if selected_filter == '0' else 'btn-outline-secondary' }}">
+    <i class="bi bi-x-circle me-1"></i>Non-selected
   </a>
   {% endif %}
 
@@ -567,7 +576,7 @@
 
 {# ── Job table ───────────────────────────────────────────────────────────── #}
 {% if not jobs %}
-<div class="alert alert-info">No jobs found{% if status_filter or search_query or remote_filter or cl_filter or min_match or date_from or date_to or exclude_companies or keyword_filter or german_filter %} for the active filters{% endif %}.</div>
+<div class="alert alert-info">No jobs found{% if status_filter or search_query or remote_filter or cl_filter or min_match or date_from or date_to or exclude_companies or keyword_filter or german_filter or selected_filter %} for the active filters{% endif %}.</div>
 {% else %}
 <div class="table-responsive">
   <table class="table table-hover align-middle shadow-sm rounded">
