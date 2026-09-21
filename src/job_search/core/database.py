@@ -588,6 +588,28 @@ class DatabaseManager:
         self._migrate_v11(conn)
         self._migrate_v12(conn)
         self._migrate_v13(conn)
+        self._migrate_v14(conn)
+
+    def _migrate_v14(self, conn: sqlite3.Connection) -> None:
+        """Add performance indexes for application_status, cleaner, and in-flight batches, and run ANALYZE."""
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS idx_jobs_app_status ON jobs(application_status)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_clean_pending ON jobs(last_cleaned_at, application_status)",
+            "CREATE INDEX IF NOT EXISTS idx_jobs_batch_pending ON jobs(batch_job_id) WHERE batch_job_id IS NOT NULL AND cv_match_score IS NULL",
+        ):
+            try:
+                conn.execute(stmt)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
+
+        try:
+            conn.execute("ANALYZE jobs")
+            conn.execute("ANALYZE screening_results")
+            conn.execute("ANALYZE cover_letters")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     def _migrate_v13(self, conn: sqlite3.Connection) -> None:
         """Add index on cover_letters(job_id, generation_status) and partial index on unscreened jobs."""
@@ -1482,58 +1504,63 @@ class DatabaseManager:
 
         with self._cursor() as cur:
             date_cond = where_date.replace("AND j.", "WHERE ") if where_date else ""
-            and_date = where_date.replace("AND j.", "AND ") if where_date else ""
-
-            cur.execute(f"SELECT COUNT(*) FROM jobs {date_cond}")
-            total_found = cur.fetchone()[0]
-
-            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = 1 {and_date}")
-            details_scraped = cur.fetchone()[0]
-
-            # Prefiltered jobs are excluded from every "pending" number below.
-            # They are not work waiting to happen, they are work deliberately
-            # declined, and counting them made the runner overstate the backlog
-            # by a factor of five.
-            cur.execute(f"""
-                SELECT COUNT(*) FROM jobs
-                WHERE scraped = 0 AND prefilter_reason IS NULL {and_date}
-            """)
-            details_pending = cur.fetchone()[0]
-
-            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE scraped = -1 {and_date}")
-            details_error = cur.fetchone()[0]
 
             cur.execute(f"""
-                SELECT COUNT(*) FROM screening_results sr
-                JOIN jobs j ON sr.job_id = j.job_id
-                WHERE sr.screening_status = 1 {where_date}
+                SELECT
+                    COUNT(*) AS total_found,
+                    SUM(CASE WHEN scraped = 1 THEN 1 ELSE 0 END) AS details_scraped,
+                    SUM(CASE WHEN scraped = 0 AND prefilter_reason IS NULL THEN 1 ELSE 0 END) AS details_pending,
+                    SUM(CASE WHEN scraped = -1 THEN 1 ELSE 0 END) AS details_error,
+                    SUM(CASE WHEN is_selected = 1 THEN 1 ELSE 0 END) AS screen_pass,
+                    SUM(CASE WHEN is_selected = 0 AND cv_match_score IS NOT NULL THEN 1 ELSE 0 END) AS screen_fail,
+                    SUM(CASE WHEN scraped = 1 AND cv_match_score IS NULL AND prefilter_reason IS NULL AND batch_job_id IS NULL THEN 1 ELSE 0 END) AS screen_pending,
+                    SUM(CASE WHEN batch_job_id IS NOT NULL AND cv_match_score IS NULL THEN 1 ELSE 0 END) AS screen_in_flight,
+                    SUM(CASE WHEN prefilter_reason IS NOT NULL THEN 1 ELSE 0 END) AS prefiltered_total,
+                    SUM(CASE WHEN application_status = 'expired' THEN 1 ELSE 0 END) AS expired_count,
+                    SUM(CASE WHEN is_selected = 1 AND cv_match_score >= 0.80 AND (application_status IS NULL OR application_status = '') THEN 1 ELSE 0 END) AS top_matches_pending
+                FROM jobs
+                {date_cond}
             """)
-            screened_ok = cur.fetchone()[0]
+            row = cur.fetchone()
+            (
+                total_found,
+                details_scraped,
+                details_pending,
+                details_error,
+                screen_pass,
+                screen_fail,
+                screen_pending,
+                screen_in_flight,
+                prefiltered_total,
+                expired_count,
+                top_matches_pending,
+            ) = (r or 0 for r in row)
 
+            sr_join = f"JOIN jobs j ON sr.job_id = j.job_id WHERE 1=1 {where_date}" if where_date else ""
             cur.execute(f"""
-                SELECT COUNT(*) FROM screening_results sr
-                JOIN jobs j ON sr.job_id = j.job_id
-                WHERE sr.screening_status = -1 {where_date}
+                SELECT
+                    SUM(CASE WHEN sr.screening_status = 1 THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN sr.screening_status = -1 THEN 1 ELSE 0 END)
+                FROM screening_results sr
+                {sr_join}
             """)
-            screened_error = cur.fetchone()[0]
+            sr_row = cur.fetchone()
+            screened_ok = (sr_row[0] or 0) if sr_row else 0
+            screened_error = (sr_row[1] or 0) if sr_row else 0
 
-            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE is_selected = 1 {and_date}")
-            screen_pass = cur.fetchone()[0]
-
-            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE is_selected = 0 AND cv_match_score IS NOT NULL {and_date}")
-            screen_fail = cur.fetchone()[0]
-
+            cl_join_date = f"JOIN jobs j ON cl.job_id = j.job_id WHERE 1=1 {where_date}" if where_date else ""
             cur.execute(f"""
-                SELECT COUNT(*) FROM cover_letters cl
-                JOIN jobs j ON cl.job_id = j.job_id
-                WHERE cl.generation_status = 1 {where_date}
+                SELECT
+                    SUM(CASE WHEN cl.generation_status = 1 THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN cl.generation_status = -1 THEN 1 ELSE 0 END)
+                FROM cover_letters cl
+                {cl_join_date}
             """)
-            cl_generated = cur.fetchone()[0]
+            cl_row = cur.fetchone()
+            cl_generated = (cl_row[0] or 0) if cl_row else 0
+            cl_error = (cl_row[1] or 0) if cl_row else 0
 
             not_easy_apply = "(j.applyMethod IS NULL OR NOT (j.applyMethod LIKE '%easyApplyUrl%' OR j.applyMethod LIKE '%OnsiteApply%'))"
-            # Under user_approval only an approved job will ever generate, so it
-            # is the only thing genuinely "pending". Under auto, selected jobs
-            # (bar Easy Apply) are queued automatically, matching the old count.
             if cl_mode == "user_approval":
                 cl_pending_where = "j.user_cl_approved = 1"
             else:
@@ -1544,24 +1571,7 @@ class DatabaseManager:
                 WHERE {cl_pending_where}
                   AND cl.id IS NULL AND (j.application_status IS NULL OR j.application_status = '') {where_date}
             """)
-            cl_pending = cur.fetchone()[0]
-
-            cur.execute(f"""
-                SELECT COUNT(*) FROM cover_letters cl
-                JOIN jobs j ON cl.job_id = j.job_id
-                WHERE cl.generation_status = -1 {where_date}
-            """)
-            cl_error = cur.fetchone()[0]
-
-            # Matches get_jobs_pending_screening: not prefiltered, not already
-            # sitting in an open batch. Otherwise the tile and the queue the
-            # coordinator actually builds disagree.
-            cur.execute(f"""
-                SELECT COUNT(*) FROM jobs
-                WHERE scraped = 1 AND cv_match_score IS NULL
-                  AND prefilter_reason IS NULL AND batch_job_id IS NULL {and_date}
-            """)
-            screen_pending = cur.fetchone()[0]
+            cl_pending = cur.fetchone()[0] or 0
 
             if auto_screen_cfg is not None and not getattr(auto_screen_cfg, "enabled", True):
                 screen_pending_auto = screen_pending
@@ -1596,35 +1606,15 @@ class DatabaseManager:
                       AND j.prefilter_reason IS NULL AND j.batch_job_id IS NULL
                       AND {auto_cond} {where_date}
                 """)
-                screen_pending_auto = cur.fetchone()[0]
+                screen_pending_auto = cur.fetchone()[0] or 0
                 screen_deferred = max(0, screen_pending - screen_pending_auto)
-
-            cur.execute(f"""
-                SELECT COUNT(*) FROM jobs
-                WHERE batch_job_id IS NOT NULL AND cv_match_score IS NULL {and_date}
-            """)
-            screen_in_flight = cur.fetchone()[0]
-
-            cur.execute(f"""
-                SELECT COUNT(*) FROM jobs WHERE prefilter_reason IS NOT NULL {and_date}
-            """)
-            prefiltered_total = cur.fetchone()[0]
-
-            cur.execute(f"SELECT COUNT(*) FROM jobs WHERE application_status = 'expired' {and_date}")
-            expired_count = cur.fetchone()[0]
 
             cur.execute(f"""
                 SELECT COUNT(*) FROM jobs j
                 JOIN cover_letters cl ON j.job_id = cl.job_id
                 WHERE j.is_selected = 1 AND cl.generation_status = 1 AND (j.application_status IS NULL OR j.application_status = '') {where_date}
             """)
-            ready_to_apply = cur.fetchone()[0]
-
-            cur.execute(f"""
-                SELECT COUNT(*) FROM jobs
-                WHERE is_selected = 1 AND cv_match_score >= 0.80 AND (application_status IS NULL OR application_status = '') {and_date}
-            """)
-            top_matches_pending = cur.fetchone()[0]
+            ready_to_apply = cur.fetchone()[0] or 0
 
         pass_rate_pct = round(100.0 * screen_pass / screened_ok, 1) if screened_ok > 0 else 0.0
 

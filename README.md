@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-504%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-507%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
 Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
@@ -80,7 +80,7 @@ flowchart LR
 | Phase 0: Data Discovery | Complete | Scraped & cataloged LinkedIn API fields into SQLite tables |
 | Phase 0.5: Cleanup & Organization | Complete | Established modular architecture & dependency management |
 | Phase 1: Project Setup | Complete | Pydantic config schemas, logging, and environment settings |
-| Phase 2: Database & Core | Complete | SQLite thread-safe DatabaseManager with WAL mode (migrations to v10) |
+| Phase 2: Database & Core | Complete | SQLite thread-safe DatabaseManager with WAL mode (migrations to v14) |
 | Phase 3: Scraping Refactor | Complete | Selenium LinkedIn worker with persisted session |
 | Phase 4: AI Screening | Complete | Prefilter + Gemini screener, batch API, role-family archetypes |
 | Phase 5: Cover Letter Generation | Complete | Family-tailored generator with career-narrative layer |
@@ -372,8 +372,9 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-504 automated unit tests covering:
-- Database CRUD, WAL-mode transaction safety, busy timeout, and schema migrations
+507 automated unit tests covering:
+- Database CRUD, WAL-mode transaction safety, busy timeout, and schema migrations (up to v14)
+- Database performance indexes, query consolidation, in-memory pipeline stats TTL caching, and WAL checkpointing
 - Pydantic configuration schemas and `.env` credentials loading
 - Deterministic prefilter rules (title and details stages)
 - Selective automated screening deferral criteria (company size thresholds, German ad exclusion)
@@ -435,7 +436,7 @@ uv run pytest tests/ -v
 │       │                            #   company size backfill (company_backfill.py)
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (504 tests)
+└── tests/                           # Unit test suite (507 tests)
 ```
 
 ---

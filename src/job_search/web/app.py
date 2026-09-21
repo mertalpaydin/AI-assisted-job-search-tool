@@ -10,6 +10,7 @@ import json
 import os
 import re
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -188,7 +189,29 @@ def _snapshot_after_write(response):
             and request.method == "POST"
             and response.status_code < 400):
         _snapshotter.mark_dirty()
+    if request.method == "POST" and response.status_code < 400:
+        _invalidate_pipeline_stats_cache()
     return response
+
+
+_pipeline_stats_cache: dict[tuple, tuple[float, dict]] = {}
+_STATS_CACHE_TTL = 4.0  # seconds
+
+
+def _get_cached_pipeline_stats(db, days=None, cl_mode="auto", auto_screen_cfg=None, force=False):
+    now = time.monotonic()
+    key = (days, cl_mode, str(auto_screen_cfg))
+    if not force and key in _pipeline_stats_cache:
+        cached_time, cached_val = _pipeline_stats_cache[key]
+        if now - cached_time < _STATS_CACHE_TTL:
+            return cached_val
+    val = db.get_pipeline_stats(days=days, cl_mode=cl_mode, auto_screen_cfg=auto_screen_cfg)
+    _pipeline_stats_cache[key] = (now, val)
+    return val
+
+
+def _invalidate_pipeline_stats_cache():
+    _pipeline_stats_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +227,7 @@ def index():
 
     stats = db.get_stats()
     auto_cfg = _config.screening.auto_screen if _config else None
-    pipeline_stats = db.get_pipeline_stats(days=days_val, cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
+    pipeline_stats = _get_cached_pipeline_stats(db, days=days_val, cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
     app_counts = db.get_application_counts(days=days_val)
     cl_mode = get_cl_mode()
     _APPROVAL_DAYS = 30
@@ -1135,7 +1158,7 @@ def runner_dashboard():
 
     session_saved = session_saved_at(_config.auth.session_file) if _config else None
     auto_cfg = _config.screening.auto_screen if _config else None
-    pipeline_stats = db.get_pipeline_stats(cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
+    pipeline_stats = _get_cached_pipeline_stats(db, cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
     return render_template(
         "runner.html",
         is_running=is_running,
@@ -1356,7 +1379,7 @@ def runner_status():
 
     db = get_db()
     auto_cfg = _config.screening.auto_screen if _config else None
-    pipeline_stats = db.get_pipeline_stats(cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
+    pipeline_stats = _get_cached_pipeline_stats(db, cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
     return jsonify({
         "is_running": is_running,
         "pipeline_stats": pipeline_stats,

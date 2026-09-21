@@ -701,9 +701,9 @@
     fetchLogs();
     pollStatus();
 
-    // Poll logs and status
-    setInterval(fetchLogs, isRunning ? 1000 : 5000);
-    setInterval(pollStatus, 2000);
+    // Poll logs and status (relaxed intervals to minimize DB and server contention)
+    setInterval(fetchLogs, isRunning ? 3000 : 8000);
+    setInterval(pollStatus, isRunning ? 5000 : 10000);
 
     // Auto-scroll toggle on manual scroll
     logViewer.addEventListener('scroll', () => {

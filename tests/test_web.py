@@ -380,3 +380,27 @@ def test_job_detail_renders_scrape_date(db: DatabaseManager, client) -> None:
     assert long_date_filter(job.created_at) in body
     # Verify format like 'September 12, 2026'
     assert long_date_filter("2026-09-12 14:30:00") == "September 12, 2026"
+
+
+def test_pipeline_stats_caching_and_invalidation(db: DatabaseManager, client) -> None:
+    from job_search.web.app import _get_cached_pipeline_stats, _invalidate_pipeline_stats_cache, _pipeline_stats_cache
+
+    _invalidate_pipeline_stats_cache()
+    stats1 = _get_cached_pipeline_stats(db)
+    assert len(_pipeline_stats_cache) == 1
+
+    # Second call uses cache
+    stats2 = _get_cached_pipeline_stats(db)
+    assert stats1 is stats2
+
+    # Invalidation clears the cache
+    _invalidate_pipeline_stats_cache()
+    assert len(_pipeline_stats_cache) == 0
+
+    # Post route invalidates cache
+    _get_cached_pipeline_stats(db)
+    assert len(_pipeline_stats_cache) == 1
+    _seed_job(db, 96008)
+    client.post("/jobs/96008/status", data={"status": "applied"})
+    assert len(_pipeline_stats_cache) == 0
+

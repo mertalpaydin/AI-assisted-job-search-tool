@@ -764,3 +764,35 @@ class TestSelectedFilter:
         assert total == 1
         assert rows[0].job_id == 101
 
+
+class TestMigrationV14AndPipelineStats:
+    def test_migration_v14_indexes_exist(self, db: DatabaseManager) -> None:
+        with db._cursor() as cur:
+            cur.execute("SELECT name FROM sqlite_master WHERE type='index'")
+            indexes = {row[0] for row in cur.fetchall()}
+
+        assert "idx_jobs_app_status" in indexes
+        assert "idx_jobs_clean_pending" in indexes
+        assert "idx_jobs_batch_pending" in indexes
+
+    def test_consolidated_pipeline_stats(self, db: DatabaseManager) -> None:
+        # Seed various job rows
+        db.insert_job(1, "kw1", "Frankfurt")
+        db.update_job_details(1, {"title": "AI Engineer", "company_name": "A Corp", "application_status": "expired"})
+
+        db.insert_job(2, "kw1", "Frankfurt")
+        db.update_job_details(2, {"title": "Data Scientist", "company_name": "B Corp"})
+        db.save_screening_result(2, ScreeningResult(0.85, "none", True, "Great match", archetype="A"))
+
+        db.insert_job(3, "kw1", "Frankfurt")
+        db.update_job_details(3, {"title": "Junior Dev", "company_name": "C Corp"})
+        db.save_screening_result(3, ScreeningResult(0.40, "none", False, "Low match", archetype="B"))
+
+        stats = db.get_pipeline_stats()
+        assert stats["total_found"] == 3
+        assert stats["details_scraped"] == 3
+        assert stats["screen_pass"] == 1
+        assert stats["screen_fail"] == 1
+        assert stats["expired_count"] == 1
+        assert stats["top_matches_pending"] == 1
+
