@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-420%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-504%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
 Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
@@ -20,21 +20,23 @@ Automates LinkedIn job discovery, deterministic prefiltering, AI screening again
 - **Tiered Search Terms** — Each search term carries a `tier` (1 = every cycle, 2 = every other cycle, 3 = every third) and an optional per-term `max_pages`, so high-value queries are polled deeply and often while broad ones are polled sparingly.
 - **Deterministic Prefilter** — Two cost-free filter stages reject obviously-unfit jobs *before* spending an AI call, recording *why* each was rejected instead of deleting it:
   - **Title stage** runs on the search stub and skips both the detail fetch and screening (e.g. non-AI/non-data titles, wrong locations).
-  - **Details stage** runs after the detail fetch and skips screening (employment type, experience level, German-fluency requirements).
+  - **Details stage** runs after the detail fetch and skips screening for non-negotiable criteria (e.g., German-fluency requirements). Employment type and experience level prefilters are disabled by default because LinkedIn metadata frequently mislabels roles; these are evaluated accurately by the AI screener instead.
   - Rejections are reversible (clear the `prefilter_reason` column) and fully reviewable in the Web UI.
+- **Selective Automated Screening & Deferral** — An `auto_screen` configuration gate lets you selectively defer AI screening based on company size (`min_company_size: "mid"`, e.g. 201+ employees) or ad language (`exclude_fully_german: true`). This conserves Gemini API budget and time while still collecting full posting details into the database. Deferred jobs are held in the **Unscreened** queue and can be screened on-demand individually or in batches via the Web UI.
+- **Ad Language Detection & Badging** — Job descriptions are analyzed with a lightweight German stopword ratio detector (`detected_language`: `de` vs `en`). Postings are labeled with German or English ad badges (showing the exact stopword ratio on hover) across the Web UI and can be filtered directly in job listings.
 - **Gemini AI Screening** — Scores jobs against your CV, filters out jobs requiring high German proficiency or wrong locations, and assigns a **role-family archetype (A–F)**. Fast parallel screening via the Gemini API with multi-key rotation and exponential backoff retries. Responses use **structured output** (`response_schema`), so valid JSON is the API's guarantee rather than something a regex has to recover from prose. Verdicts are made **reproducible** by pinning a sampling `seed` and dropping temperature to 0 — identical reposts were previously scoring differently on a second pass 43% of the time, flipping the selection decision outright in 6.4% of cases.
 - **Batch Screening (50% cheaper)** — Screening can be submitted to the Gemini **Batch API** and collected later (up to 24h latency). An in-flight guard (`jobs.batch_job_id`) prevents paying twice or overwriting a fresh answer with a stale one, each response is claimed atomically so two collectors can never write the same row, and a machine-wide lock keeps the hourly collect task, a run's startup, and the Web UI button from colliding. `auto` mode keeps small manual runs instant and sends large or scheduled backlogs to batch.
 - **Role-Family-Tailored Cover Letters** — Cover letter prompts are split into a shared instruction set plus one guidance block per family; only the block for the job's own family is sent. An optional **career-narrative layer** (`config/narrative.yaml`) supplies the reasoning, obstacles, and outcomes behind your CV lines so letters can stop restating the CV.
 - **On-Demand Recruiter Messages** — A button on the job page drafts a LinkedIn outreach message and returns it in the same request, because a message you want *now* is worth nothing an hour later — this is the one AI path in the tool that does not hand work to a background worker. Two forms share one instruction set so the voice cannot drift between them: a **connection note**, held under LinkedIn's hard 300-character ceiling, and an **InMail** of a few short paragraphs. The draft is editable, saved against the job, and one click from the clipboard. An overlong note is rejected rather than trimmed — LinkedIn would refuse to send it anyway, and a request clipped mid-word is worse than pressing the button again.
-- **1-Page LaTeX Cover Letter PDF Exporter** — Automated 1-page LaTeX cover letter compiler using local MiKTeX (`xelatex` / `pdflatex`). Features a centered executive header, tagline, transparent signature image, dynamic "a/an" article selection, name-derived sign-off matching, and an auto-fitting font-size algorithm with length-based vertical centering to guarantee single-page output.
+- **1-Page LaTeX Cover Letter PDF Exporter** — Automated 1-page LaTeX cover letter compiler using local MiKTeX (`xelatex` / `pdflatex`). Features a centered executive header, tagline, transparent signature image, dynamic "a/an" article selection, name-derived sign-off matching, balanced bottom margin and vertical spacing, and an auto-fitting font-size algorithm with length-based vertical centering to guarantee single-page output.
 - **Job Expiration Cleaner** — Detects expired or closed LinkedIn postings using the authenticated session with request pacing and rate-limit backoff (`uv run job-search clean`).
-- **Cross-Process Run Control** — A runner lock (ignores dead PIDs and stale holders), a stop file for graceful cross-process shutdown, and a schedule pause with lazy auto-resume let the Web UI, CLI, and scheduled tasks coordinate one run at a time.
+- **Cross-Process Run Control & Backlog Tracking** — A runner lock (ignores dead PIDs and stale holders), a stop file for graceful cross-process shutdown, and a schedule pause with lazy auto-resume let the Web UI, CLI, and scheduled tasks coordinate one run at a time. Active backlog action items (`screen_pending_auto`, pending details, pending cover letters) are tracked separately from cumulative deferred and prefiltered totals.
 - **Unattended Scheduling** — `scripts/install_tasks.ps1` registers Windows Task Scheduler entries. The daily work has **two triggers** — 07:00 and 5 minutes after logon — because `StartWhenAvailable` did not reliably recover the morning run on a laptop that is asleep at 07:00; a `--once-daily` marker makes whichever fires second a no-op. Scheduled runs skip LinkedIn stages if the session is dead rather than opening a browser.
 - **Concurrent Pipeline** — Parallel search, details, screening, and cover letter workers with graceful shutdown, checkpointing, resume, and errored-job retry.
-- **Company Size From the Declared Band** — LinkedIn reports two different numbers and they disagree badly: `staffCount` is how many members list a company as their employer, while `staffCountRange` is the band the company declares. gategroup declares **10,001+** and has **2,457** members; SAP's member count *exceeds* its real headcount. Both are stored and shown, the size filter buckets on the band, and every bucket boundary sits on one of LinkedIn's nine band edges so a bucket never splits one.
-- **Verified Database Snapshots** — `VACUUM INTO` snapshots taken at run boundaries, after Web UI edits, at Web UI startup if the last session left changes uncaptured, and before destructive commands — but never at process exit, where a 6–11s VACUUM on a 265 MB database was getting the process killed mid-write. Each is integrity-checked before it is kept and before it is restored, so a damaged snapshot can never rotate out a good one. Opening the database runs `quick_check` first — every open runs migrations, so an unchecked open writes into a damaged file. `job-search restore latest` puts a verified copy back.
+- **Company Size From the Declared Band** — LinkedIn reports two different numbers and they disagree badly: `staffCount` is how many members list a company as their employer, while `staffCountRange` is the band the company declares. gategroup declares **10,001+** and has **2,457** members; SAP's member count *exceeds* its real headcount. Both are stored and shown, the size filter buckets on the band across seven distinct ranges (including dedicated **Startup (11–50)** and **Scale-up (51–200)** splits), and every bucket boundary sits on one of LinkedIn's nine band edges so a bucket never splits one.
+- **Resilient SQLite Concurrency & Snapshots** — Database operates in WAL mode with a 30-second `busy_timeout`, `synchronous=NORMAL`, explicit WAL checkpoints on close, and optimized partial indexes (`idx_jobs_unscreened`, `idx_cover_letters_job_status`). Verified `VACUUM INTO` snapshots are taken at run boundaries and after Web UI edits, protected by quick-check integrity verification on every open and before every restore (`job-search restore latest`).
 - **Application Tracking** — Mark jobs as `applied`, `interviewing`, `offered`, `rejected`, or `clear`.
-- **Web UI Dashboard** — Local Flask web application (`http://127.0.0.1:5000/`) to review jobs, inspect prefiltered rejections, edit Job Title / Company Name / Cover Letter text live, export the exact per-job prompt, generate 1-page PDFs instantly, drive the runner and batch collection, import jobs, and track status.
+- **Web UI Dashboard** — Local Flask web application (`http://127.0.0.1:5000/`) to review jobs, inspect prefiltered rejections, manage the unscreened queue, edit Job Title / Company Name / Cover Letter text live, export the exact per-job prompt, generate 1-page PDFs instantly, drive the runner and batch collection, import jobs, and track status.
 
 ---
 
@@ -48,20 +50,25 @@ flowchart LR
     B -- kept --> C[Scrape Details]
     B -- rejected --> X[(Prefiltered<br/>recorded, reviewable)]
     C --> D{Details<br/>prefilter}
-    D -- kept --> E[AI Screening<br/>score + role family]
+    D -- kept --> E{Auto-Screen<br/>eligible?}
     D -- rejected --> X
-    E -- below threshold --> R[Not selected]
-    E -- selected --> F[Cover Letter<br/>family-tailored]
+    E -- deferred --> U[(Unscreened<br/>on-demand / review)]
+    E -- yes --> S[AI Screening<br/>score + role family]
+    U -. screen on-demand .-> S
+    S -- below threshold --> R[Not selected]
+    S -- selected --> F[Cover Letter<br/>family-tailored]
     F --> G[1-page LaTeX PDF]
     G --> H([Apply / Track])
 
     classDef drop fill:#7f1d1d,stroke:#ef4444,color:#fff;
     classDef keep fill:#14532d,stroke:#22c55e,color:#fff;
+    classDef defer fill:#854d0e,stroke:#eab308,color:#fff;
     class X,R drop;
+    class U defer;
     class F,G,H keep;
 ```
 
-- **Screening** runs against the **Gemini API** and can be sent **instantly** or to the **Batch API** (≈50% cheaper) depending on whether anyone is waiting on the result.
+- **Screening** runs against the **Gemini API** and can be sent **instantly** or to the **Batch API** (≈50% cheaper) depending on whether anyone is waiting on the result. Un-prefiltered jobs can be screened automatically or deferred to an **Unscreened** queue based on company size and ad language criteria.
 - **Prefiltered** and **not selected** jobs are never deleted — they are recorded with a reason so a bad rule can be spotted and reversed.
 
 ---
@@ -312,14 +319,15 @@ Open `http://127.0.0.1:5000/` in your browser.
 
 | Dashboard Page | Capabilities |
 |----------------|--------------|
-| **Dashboard** | Overview metrics, application-stage breakdowns, role-family summary, prefiltered/in-flight counters |
-| **Selected Jobs** | AI-matched jobs with match scores, German flags, role-family badges, Easy-Apply vs Company-Website tags, declared size band + LinkedIn member count, industry, a **multi-select company-size** filter over seven buckets (micro / startup / scaleup / mid / large / enterprise / global) with one-click "& above", and quick actions |
-| **All Jobs** | Master repository of all scraped jobs, with company inclusion/exclusion and company-size filtering |
+| **Dashboard** | Overview metrics, active backlog queue counters (pending details, pending auto-screen, pending cover letters), cumulative stats, application-stage breakdowns, and role-family summary |
+| **Selected Jobs** | AI-matched jobs with match scores, German flags / ad language badges, role-family badges, Easy-Apply vs Company-Website tags, Scrape Date ("Month Day, Year"), declared size band + LinkedIn member count, industry, language filter (`lang=de` / `lang=en`), a **multi-select company-size** filter over seven buckets (micro / startup / scaleup / mid / large / enterprise / global) with one-click "& above", and quick actions |
+| **All Jobs** | Master repository of all scraped jobs, with company inclusion/exclusion, company-size filtering, language filtering, AI selection filter (`sel=0` Not Selected, `sel=1` Selected, All), and screened/unscreened toggle |
+| **Unscreened Jobs** | Dedicated review queue for jobs deferred by auto-screen criteria (e.g. small company size, German ad), displaying deferral reasons, language badges, scrape dates, with batch screening and individual screen-now actions |
 | **Prefiltered** | Deterministic rejections grouped by rule and stage, so an over-aggressive rule can be spotted and reversed |
 | **Search Stats** | Conversion-funnel metrics per keyword/location, with a role-family breakdown |
-| **Runner** | Session health, schedule pause/resume, stop & force-stop for a run owned by any process, batch collection with per-batch abandon, start-run, clear-errors, and live logs |
+| **Runner** | Session health, active backlog vs cumulative stats, schedule pause/resume, stop & force-stop for a run owned by any process, batch collection with per-batch abandon, start-run, clear-errors, and live logs |
 | **Import Jobs** | Add jobs manually by URL |
-| **Job Detail** | Live-editable **Job Title**, **Company Name**, and **Cover Letter Text**; MS Word clipboard formatter; **Export Prompt** (exact system + user prompt for that job); Delete/Regenerate cover letter; instant **1-Page "Generate PDF"** compiler; on-demand **Recruiter Message** in either LinkedIn form |
+| **Job Detail** | Live-editable **Job Title**, **Company Name**, and **Cover Letter Text**; Scrape Date; MS Word clipboard formatter; **Export Prompt** (exact system + user prompt for that job); Delete/Regenerate cover letter; instant **1-Page "Generate PDF"** compiler; on-demand **Recruiter Message** in either LinkedIn form |
 
 ### Screenshots
 
@@ -364,15 +372,17 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-420 automated unit tests covering:
-- Database CRUD, WAL-mode transaction safety, and schema migrations
+504 automated unit tests covering:
+- Database CRUD, WAL-mode transaction safety, busy timeout, and schema migrations
 - Pydantic configuration schemas and `.env` credentials loading
 - Deterministic prefilter rules (title and details stages)
+- Selective automated screening deferral criteria (company size thresholds, German ad exclusion)
+- Ad language detection and German stopword ratio analysis
 - Role-family archetype validation
 - Gemini API key rotation and exponential backoff
 - Batch screening submission, collection, and in-flight guarding
 - Verified snapshots, retention tiers, restore, and the corruption tripwire
-- Company size bands, bucket boundaries, and the per-company backfill
+- Company size bands, bucket boundaries (including startup/scaleup split), and the per-company backfill
 - Cookie jars holding duplicate names (LinkedIn sets JSESSIONID twice)
 - Screening-response parsing: fences, nested objects, a missing opening brace
 - Snapshot staleness at startup, the interval floor, and abandoned .partial sweeps
@@ -382,8 +392,8 @@ uv run pytest tests/ -v
 - Cross-process run control (locks, stop file, schedule pause)
 - Prompt template manager and markdown formatting
 - Job cleaner & expiration detection (including query prioritization)
-- Flask Web UI routes, MS Word line-break formatting, and live PDF endpoints
-- 1-Page LaTeX PDF compiler and dynamic article logic
+- Flask Web UI routes, active backlog separation, unscreened queue, MS Word line-break formatting, and live PDF endpoints
+- 1-Page LaTeX PDF compiler, dynamic article logic, and sign-off spacing
 
 ---
 
@@ -425,7 +435,7 @@ uv run pytest tests/ -v
 │       │                            #   company size backfill (company_backfill.py)
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (420 tests)
+└── tests/                           # Unit test suite (504 tests)
 ```
 
 ---
