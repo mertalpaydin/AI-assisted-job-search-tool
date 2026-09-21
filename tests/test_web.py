@@ -404,3 +404,72 @@ def test_pipeline_stats_caching_and_invalidation(db: DatabaseManager, client) ->
     client.post("/jobs/96008/status", data={"status": "applied"})
     assert len(_pipeline_stats_cache) == 0
 
+
+def test_assistant_routes_404_on_unknown_job(client) -> None:
+    assert client.post("/jobs/99999/assistant/chat", json={"message": "hello"}).status_code == 404
+    assert client.get("/jobs/99999/assistant/history").status_code == 404
+    assert client.post("/jobs/99999/assistant/clear").status_code == 404
+
+
+def test_assistant_chat_validation(db: DatabaseManager, client) -> None:
+    _seed_job(db, 96009)
+    # Empty message
+    res = client.post("/jobs/96009/assistant/chat", json={"message": "   "})
+    assert res.status_code == 400
+    assert "Message cannot be empty" in res.get_json()["error"]
+
+
+def test_assistant_chat_success_and_clear(db: DatabaseManager, configured_client, tmp_path) -> None:
+    from unittest.mock import patch, MagicMock
+
+    _seed_job(db, 96010)
+    mock_reply = "I am an AI assistant and you are a great fit."
+    mock_history = [
+        {"role": "user", "content": "Hello", "timestamp": "2026-09-21 10:00:00"},
+        {"role": "model", "content": mock_reply, "timestamp": "2026-09-21 10:00:05"},
+    ]
+
+    secrets_mock = MagicMock()
+    secrets_mock.gemini_api_keys = ["test-key-1"]
+
+    with patch("job_search.core.config.load_secrets", return_value=secrets_mock), \
+         patch("job_search.ai.assistant.ask_assistant", return_value=(mock_reply, mock_history)):
+        res = configured_client.post(
+            "/jobs/96010/assistant/chat",
+            json={"message": "Hello", "context_types": ["job_description", "cv"]},
+        )
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+        assert data["reply"] == mock_reply
+        assert len(data["history"]) == 2
+        assert data["chat_file"] is not None
+
+        # Verify job row updated with chat file
+        job = db.get_selected_job(96010)
+        assert job is not None
+        assert job.assistant_chat_file == data["chat_file"]
+
+        # Test history endpoint
+        hist_res = configured_client.get("/jobs/96010/assistant/history")
+        assert hist_res.status_code == 200
+        hist_data = hist_res.get_json()
+        assert hist_data["success"] is True
+        assert len(hist_data["history"]) == 2
+
+        # Test job_detail page renders the card
+        detail_res = configured_client.get("/jobs/96010")
+        assert detail_res.status_code == 200
+        body = detail_res.get_data(as_text=True)
+        assert "AI Application Assistant" in body
+        assert "user-bubble" in body
+        assert "model-bubble" in body
+        assert "Hello" in body
+        assert mock_reply in body
+
+        # Test clear endpoint
+        clear_res = configured_client.post("/jobs/96010/assistant/clear")
+        assert clear_res.status_code == 200
+        job_cleared = db.get_selected_job(96010)
+        assert job_cleared.assistant_chat_file is None
+

@@ -51,13 +51,20 @@ screening:
 
 # Cover Letter Generation
 cover_letter:
-  model: "gemini-3-flash-preview"
+  model: "gemini-3.8-flash"
   temperature: 0.7
   max_tokens: 1000
   rate_limits:
     requests_per_minute: 15
     retry_delay: 60
     max_retries: 5
+
+# On-demand AI Application Assistant (job page Q&A)
+assistant:
+  model: "gemini-3.8-flash"
+  temperature: 0.5
+  max_tokens: 2048
+  chat_dir: "data/chats"
 
 # Concurrency
 concurrency:

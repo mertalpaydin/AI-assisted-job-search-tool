@@ -584,6 +584,143 @@
       </div>
     </div>
 
+    <!-- AI Application Assistant (On-Demand Q&A & Form Responses) -->
+    <div class="card detail-summary-card shadow-sm mb-4" id="assistantCard">
+      <div class="card-header d-flex justify-content-between align-items-center py-3 flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <span class="fw-semibold text-light">
+            <i class="bi bi-robot me-2 text-primary"></i>AI Application Assistant
+          </span>
+          <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle small" title="Configured model">
+            {{ assistant_model or "gemini-3.8-flash" }}
+          </span>
+        </div>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <button type="button" class="btn btn-sm btn-outline-danger" id="assistantClearBtn" onclick="clearAssistantChat()" title="Clear chat history">
+            <i class="bi bi-trash me-1"></i>Clear Chat
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-4">
+        <!-- Context Selection Bar -->
+        <div class="mb-3 p-3 rounded bg-dark border border-secondary-subtle">
+          <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+            <label class="form-label mb-0 small fw-semibold text-light">
+              <i class="bi bi-layers me-1 text-info"></i>Include Context for AI:
+            </label>
+            <div class="d-flex gap-1">
+              <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-info small me-2" onclick="toggleAllContext(true)">Select All</button>
+              <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-muted small" onclick="resetDefaultContext()">Reset Defaults</button>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-3" id="assistantContextCheckboxes">
+            <div class="form-check form-check-inline m-0">
+              <input class="form-check-input" type="checkbox" id="ctx_jd" value="job_description" checked>
+              <label class="form-check-label small text-light" for="ctx_jd">
+                <i class="bi bi-file-text me-1 text-primary"></i>Job Description
+              </label>
+            </div>
+            <div class="form-check form-check-inline m-0">
+              <input class="form-check-input" type="checkbox" id="ctx_cv" value="cv" checked>
+              <label class="form-check-label small text-light" for="ctx_cv">
+                <i class="bi bi-person-badge me-1 text-success"></i>My CV
+              </label>
+            </div>
+            <div class="form-check form-check-inline m-0">
+              <input class="form-check-input" type="checkbox" id="ctx_cl" value="cover_letter" {% if job.cover_letter_text %}checked{% endif %}>
+              <label class="form-check-label small text-light" for="ctx_cl">
+                <i class="bi bi-envelope me-1 text-warning"></i>Cover Letter
+              </label>
+            </div>
+            <div class="form-check form-check-inline m-0">
+              <input class="form-check-input" type="checkbox" id="ctx_screening" value="screening_reasoning">
+              <label class="form-check-label small text-light" for="ctx_screening">
+                <i class="bi bi-cpu me-1 text-info"></i>Screening Notes
+              </label>
+            </div>
+            <div class="form-check form-check-inline m-0">
+              <input class="form-check-input" type="checkbox" id="ctx_narrative" value="narrative">
+              <label class="form-check-label small text-light" for="ctx_narrative">
+                <i class="bi bi-journal-text me-1 text-secondary"></i>Career Narrative
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Conversation Stream -->
+        <div id="assistantAlert"></div>
+        <div class="assistant-chat-window rounded p-3 mb-3" id="assistantChatLog" style="max-height: 480px; overflow-y: auto; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08);">
+          {% if assistant_chat_history and assistant_chat_history | length > 0 %}
+            {% for msg in assistant_chat_history %}
+              {% if msg.role == 'user' %}
+                <div class="chat-bubble user-bubble mb-3 ms-auto" style="max-width: 85%;">
+                  <div class="d-flex align-items-center justify-content-between mb-1 gap-2">
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle">You</span>
+                    <span class="text-muted small" style="font-size: 0.75rem;">{{ msg.timestamp }}</span>
+                  </div>
+                  <div class="p-3 rounded bg-primary text-white" style="white-space: pre-wrap; word-break: break-word;">{{ msg.content }}</div>
+                </div>
+              {% else %}
+                <div class="chat-bubble model-bubble mb-3 me-auto" style="max-width: 90%;">
+                  <div class="d-flex align-items-center justify-content-between mb-1 gap-2">
+                    <span class="badge bg-info-subtle text-info border border-info-subtle">
+                      <i class="bi bi-robot me-1"></i>Assistant
+                    </span>
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="text-muted small" style="font-size: 0.75rem;">{{ msg.timestamp }}</span>
+                      <button type="button" class="btn btn-sm btn-link p-0 text-secondary" onclick="copyTextToClipboard(this)" data-content="{{ msg.content | e }}" title="Copy response">
+                        <i class="bi bi-clipboard"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="p-3 rounded bg-dark border border-secondary text-light markdown-body assistant-reply-box" style="word-break: break-word;" data-raw-content="{{ msg.content | e }}">{{ msg.content }}</div>
+                </div>
+              {% endif %}
+            {% endfor %}
+          {% else %}
+            <div class="text-center text-muted py-4" id="assistantEmptyState">
+              <i class="bi bi-chat-heart fs-2 d-block mb-2 text-secondary"></i>
+              <p class="mb-1 fw-semibold text-light">How can I help with this application?</p>
+              <p class="small text-muted mb-0">Ask questions, draft tailored application form answers, or analyze fit. Select the context items above to guide the AI.</p>
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Quick Prompt Starters -->
+        <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+          <span class="text-muted small"><i class="bi bi-lightning-charge me-1 text-warning"></i>Quick Starters:</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.78rem;" onclick="setAssistantPrompt('Why am I a strong fit for this role based on my CV? Highlight top 3 matching points.')">
+            Top 3 Fit Points
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.78rem;" onclick="setAssistantPrompt('Draft a concise answer (max 150 words) to this application question: ')">
+            Draft 150-word Answer
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.78rem;" onclick="setAssistantPrompt('What are potential red flags or gaps in my background for this position, and how should I address them?')">
+            Gaps & Red Flags
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.78rem;" onclick="setAssistantPrompt('Draft a salary and notice period explanation: ')">
+            Notice & Salary
+          </button>
+        </div>
+
+        <!-- Input Area -->
+        <div class="position-relative">
+          <textarea id="assistantMessageInput" class="form-control bg-dark text-light border-secondary" rows="3" placeholder="Type your application question or prompt here... (Shift+Enter for new line, Enter to send)"></textarea>
+          <div class="d-flex justify-content-between align-items-center mt-2 flex-wrap gap-2">
+            <span class="text-muted small" id="assistantInputStats">0 characters</span>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('assistantMessageInput').value=''; updateAssistantInputStats();">
+                Clear
+              </button>
+              <button type="button" class="btn btn-sm btn-primary px-3 shadow-sm" id="assistantSendBtn" onclick="sendAssistantMessage()">
+                <i class="bi bi-send me-1"></i>Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Job Description -->
     {% if job.description %}
     <div class="card detail-summary-card shadow-sm mb-4">
@@ -1138,9 +1275,210 @@ function copyRecruiterMessage() {
   });
 }
 
+// --- AI Application Assistant ---
+function toggleAllContext(checked) {
+  const container = document.getElementById("assistantContextCheckboxes");
+  if (!container) return;
+  container.querySelectorAll("input[type='checkbox']").forEach(cb => cb.checked = checked);
+}
+
+function resetDefaultContext() {
+  const jd = document.getElementById("ctx_jd");
+  const cv = document.getElementById("ctx_cv");
+  const cl = document.getElementById("ctx_cl");
+  const scr = document.getElementById("ctx_screening");
+  const nar = document.getElementById("ctx_narrative");
+  if (jd) jd.checked = true;
+  if (cv) cv.checked = true;
+  if (cl) cl.checked = {{ 'true' if job.cover_letter_text else 'false' }};
+  if (scr) scr.checked = false;
+  if (nar) nar.checked = false;
+}
+
+function getSelectedContexts() {
+  const container = document.getElementById("assistantContextCheckboxes");
+  if (!container) return ["job_description", "cv"];
+  const checked = [];
+  container.querySelectorAll("input[type='checkbox']:checked").forEach(cb => {
+    checked.push(cb.value);
+  });
+  return checked.length > 0 ? checked : ["job_description", "cv"];
+}
+
+function setAssistantPrompt(text) {
+  const input = document.getElementById("assistantMessageInput");
+  if (!input) return;
+  input.value = text;
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+  updateAssistantInputStats();
+}
+
+function updateAssistantInputStats() {
+  const input = document.getElementById("assistantMessageInput");
+  const stats = document.getElementById("assistantInputStats");
+  if (!input || !stats) return;
+  const chars = input.value.length;
+  const words = input.value.trim() ? input.value.trim().split(/\s+/).length : 0;
+  stats.textContent = `${chars} chars · ${words} words`;
+}
+
+function showAssistantAlert(kind, title, body) {
+  const alertDiv = document.getElementById("assistantAlert");
+  if (!alertDiv) return;
+  alertDiv.innerHTML = `
+    <div class="alert alert-${kind} alert-dismissible fade show" role="alert">
+      <i class="bi bi-${kind === 'danger' ? 'exclamation-triangle-fill' : 'check-circle-fill'} me-2"></i>
+      <strong>${title}</strong> ${escapeHtml(body)}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+  `;
+}
+
+function copyTextToClipboard(btn) {
+  const text = btn.getAttribute("data-content") || "";
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2 text-success"></i>';
+    setTimeout(() => { btn.innerHTML = orig; }, 2000);
+  });
+}
+
+function renderAssistantReplies() {
+  if (typeof marked !== "undefined" && marked.parse) {
+    document.querySelectorAll(".assistant-reply-box").forEach(box => {
+      const raw = box.getAttribute("data-raw-content");
+      if (raw) {
+        box.innerHTML = marked.parse(raw);
+      }
+    });
+  }
+}
+
+function sendAssistantMessage() {
+  const input = document.getElementById("assistantMessageInput");
+  const btn = document.getElementById("assistantSendBtn");
+  const chatLog = document.getElementById("assistantChatLog");
+  if (!input || !btn || !chatLog) return;
+
+  const message = input.value.trim();
+  if (!message) return;
+
+  const contexts = getSelectedContexts();
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Thinking...';
+
+  // Remove empty state if present
+  const emptyState = document.getElementById("assistantEmptyState");
+  if (emptyState) emptyState.remove();
+
+  // Optimistically add user bubble
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const userBubble = document.createElement("div");
+  userBubble.className = "chat-bubble user-bubble mb-3 ms-auto";
+  userBubble.style.maxWidth = "85%";
+  userBubble.innerHTML = `
+    <div class="d-flex align-items-center justify-content-between mb-1 gap-2">
+      <span class="badge bg-primary-subtle text-primary border border-primary-subtle">You</span>
+      <span class="text-muted small" style="font-size: 0.75rem;">${now}</span>
+    </div>
+    <div class="p-3 rounded bg-primary text-white" style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(message)}</div>
+  `;
+  chatLog.appendChild(userBubble);
+  chatLog.scrollTop = chatLog.scrollHeight;
+
+  fetch("/jobs/{{ job.job_id }}/assistant/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: message, context_types: contexts }),
+  })
+    .then(res => res.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      if (data.success) {
+        input.value = "";
+        updateAssistantInputStats();
+
+        const modelBubble = document.createElement("div");
+        modelBubble.className = "chat-bubble model-bubble mb-3 me-auto";
+        modelBubble.style.maxWidth = "90%";
+        
+        const renderedHtml = (typeof marked !== "undefined" && marked.parse)
+          ? marked.parse(data.reply)
+          : escapeHtml(data.reply).replace(/\n/g, "<br>");
+
+        modelBubble.innerHTML = `
+          <div class="d-flex align-items-center justify-content-between mb-1 gap-2">
+            <span class="badge bg-info-subtle text-info border border-info-subtle">
+              <i class="bi bi-robot me-1"></i>Assistant
+            </span>
+            <div class="d-flex align-items-center gap-2">
+              <span class="text-muted small" style="font-size: 0.75rem;">${now}</span>
+              <button type="button" class="btn btn-sm btn-link p-0 text-secondary" onclick="copyTextToClipboard(this)" data-content="${escapeHtml(data.reply)}" title="Copy response">
+                <i class="bi bi-clipboard"></i>
+              </button>
+            </div>
+          </div>
+          <div class="p-3 rounded bg-dark border border-secondary text-light markdown-body assistant-reply-box" style="word-break: break-word;">${renderedHtml}</div>
+        `;
+        chatLog.appendChild(modelBubble);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      } else {
+        showAssistantAlert("danger", "Assistant Error:", data.error || "Failed to generate response.");
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      showAssistantAlert("danger", "Request Failed:", String(err));
+    });
+}
+
+function clearAssistantChat() {
+  if (!confirm("Clear conversation history for this job? The saved chat file will be removed.")) {
+    return;
+  }
+  const chatLog = document.getElementById("assistantChatLog");
+  fetch("/jobs/{{ job.job_id }}/assistant/clear", { method: "POST" })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success && chatLog) {
+        chatLog.innerHTML = `
+          <div class="text-center text-muted py-4" id="assistantEmptyState">
+            <i class="bi bi-chat-heart fs-2 d-block mb-2 text-secondary"></i>
+            <p class="mb-1 fw-semibold text-light">How can I help with this application?</p>
+            <p class="small text-muted mb-0">Ask questions, draft tailored application form answers, or analyze fit. Select the context items above to guide the AI.</p>
+          </div>
+        `;
+        showAssistantAlert("success", "Cleared.", "Conversation history cleared.");
+      }
+    })
+    .catch(err => {
+      showAssistantAlert("danger", "Clear Failed:", String(err));
+    });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   JobReader.init();
   autoResizeTextarea();
+  renderAssistantReplies();
+  const chatLog = document.getElementById("assistantChatLog");
+  if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
+
+  const asstInput = document.getElementById("assistantMessageInput");
+  if (asstInput) {
+    asstInput.addEventListener("input", updateAssistantInputStats);
+    asstInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendAssistantMessage();
+      }
+    });
+  }
+
   const textarea = document.getElementById("coverLetterText");
   if (textarea) {
     textarea.addEventListener("input", () => {

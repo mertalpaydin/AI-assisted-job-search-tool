@@ -796,3 +796,31 @@ class TestMigrationV14AndPipelineStats:
         assert stats["expired_count"] == 1
         assert stats["top_matches_pending"] == 1
 
+
+class TestMigrationV15AndAssistantChatFile:
+    def test_migration_v15_column_exists(self, db: DatabaseManager) -> None:
+        with db._cursor() as cur:
+            cur.execute("PRAGMA table_info(jobs)")
+            columns = {row[1] for row in cur.fetchall()}
+        assert "assistant_chat_file" in columns
+
+    def test_save_and_clear_assistant_chat_file(self, db: DatabaseManager) -> None:
+        db.insert_job(9901, "kw", "loc")
+        db.update_job_details(9901, {"title": "Test Engineer", "company_name": "TestCorp"})
+        
+        job = db.get_selected_job(9901)
+        assert job is not None
+        assert job.assistant_chat_file is None
+
+        # Save chat file
+        db.save_assistant_chat_file(9901, "data/chats/9901.json")
+        job = db.get_selected_job(9901)
+        assert job is not None
+        assert job.assistant_chat_file == "data/chats/9901.json"
+
+        # Clear chat file
+        db.save_assistant_chat_file(9901, None)
+        job = db.get_selected_job(9901)
+        assert job is not None
+        assert job.assistant_chat_file is None
+

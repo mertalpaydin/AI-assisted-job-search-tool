@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     recruiter_message_at TIMESTAMP,
 
     detected_language TEXT,
-    german_stopword_ratio REAL
+    german_stopword_ratio REAL,
+    assistant_chat_file TEXT
 );
 
 CREATE TABLE IF NOT EXISTS screening_results (
@@ -267,6 +268,7 @@ class SelectedJobRow:
     recruiter_message_at: str | None = None
     detected_language: str | None = None
     german_stopword_ratio: float | None = None
+    assistant_chat_file: str | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -589,6 +591,15 @@ class DatabaseManager:
         self._migrate_v12(conn)
         self._migrate_v13(conn)
         self._migrate_v14(conn)
+        self._migrate_v15(conn)
+
+    def _migrate_v15(self, conn: sqlite3.Connection) -> None:
+        """Add assistant_chat_file column to jobs table."""
+        try:
+            conn.execute("ALTER TABLE jobs ADD COLUMN assistant_chat_file TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     def _migrate_v14(self, conn: sqlite3.Connection) -> None:
         """Add performance indexes for application_status, cleaner, and in-flight batches, and run ANALYZE."""
@@ -2106,7 +2117,8 @@ class DatabaseManager:
                     j.company_staff_range_start, j.company_staff_range_end,
                     j.recruiter_message, j.recruiter_message_kind,
                     j.recruiter_message_at,
-                    j.detected_language, j.german_stopword_ratio
+                    j.detected_language, j.german_stopword_ratio,
+                    j.assistant_chat_file
                 FROM jobs j
                 {cl_join}
                 WHERE {where}
@@ -2132,7 +2144,8 @@ class DatabaseManager:
                     j.company_staff_range_start, j.company_staff_range_end,
                     j.recruiter_message, j.recruiter_message_kind,
                     j.recruiter_message_at,
-                    j.detected_language, j.german_stopword_ratio
+                    j.detected_language, j.german_stopword_ratio,
+                    j.assistant_chat_file
                 FROM jobs j
                 LEFT JOIN cover_letters cl ON j.job_id = cl.job_id AND cl.generation_status = 1
                 WHERE j.job_id = ?
@@ -2145,6 +2158,14 @@ class DatabaseManager:
             cur.execute(
                 "UPDATE jobs SET user_notes = ? WHERE job_id = ?",
                 (notes, job_id),
+            )
+
+    def save_assistant_chat_file(self, job_id: int, file_path: str | None) -> None:
+        """Update or clear the assistant chat file path for a job."""
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET assistant_chat_file = ? WHERE job_id = ?",
+                (file_path, job_id),
             )
 
     def get_adjacent_job_ids(self, job_id: int) -> tuple[int | None, int | None]:
@@ -2324,7 +2345,8 @@ class DatabaseManager:
                     j.company_staff_range_start, j.company_staff_range_end,
                     j.recruiter_message, j.recruiter_message_kind,
                     j.recruiter_message_at,
-                    j.detected_language, j.german_stopword_ratio
+                    j.detected_language, j.german_stopword_ratio,
+                    j.assistant_chat_file
                 FROM jobs j
                 {cl_join}
                 WHERE {where}

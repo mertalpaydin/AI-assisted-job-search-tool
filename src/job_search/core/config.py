@@ -101,7 +101,7 @@ class ScreeningCriteriaConfig(BaseModel):
 
 
 class GeminiScreeningConfig(BaseModel):
-    model: str = "gemini-3.1-flash-lite-preview"  # verify exact ID at ai.google.dev/gemini-api/docs/models
+    model: str = "gemini-3.5-flash-lite-preview"  # verify exact ID at ai.google.dev/gemini-api/docs/models
     temperature: float = 0.1
     # Fixed sampling seed, sent on every screening call. None leaves the API to
     # pick one per request, which is how the same advert scored 0.10 on one
@@ -167,7 +167,7 @@ class RecruiterMessageConfig(BaseModel):
     multi-second web search on top of the generation.
     """
 
-    model: str = "gemini-3.7-flash"
+    model: str = "gemini-3.8-flash"
     temperature: float = 0.5
     max_tokens: int = 2048
     use_search_grounding: bool = False
@@ -178,6 +178,15 @@ class RecruiterMessageConfig(BaseModel):
     max_chars: dict[str, int] = Field(
         default_factory=lambda: {"note": 300, "inmail": 1500}
     )
+
+
+class AssistantConfig(BaseModel):
+    """On-demand AI application assistant for answering form questions."""
+
+    model: str = "gemini-3.8-flash"
+    temperature: float = 0.5
+    max_tokens: int = 2048
+    chat_dir: str = "data/chats"
 
 
 class ConcurrencyConfig(BaseModel):
@@ -293,6 +302,7 @@ class Config(BaseModel):
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
     cover_letter: CoverLetterConfig = Field(default_factory=CoverLetterConfig)
     recruiter_message: RecruiterMessageConfig = Field(default_factory=RecruiterMessageConfig)
+    assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)

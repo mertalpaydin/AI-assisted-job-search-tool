@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-507%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-517%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
 Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
@@ -28,6 +28,7 @@ Automates LinkedIn job discovery, deterministic prefiltering, AI screening again
 - **Batch Screening (50% cheaper)** — Screening can be submitted to the Gemini **Batch API** and collected later (up to 24h latency). An in-flight guard (`jobs.batch_job_id`) prevents paying twice or overwriting a fresh answer with a stale one, each response is claimed atomically so two collectors can never write the same row, and a machine-wide lock keeps the hourly collect task, a run's startup, and the Web UI button from colliding. `auto` mode keeps small manual runs instant and sends large or scheduled backlogs to batch.
 - **Role-Family-Tailored Cover Letters** — Cover letter prompts are split into a shared instruction set plus one guidance block per family; only the block for the job's own family is sent. An optional **career-narrative layer** (`config/narrative.yaml`) supplies the reasoning, obstacles, and outcomes behind your CV lines so letters can stop restating the CV.
 - **On-Demand Recruiter Messages** — A button on the job page drafts a LinkedIn outreach message and returns it in the same request, because a message you want *now* is worth nothing an hour later — this is the one AI path in the tool that does not hand work to a background worker. Two forms share one instruction set so the voice cannot drift between them: a **connection note**, held under LinkedIn's hard 300-character ceiling, and an **InMail** of a few short paragraphs. The draft is editable, saved against the job, and one click from the clipboard. An overlong note is rejected rather than trimmed — LinkedIn would refuse to send it anyway, and a request clipped mid-word is worse than pressing the button again.
+- **On-Demand AI Application Assistant** — An interactive, context-aware assistant on job detail pages to answer application form questions, craft custom responses, and analyze fit. Users can dynamically select which context to attach (Job Description, Candidate CV, Generated Cover Letter, AI Screening Assessment, and Career Narrative). Supports multi-turn conversations stored in lightweight JSON files on disk (`data/chats/<job_id>.json`), rendered with markdown and copy-to-clipboard, with quick prompt starters and configurable default model (`gemini-3.8-flash`).
 - **1-Page LaTeX Cover Letter PDF Exporter** — Automated 1-page LaTeX cover letter compiler using local MiKTeX (`xelatex` / `pdflatex`). Features a centered executive header, tagline, transparent signature image, dynamic "a/an" article selection, name-derived sign-off matching, balanced bottom margin and vertical spacing, and an auto-fitting font-size algorithm with length-based vertical centering to guarantee single-page output.
 - **Job Expiration Cleaner** — Detects expired or closed LinkedIn postings using the authenticated session with request pacing and rate-limit backoff (`uv run job-search clean`).
 - **Cross-Process Run Control & Backlog Tracking** — A runner lock (ignores dead PIDs and stale holders), a stop file for graceful cross-process shutdown, and a schedule pause with lazy auto-resume let the Web UI, CLI, and scheduled tasks coordinate one run at a time. Active backlog action items (`screen_pending_auto`, pending details, pending cover letters) are tracked separately from cumulative deferred and prefiltered totals.
@@ -80,7 +81,7 @@ flowchart LR
 | Phase 0: Data Discovery | Complete | Scraped & cataloged LinkedIn API fields into SQLite tables |
 | Phase 0.5: Cleanup & Organization | Complete | Established modular architecture & dependency management |
 | Phase 1: Project Setup | Complete | Pydantic config schemas, logging, and environment settings |
-| Phase 2: Database & Core | Complete | SQLite thread-safe DatabaseManager with WAL mode (migrations to v14) |
+| Phase 2: Database & Core | Complete | SQLite thread-safe DatabaseManager with WAL mode (migrations to v15) |
 | Phase 3: Scraping Refactor | Complete | Selenium LinkedIn worker with persisted session |
 | Phase 4: AI Screening | Complete | Prefilter + Gemini screener, batch API, role-family archetypes |
 | Phase 5: Cover Letter Generation | Complete | Family-tailored generator with career-narrative layer |
@@ -327,7 +328,7 @@ Open `http://127.0.0.1:5000/` in your browser.
 | **Search Stats** | Conversion-funnel metrics per keyword/location, with a role-family breakdown |
 | **Runner** | Session health, active backlog vs cumulative stats, schedule pause/resume, stop & force-stop for a run owned by any process, batch collection with per-batch abandon, start-run, clear-errors, and live logs |
 | **Import Jobs** | Add jobs manually by URL |
-| **Job Detail** | Live-editable **Job Title**, **Company Name**, and **Cover Letter Text**; Scrape Date; MS Word clipboard formatter; **Export Prompt** (exact system + user prompt for that job); Delete/Regenerate cover letter; instant **1-Page "Generate PDF"** compiler; on-demand **Recruiter Message** in either LinkedIn form |
+| **Job Detail** | Live-editable **Job Title**, **Company Name**, and **Cover Letter Text**; Scrape Date; MS Word clipboard formatter; **Export Prompt** (exact system + user prompt for that job); Delete/Regenerate cover letter; instant **1-Page "Generate PDF"** compiler; on-demand **Recruiter Message** in either LinkedIn form; interactive **AI Application Assistant** with customizable context and multi-turn chat |
 
 ### Screenshots
 

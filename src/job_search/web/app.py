@@ -566,12 +566,17 @@ def job_detail(job_id: int):
     if job is None:
         abort(404)
     prev_job_id, next_job_id = db.get_adjacent_job_ids(job_id)
+    from job_search.ai.assistant import load_chat
+    assistant_chat_history = load_chat(job.assistant_chat_file)
+    assistant_model = getattr(getattr(_config, "assistant", None), "model", "gemini-3.8-flash")
     return render_template("job_detail.html", job=job, statuses=APPLICATION_STATUSES,
                            archetype_labels=ARCHETYPE_LABELS,
                            cl_mode=get_cl_mode(),
                            recruiter_limits=get_recruiter_limits(),
                            prev_job_id=prev_job_id,
-                           next_job_id=next_job_id)
+                           next_job_id=next_job_id,
+                           assistant_chat_history=assistant_chat_history,
+                           assistant_model=assistant_model)
 
 
 @app.route("/jobs/<int:job_id>/status", methods=["POST"])
@@ -741,6 +746,111 @@ def delete_recruiter_message(job_id: int):
     db.clear_recruiter_message(job_id)
     flash(f"Recruiter message cleared for job #{job_id}.", "success")
     return _redirect_back(request.form, job_id)
+
+
+@app.route("/jobs/<int:job_id>/assistant/chat", methods=["POST"])
+def assistant_chat(job_id: int):
+    """Ask a question to the AI assistant for a specific job."""
+    db = get_db()
+    job = db.get_selected_job(job_id)
+    if job is None:
+        abort(404)
+
+    data = request.get_json(silent=True) or request.form
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "Message cannot be empty"}), 400
+
+    if _config is None:
+        return jsonify({"error": "Configuration not loaded"}), 500
+
+    context_types = data.get("context_types")
+    if isinstance(context_types, str):
+        context_types = [c.strip() for c in context_types.split(",") if c.strip()]
+    elif not isinstance(context_types, list):
+        context_types = ["job_description", "cv"]
+
+    from job_search.ai.assistant import (
+        AssistantError,
+        ask_assistant,
+        load_chat,
+        save_chat,
+    )
+    from job_search.ai.prompt_manager import PromptManager
+    from job_search.core.config import load_secrets
+
+    try:
+        api_keys = load_secrets().gemini_api_keys
+        if not api_keys:
+            return jsonify({"error": "No Gemini API keys configured. Set GEMINI_API_KEY_1 in config/.env."}), 500
+
+        try:
+            prompts = PromptManager()
+            cv_data = prompts._cv
+            narrative_data = prompts._narrative
+        except Exception:
+            cv_data = None
+            narrative_data = None
+
+        history = load_chat(job.assistant_chat_file)
+        reply, updated_messages = ask_assistant(
+            config=_config,
+            api_keys=api_keys,
+            job=job,
+            message=message,
+            context_types=context_types,
+            history=history,
+            cv_data=cv_data,
+            cover_letter_text=job.cover_letter_text,
+            narrative_data=narrative_data,
+        )
+
+        chat_dir = getattr(getattr(_config, "assistant", None), "chat_dir", "data/chats")
+        file_path = save_chat(job_id, updated_messages, chat_dir=chat_dir)
+        if job.assistant_chat_file != file_path:
+            db.save_assistant_chat_file(job_id, file_path)
+
+        return jsonify({
+            "success": True,
+            "reply": reply,
+            "history": updated_messages,
+            "chat_file": file_path,
+        })
+    except AssistantError as exc:
+        return jsonify({"error": str(exc)}), 502
+    except Exception as exc:
+        from loguru import logger
+        logger.exception("Assistant chat route failed for job {}", job_id)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/jobs/<int:job_id>/assistant/history", methods=["GET"])
+def assistant_history(job_id: int):
+    """Return existing conversation history for a job."""
+    db = get_db()
+    job = db.get_selected_job(job_id)
+    if job is None:
+        abort(404)
+
+    from job_search.ai.assistant import load_chat
+    history = load_chat(job.assistant_chat_file)
+    return jsonify({"success": True, "history": history})
+
+
+@app.route("/jobs/<int:job_id>/assistant/clear", methods=["POST"])
+def assistant_clear(job_id: int):
+    """Clear conversation history for a job and delete the chat file."""
+    db = get_db()
+    job = db.get_selected_job(job_id)
+    if job is None:
+        abort(404)
+
+    from job_search.ai.assistant import delete_chat
+    if job.assistant_chat_file:
+        delete_chat(job.assistant_chat_file)
+        db.save_assistant_chat_file(job_id, None)
+
+    return jsonify({"success": True, "history": []})
 
 
 @app.route("/jobs/<int:job_id>/cover-letter/pdf", methods=["GET", "POST"])
