@@ -3,10 +3,10 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-517%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-531%20passing-2ea44f)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
-Automates LinkedIn job discovery, deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
+Automates LinkedIn job discovery, external job-board search (Indeed, Bundesagentur für Arbeit), deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -30,6 +30,7 @@ Automates LinkedIn job discovery, deterministic prefiltering, AI screening again
 - **On-Demand Recruiter Messages** — A button on the job page drafts a LinkedIn outreach message and returns it in the same request, because a message you want *now* is worth nothing an hour later — this is the one AI path in the tool that does not hand work to a background worker. Two forms share one instruction set so the voice cannot drift between them: a **connection note**, held under LinkedIn's hard 300-character ceiling, and an **InMail** of a few short paragraphs. The draft is editable, saved against the job, and one click from the clipboard. An overlong note is rejected rather than trimmed — LinkedIn would refuse to send it anyway, and a request clipped mid-word is worse than pressing the button again.
 - **On-Demand AI Application Assistant** — An interactive, context-aware assistant on job detail pages to answer application form questions, craft custom responses, and analyze fit. Users can dynamically select which context to attach (Job Description, Candidate CV, Generated Cover Letter, AI Screening Assessment, and Career Narrative). Supports multi-turn conversations stored in lightweight JSON files on disk (`data/chats/<job_id>.json`), rendered with markdown and copy-to-clipboard, with quick prompt starters and configurable default model (`gemini-3.8-flash`).
 - **1-Page LaTeX Cover Letter PDF Exporter** — Automated 1-page LaTeX cover letter compiler using local MiKTeX (`xelatex` / `pdflatex`). Features a centered executive header, tagline, transparent signature image, dynamic "a/an" article selection, name-derived sign-off matching, balanced bottom margin and vertical spacing, and an auto-fitting font-size algorithm with length-based vertical centering to guarantee single-page output.
+- **External Job Boards** — A separate search over **Indeed** (via [JobSpy](https://github.com/speedyapply/JobSpy)) and the **Bundesagentur für Arbeit** official API, with optional **SerpApi** (Google for Jobs) and **RapidAPI JSearch** providers when keys are configured. Results go to their own database (`data/external_jobs.db`) so LinkedIn data is never touched. They pass the same title prefilter and blocked-company list as LinkedIn, and each posting is checked against `jobs.db` so a job you have already seen or applied to on LinkedIn is flagged with its LinkedIn status. Screening and cover letters are on-demand per job, not automatic.
 - **Job Expiration Cleaner** — Detects expired or closed LinkedIn postings using the authenticated session with request pacing and rate-limit backoff (`uv run job-search clean`).
 - **Cross-Process Run Control & Backlog Tracking** — A runner lock (ignores dead PIDs and stale holders), a stop file for graceful cross-process shutdown, and a schedule pause with lazy auto-resume let the Web UI, CLI, and scheduled tasks coordinate one run at a time. Active backlog action items (`screen_pending_auto`, pending details, pending cover letters) are tracked separately from cumulative deferred and prefiltered totals.
 - **Unattended Scheduling** — `scripts/install_tasks.ps1` registers Windows Task Scheduler entries. The daily work has **two triggers** — 07:00 and 5 minutes after logon — because `StartWhenAvailable` did not reliably recover the morning run on a laptop that is asleep at 07:00; a `--once-daily` marker makes whichever fires second a no-op. Scheduled runs skip LinkedIn stages if the session is dead rather than opening a browser.
@@ -114,6 +115,8 @@ LINKEDIN_PASSWORD=your_password
 GEMINI_API_KEY_1=your_primary_key_here
 GEMINI_API_KEY_2=          # optional API key for rotation
 GEMINI_API_KEY_3=          # optional API key for rotation
+SERPAPI_API_KEY=           # optional, enables the SerpApi external provider
+RAPIDAPI_KEY=              # optional, enables the RapidAPI JSearch external provider
 ```
 
 ### 3. Configure search, CV, prompts, and narrative
@@ -272,6 +275,17 @@ uv run job-search track <job_id> rejected
 uv run job-search track <job_id> clear
 ```
 
+### Search external job boards
+
+```bash
+uv run job-search external-search                          # Indeed + Arbeitsagentur (default)
+uv run job-search external-search -p all                   # also SerpApi and RapidAPI, if keys are set
+uv run job-search external-search -p arbeitsagentur -k "Data Scientist" -l Berlin --limit 20
+uv run job-search external-search --scheduled              # honours the schedule pause
+```
+
+Keywords and location default to the ones in `config.yaml`. Each job is prefiltered, matched against your LinkedIn jobs, and saved to `data/external_jobs.db`. Re-running updates existing rows instead of duplicating them, and your own status, screening and cover letter on a job are kept. A posting that fails to save is skipped and counted under *Skipped (errors)* in the summary rather than stopping the run. Logs also go to `logs/external_search.log`.
+
 ### Export cover letters & CSV index
 
 ```bash
@@ -295,6 +309,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install_tasks.ps1
 | `JobSearch-Catchup` | 5 min after logon | The same daily work, skipped if 07:00 already did it |
 | `JobSearch-Collect` | Twice daily (08:00, 20:00) | `batch collect` — writes back finished screening batches |
 | `JobSearch-Clean` | Weekly, Sunday 03:00 | Expiry sweep, bounded by `cleaner.scheduled_max_runtime_hours` (2h) |
+| `JobSearch-External` | Weekly, Sunday 08:00 | `external-search --scheduled` — Indeed + Arbeitsagentur |
 
 **Two triggers for one job, because a laptop is not a server.** The 07:00 trigger is missed whenever the machine is asleep, and `StartWhenAvailable` did not reliably recover it — scraping silently stopped happening for days. The logon trigger closes that gap. Both legs carry `--once-daily`, so whichever fires first does the work and the other exits immediately; if scraping succeeded but screening died, the catch-up re-runs only the screening. State lives in `data/last_run.json`, keyed by leg and compared on the calendar date.
 
@@ -328,6 +343,7 @@ Open `http://127.0.0.1:5000/` in your browser.
 | **Search Stats** | Conversion-funnel metrics per keyword/location, with a role-family breakdown |
 | **Runner** | Session health, active backlog vs cumulative stats, schedule pause/resume, stop & force-stop for a run owned by any process, batch collection with per-batch abandon, start-run, clear-errors, and live logs |
 | **Import Jobs** | Add jobs manually by URL |
+| **External Jobs** | Postings from Indeed, Arbeitsagentur and the optional providers, with multi-select source, status and LinkedIn-match filters (e.g. hide jobs already applied to on LinkedIn), language, date range and free-text search. Each job page offers on-demand AI screening, cover letter generation and editing, PDF export, the AI Application Assistant, and applied / skipped / expired tracking. The Runner page has a separate External Search card with its own start/stop and live log |
 | **Job Detail** | Live-editable **Job Title**, **Company Name**, and **Cover Letter Text**; Scrape Date; MS Word clipboard formatter; **Export Prompt** (exact system + user prompt for that job); Delete/Regenerate cover letter; instant **1-Page "Generate PDF"** compiler; on-demand **Recruiter Message** in either LinkedIn form; interactive **AI Application Assistant** with customizable context and multi-turn chat |
 
 ### Screenshots
@@ -373,7 +389,7 @@ When clicking **"Generate PDF"** on the Web UI or calling the exporter:
 uv run pytest tests/ -v
 ```
 
-507 automated unit tests covering:
+531 automated unit tests covering:
 - Database CRUD, WAL-mode transaction safety, busy timeout, and schema migrations (up to v14)
 - Database performance indexes, query consolidation, in-memory pipeline stats TTL caching, and WAL checkpointing
 - Pydantic configuration schemas and `.env` credentials loading
@@ -396,6 +412,7 @@ uv run pytest tests/ -v
 - Job cleaner & expiration detection (including query prioritization)
 - Flask Web UI routes, active backlog separation, unscreened queue, MS Word line-break formatting, and live PDF endpoints
 - 1-Page LaTeX PDF compiler, dynamic article logic, and sign-off spacing
+- External job search: provider parsing (incl. missing JobSpy values), stable IDs across runs, per-job fault tolerance, LinkedIn matching and stale-match clearing, filters and stats, and on-demand screening / cover letters
 
 ---
 
@@ -430,14 +447,16 @@ uv run pytest tests/ -v
 │       ├── ai/                      # Gemini screener, batch screener, cover letter generator, prompt manager
 │       ├── cleaner/                 # LinkedIn job expiration cleaner
 │       ├── core/                    # Pydantic config, SQLite database manager, prefilter, run control,
-│       │                            #   session store, verified snapshots (backup.py), pipeline state
+│       │                            #   session store, verified snapshots (backup.py), pipeline state,
+│       │                            #   external jobs database (external_database.py)
 │       ├── export/                  # Text/CSV exporter & 1-page LaTeX PDF exporter
 │       ├── orchestration/           # Parallel pipeline coordinator & worker pools
 │       ├── scraping/                # Selenium LinkedIn auth, search & details workers,
-│       │                            #   company size backfill (company_backfill.py)
+│       │   │                        #   company size backfill (company_backfill.py)
+│       │   └── external/            # External providers, LinkedIn matcher, external search orchestrator
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (507 tests)
+└── tests/                           # Unit test suite (531 tests)
 ```
 
 ---
