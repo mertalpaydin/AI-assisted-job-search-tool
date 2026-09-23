@@ -1722,9 +1722,7 @@ def external_jobs():
     # Synchronize LinkedIn statuses for matched records from jobs.db
     ext_db.sync_matched_linkedin_statuses()
 
-    jobs, total_count = ext_db.get_jobs(
-        page=page,
-        page_size=_PAGE_SIZE,
+    filters = dict(
         source=sources if sources and "all" not in sources else None,
         application_status=status_param if status_param and status_param != "all" else None,
         prefilter_status="accepted",
@@ -1734,17 +1732,28 @@ def external_jobs():
         language=lang if lang and lang != "all" else None,
         date_from=date_from if date_from else None,
         date_to=date_to if date_to else None,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
     )
+    jobs, total_count = ext_db.get_jobs(
+        page=page, page_size=_PAGE_SIZE, sort_by=sort_by, sort_dir=sort_dir, **filters
+    )
+    total_pages = max(1, (total_count + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    # A page past the end (e.g. a stale link after a filter narrowed the list)
+    # shows the last page instead of an empty table.
+    if page > total_pages:
+        page = total_pages
+        jobs, total_count = ext_db.get_jobs(
+            page=page, page_size=_PAGE_SIZE, sort_by=sort_by, sort_dir=sort_dir, **filters
+        )
 
     stats = ext_db.get_stats()
-    total_pages = max(1, (total_count + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    # Option counts in the filter dropdowns, given the other active filters.
+    facets = ext_db.get_filter_counts(**filters)
 
     return render_template(
         "external_jobs.html",
         jobs=jobs,
         stats=stats,
+        facets=facets,
         total_count=total_count,
         total_pages=total_pages,
         current_page=page,

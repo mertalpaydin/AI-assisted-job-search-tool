@@ -95,6 +95,14 @@ for _keys, _cond in [
         _MATCH_FILTERS[_k] = _cond
 
 
+# Options shown in the LinkedIn-match dropdown, in display order. "yes" is the
+# "All matched on LinkedIn" total.
+_LINKEDIN_COUNT_KEYS = (
+    "hide_applied", "yes", "net_new", "selected", "unscreened",
+    "applied", "not_selected", "expired", "skipped",
+)
+
+
 def normalize_status(raw: str | None) -> str:
     """Map any stored or submitted status (incl. legacy 'dismissed'/'new') to APPLICATION_STATUSES."""
     st = (raw or "").strip().lower()
@@ -330,6 +338,140 @@ class ExternalDatabaseManager:
             row = cur.fetchone()
             return _row_to_dict(row) if row else None
 
+    @staticmethod
+    def _split(value: str | list[str] | tuple[str, ...] | set[str] | None) -> list[str]:
+        """Normalize a comma string or list of filter values, dropping blanks and 'all'."""
+        if not value:
+            return []
+        items = value.split(",") if isinstance(value, str) else value
+        return [str(v).strip().lower() for v in items if v and str(v).strip().lower() not in ("", "all")]
+
+    @classmethod
+    def _where(
+        cls,
+        source: str | list[str] | None = None,
+        application_status: str | list[str] | None = None,
+        prefilter_status: str | None = "accepted",
+        keyword: str | None = None,
+        matched_only: bool | str | list[str] | None = None,
+        search_query: str | None = None,
+        language: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        exclude: str | None = None,
+    ) -> tuple[str, list[Any]]:
+        """Build the WHERE clause for the job list.
+
+        `exclude` names one filter group ("source", "status", "keyword",
+        "matched", "language") to leave out, so the counts shown next to that
+        group's options reflect every *other* active filter.
+        """
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if prefilter_status:
+            conditions.append("prefilter_status = ?")
+            params.append(prefilter_status)
+
+        sources_list = cls._split(source) if exclude != "source" else []
+        if sources_list:
+            conditions.append(f"source IN ({', '.join('?' for _ in sources_list)})")
+            params.extend(sources_list)
+
+        statuses_list = cls._split(application_status) if exclude != "status" else []
+        if statuses_list:
+            sub_conds = []
+            for st in statuses_list:
+                if st in ("pending", "new"):
+                    sub_conds.append("(application_status = 'pending' OR application_status = 'new' OR application_status IS NULL OR application_status = '')")
+                elif st in ("skipped", "dismissed"):
+                    sub_conds.append("(application_status = 'skipped' OR application_status = 'dismissed')")
+                else:
+                    sub_conds.append("application_status = ?")
+                    params.append(st)
+            conditions.append(f"({' OR '.join(sub_conds)})")
+
+        if keyword and keyword != "all" and exclude != "keyword":
+            conditions.append("search_keyword = ?")
+            params.append(keyword)
+
+        if exclude != "matched" and matched_only is not None:
+            if isinstance(matched_only, bool):
+                conditions.append(
+                    "matched_linkedin_job_id IS NOT NULL" if matched_only else "matched_linkedin_job_id IS NULL"
+                )
+            else:
+                sub_conds = [_MATCH_FILTERS[st] for st in cls._split(matched_only) if st in _MATCH_FILTERS]
+                if sub_conds:
+                    conditions.append(f"({' OR '.join(sub_conds)})")
+
+        if language and language != "all" and exclude != "language":
+            conditions.append("detected_language = ?")
+            params.append(language.lower())
+
+        if date_from:
+            conditions.append("DATE(created_at) >= DATE(?)")
+            params.append(date_from)
+
+        if date_to:
+            conditions.append("DATE(created_at) <= DATE(?)")
+            params.append(date_to)
+
+        if search_query and search_query.strip():
+            sq = f"%{search_query.strip()}%"
+            conditions.append("(title LIKE ? OR company_name LIKE ? OR location LIKE ? OR CAST(id AS TEXT) = ?)")
+            params.extend([sq, sq, sq, search_query.strip()])
+
+        return (f"WHERE {' AND '.join(conditions)}" if conditions else ""), params
+
+    @staticmethod
+    def _linkedin_counts(cur: sqlite3.Cursor, where_clause: str, params: list[Any]) -> dict[str, int]:
+        """Count rows per LinkedIn-match filter option, using the same SQL as the filter itself."""
+        keys = list(_LINKEDIN_COUNT_KEYS)
+        sums = ", ".join(f"SUM(CASE WHEN {_MATCH_FILTERS[k]} THEN 1 ELSE 0 END)" for k in keys)
+        cur.execute(f"SELECT {sums} FROM external_jobs {where_clause}", params)
+        row = cur.fetchone()
+        return {k: (row[i] or 0) for i, k in enumerate(keys)}
+
+    def get_filter_counts(self, **filters: Any) -> dict[str, Any]:
+        """Option counts for each filter group, given the other active filters.
+
+        The number next to an option is exactly how many jobs the list shows
+        once that option is ticked, instead of a whole-table total.
+        """
+        with self._cursor() as cur:
+            where, params = self._where(**filters, exclude="source")
+            cur.execute(f"SELECT source, COUNT(*) FROM external_jobs {where} GROUP BY source", params)
+            by_source = dict(cur.fetchall())
+
+            where, params = self._where(**filters, exclude="status")
+            cur.execute(f"SELECT application_status, COUNT(*) FROM external_jobs {where} GROUP BY application_status", params)
+            by_status = dict.fromkeys(APPLICATION_STATUSES, 0)
+            for k, v in cur.fetchall():
+                by_status[normalize_status(k)] += v
+            by_status["all"] = sum(by_status.values())
+
+            where, params = self._where(**filters, exclude="language")
+            lang_where = f"{where} AND detected_language IS NOT NULL" if where else "WHERE detected_language IS NOT NULL"
+            cur.execute(f"SELECT detected_language, COUNT(*) FROM external_jobs {lang_where} GROUP BY detected_language", params)
+            by_language = dict(cur.fetchall())
+
+            where, params = self._where(**filters, exclude="keyword")
+            kw_where = f"{where} AND search_keyword IS NOT NULL" if where else "WHERE search_keyword IS NOT NULL"
+            cur.execute(f"SELECT search_keyword, COUNT(*) FROM external_jobs {kw_where} GROUP BY search_keyword", params)
+            by_keyword = dict(cur.fetchall())
+
+            where, params = self._where(**filters, exclude="matched")
+            by_linkedin_status = self._linkedin_counts(cur, where, params)
+
+        return {
+            "by_source": by_source,
+            "by_status": by_status,
+            "by_language": by_language,
+            "by_keyword": by_keyword,
+            "by_linkedin_status": by_linkedin_status,
+        }
+
     def get_jobs(
         self,
         page: int = 1,
@@ -350,86 +492,17 @@ class ExternalDatabaseManager:
         Query external jobs with filtering, search, multi-selection, and pagination.
         Returns (jobs, total_count).
         """
-        conditions = []
-        params: list[Any] = []
-
-        if prefilter_status:
-            conditions.append("prefilter_status = ?")
-            params.append(prefilter_status)
-
-        # Multi-select sources support (e.g. ['indeed', 'arbeitsagentur'] or 'indeed,arbeitsagentur')
-        if source:
-            if isinstance(source, str):
-                sources_list = [s.strip().lower() for s in source.split(",") if s.strip() and s.strip().lower() != "all"]
-            else:
-                sources_list = [s.strip().lower() for s in source if s and s.strip().lower() != "all"]
-
-            if sources_list:
-                placeholders = ", ".join("?" for _ in sources_list)
-                conditions.append(f"source IN ({placeholders})")
-                params.extend(sources_list)
-
-        # Status filter support
-        if application_status:
-            if isinstance(application_status, str):
-                statuses_list = [st.strip().lower() for st in application_status.split(",") if st.strip() and st.strip().lower() != "all"]
-            else:
-                statuses_list = [st.strip().lower() for st in application_status if st and st.strip().lower() != "all"]
-
-            if statuses_list:
-                sub_conds = []
-                for st in statuses_list:
-                    if st in ("pending", "new"):
-                        sub_conds.append("(application_status = 'pending' OR application_status = 'new' OR application_status IS NULL OR application_status = '')")
-                    elif st in ("skipped", "dismissed"):
-                        sub_conds.append("(application_status = 'skipped' OR application_status = 'dismissed')")
-                    else:
-                        sub_conds.append("application_status = ?")
-                        params.append(st)
-                if sub_conds:
-                    conditions.append(f"({' OR '.join(sub_conds)})")
-
-        if keyword and keyword != "all":
-            conditions.append("search_keyword = ?")
-            params.append(keyword)
-
-        if matched_only is not None and matched_only != "" and matched_only != "all":
-            if isinstance(matched_only, bool):
-                if matched_only is True:
-                    conditions.append("matched_linkedin_job_id IS NOT NULL")
-                else:
-                    conditions.append("matched_linkedin_job_id IS NULL")
-            else:
-                if isinstance(matched_only, str):
-                    matched_items = [m.strip().lower() for m in matched_only.split(",") if m.strip() and m.strip().lower() != "all"]
-                elif isinstance(matched_only, (list, tuple, set)):
-                    matched_items = [m.strip().lower() for m in matched_only if m and str(m).strip().lower() != "all"]
-                else:
-                    matched_items = []
-
-                if matched_items:
-                    sub_conds = [_MATCH_FILTERS[st] for st in matched_items if st in _MATCH_FILTERS]
-                    if sub_conds:
-                        conditions.append(f"({' OR '.join(sub_conds)})")
-
-        if language and language != "all":
-            conditions.append("detected_language = ?")
-            params.append(language.lower())
-
-        if date_from:
-            conditions.append("DATE(created_at) >= DATE(?)")
-            params.append(date_from)
-
-        if date_to:
-            conditions.append("DATE(created_at) <= DATE(?)")
-            params.append(date_to)
-
-        if search_query and search_query.strip():
-            sq = f"%{search_query.strip()}%"
-            conditions.append("(title LIKE ? OR company_name LIKE ? OR location LIKE ? OR CAST(id AS TEXT) = ?)")
-            params.extend([sq, sq, sq, search_query.strip()])
-
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where_clause, params = self._where(
+            source=source,
+            application_status=application_status,
+            prefilter_status=prefilter_status,
+            keyword=keyword,
+            matched_only=matched_only,
+            search_query=search_query,
+            language=language,
+            date_from=date_from,
+            date_to=date_to,
+        )
 
         # Validate sorting
         allowed_sorts = {
@@ -545,30 +618,7 @@ class ExternalDatabaseManager:
             cur.execute("SELECT detected_language, COUNT(*) FROM external_jobs WHERE prefilter_status = 'accepted' AND detected_language IS NOT NULL GROUP BY detected_language")
             by_language = dict(cur.fetchall())
 
-            cur.execute("""
-                SELECT
-                    SUM(CASE WHEN matched_linkedin_status IS NULL OR LOWER(matched_linkedin_status) NOT LIKE '%applied%' THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%applied%' THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%selected%' AND LOWER(matched_linkedin_status) NOT LIKE '%not selected%' THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%not selected%' THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%unscreened%' THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%expired%' THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%skipped%' THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN matched_linkedin_job_id IS NULL THEN 1 ELSE 0 END)
-                FROM external_jobs
-                WHERE prefilter_status = 'accepted'
-            """)
-            li_row = cur.fetchone()
-            by_linkedin_status = {
-                "hide_applied": li_row[0] or 0,
-                "applied": li_row[1] or 0,
-                "selected": li_row[2] or 0,
-                "not_selected": li_row[3] or 0,
-                "unscreened": li_row[4] or 0,
-                "expired": li_row[5] or 0,
-                "skipped": li_row[6] or 0,
-                "net_new": li_row[7] or 0,
-            }
+            by_linkedin_status = self._linkedin_counts(cur, "WHERE prefilter_status = 'accepted'", [])
 
             cur.execute("SELECT DISTINCT search_keyword FROM external_jobs WHERE search_keyword IS NOT NULL ORDER BY search_keyword")
             keywords = [r[0] for r in cur.fetchall()]

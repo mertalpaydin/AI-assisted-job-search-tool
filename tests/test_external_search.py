@@ -576,3 +576,37 @@ def test_generate_external_cover_letter_runs(_external_ai):
     text = external_ai.generate_external_cover_letter(_EXT_JOB, config=load_config("config/config.yaml"))
 
     assert "I am applying." in text
+
+
+def test_filter_counts_match_results_under_other_filters(ext_db: ExternalDatabaseManager):
+    """The number next to a filter option equals the result count when it is ticked."""
+    rows = [
+        ("indeed", "1", "LinkedIn: Unscreened", 1, "pending", "Wir suchen einen Data Scientist für unser Team und die Entwicklung von Modellen."),
+        ("indeed", "2", "LinkedIn: Unscreened", 2, "applied", "We are looking for an engineer to join the team and build models."),
+        ("arbeitsagentur", "3", "LinkedIn: Unscreened", 3, "pending", "We are looking for an engineer to join the team and build models."),
+        ("arbeitsagentur", "4", None, None, "pending", "Wir suchen einen Data Scientist für unser Team und die Entwicklung von Modellen."),
+        ("indeed", "5", "LinkedIn: Applied", 5, "skipped", "We are looking for an engineer to join the team and build models."),
+    ]
+    for src, ext_id, li_status, li_id, status, desc in rows:
+        ext_db.upsert_job({
+            "source": src, "external_id": ext_id, "title": f"Job {ext_id}", "company_name": "Acme",
+            "matched_linkedin_status": li_status, "matched_linkedin_job_id": li_id,
+            "application_status": status, "description": desc,
+        })
+
+    active = {"source": ["indeed"], "application_status": "pending", "matched_only": ["unscreened"]}
+    facets = ext_db.get_filter_counts(**active)
+
+    def count(**overrides):
+        return ext_db.get_jobs(**{**active, **overrides})[1]
+
+    # Each option's count equals the result of selecting only that option in its own group.
+    assert facets["by_linkedin_status"]["unscreened"] == count(matched_only=["unscreened"]) == 1
+    assert facets["by_linkedin_status"]["net_new"] == count(matched_only=["net_new"]) == 0
+    assert facets["by_source"]["arbeitsagentur"] == count(source=["arbeitsagentur"]) == 1
+    assert facets["by_status"]["applied"] == count(application_status="applied") == 1
+    assert facets["by_status"]["all"] == count(application_status=None) == 2
+    assert facets["by_language"]["de"] == count(language="de") == 1
+
+    # The whole-table stats are unchanged by filters.
+    assert ext_db.get_stats()["by_linkedin_status"]["unscreened"] == 3
