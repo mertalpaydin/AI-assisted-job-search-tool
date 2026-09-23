@@ -90,6 +90,7 @@ def industry_filter(value: str | None) -> str:
     return str(value).strip('[]"')
 
 _db: DatabaseManager | None = None
+_ext_db = None
 _config: Config | None = None
 _cl_mode: str = "auto"
 
@@ -97,11 +98,26 @@ _cl_mode: str = "auto"
 _runner_thread: threading.Thread | None = None
 _runner_coordinator = None
 
+# External Runner state
+_ext_runner_thread: threading.Thread | None = None
+_ext_runner_stop_event = threading.Event()
+_ext_runner_stats: dict[str, Any] | None = None
+_ext_runner_status_text: str = "Idle"
+EXTERNAL_LOG_FILE: str = "logs/external_search.log"
+
 
 def get_db() -> DatabaseManager:
     if _db is None:
         raise RuntimeError("DatabaseManager not initialised")
     return _db
+
+
+def get_ext_db():
+    global _ext_db
+    if _ext_db is None:
+        from job_search.core.external_database import ExternalDatabaseManager
+        _ext_db = ExternalDatabaseManager()
+    return _ext_db
 
 
 def get_cl_mode() -> str:
@@ -1269,6 +1285,7 @@ def runner_dashboard():
     session_saved = session_saved_at(_config.auth.session_file) if _config else None
     auto_cfg = _config.screening.auto_screen if _config else None
     pipeline_stats = _get_cached_pipeline_stats(db, cl_mode=get_cl_mode(), auto_screen_cfg=auto_cfg)
+    ext_in_process = _ext_runner_thread is not None and _ext_runner_thread.is_alive()
     return render_template(
         "runner.html",
         is_running=is_running,
@@ -1283,6 +1300,8 @@ def runner_dashboard():
         clean_order_default=_config.cleaner.order if _config else "newest",
         clean_backlog=db.count_jobs_pending_clean(),
         pipeline_stats=pipeline_stats,
+        ext_is_running=ext_in_process,
+        ext_status_text=_ext_runner_status_text,
     )
 
 
@@ -1496,6 +1515,105 @@ def runner_status():
     })
 
 
+def _tail_log_file(log_path: Path, max_lines: int = 200) -> str:
+    if not log_path.exists():
+        return "Log file not found."
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            filesize = f.tell()
+            block_size = 8192
+
+            lines = []
+            pos = max(0, filesize - block_size)
+            f.seek(pos, os.SEEK_SET)
+
+            data = f.read().decode("utf-8", errors="replace")
+            lines = data.splitlines()
+
+            while len(lines) < max_lines and pos > 0:
+                pos = max(0, pos - block_size)
+                f.seek(pos, os.SEEK_SET)
+                data = f.read(block_size).decode("utf-8", errors="replace")
+                lines = (data + lines[0]).splitlines() + lines[1:]
+
+            last_lines = lines[-max_lines:]
+            return "\n".join(last_lines)
+    except Exception as e:
+        return f"Error reading logs: {e}"
+
+
+def start_external_search_background(
+    providers: list[str],
+    limit: int = 10,
+    keyword_override: str | None = None,
+    location_override: str | None = None,
+) -> bool:
+    global _ext_runner_thread, _ext_runner_stop_event, _ext_runner_stats, _ext_runner_status_text
+    if _ext_runner_thread is not None and _ext_runner_thread.is_alive():
+        return False
+
+    _ext_runner_stop_event.clear()
+    _ext_runner_status_text = "Running"
+    _ext_runner_stats = None
+
+    def worker():
+        global _ext_runner_stats, _ext_runner_status_text
+        from job_search.scraping.external.orchestrator import ExternalSearchOrchestrator
+        from loguru import logger
+
+        ext_log_path = Path(EXTERNAL_LOG_FILE)
+        ext_log_path.parent.mkdir(parents=True, exist_ok=True)
+        sink_id = logger.add(
+            str(ext_log_path),
+            level="INFO",
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} - {message}",
+            rotation="10 MB",
+            retention="7 days",
+            encoding="utf-8",
+        )
+        try:
+            logger.info("=== Starting External Search Pipeline ===")
+            logger.info("Selected Providers: {}", providers)
+            if keyword_override:
+                logger.info("Keyword Override: '{}'", keyword_override)
+            if location_override:
+                logger.info("Location Override: '{}'", location_override)
+            logger.info("Limit per provider/query: {}", limit)
+
+            orchestrator = ExternalSearchOrchestrator(config=_config, external_db=get_ext_db())
+            _ext_runner_stats = orchestrator.run_search(
+                provider_names=providers,
+                keywords_override=[keyword_override] if keyword_override else None,
+                location_override=location_override,
+                limit_per_search=limit,
+                should_stop=lambda: _ext_runner_stop_event.is_set(),
+            )
+            if _ext_runner_stop_event.is_set():
+                logger.warning("=== External Search Pipeline Stopped by User ===")
+                _ext_runner_status_text = "Stopped"
+            else:
+                logger.info(
+                    "=== External Job Search Finished! Total Found: {}, New Saved: {}, LinkedIn Matched: {} ===",
+                    _ext_runner_stats.get("total_found", 0),
+                    _ext_runner_stats.get("new_inserted", 0),
+                    _ext_runner_stats.get("matched_linkedin", 0),
+                )
+                _ext_runner_status_text = "Completed"
+        except Exception as e:
+            logger.exception("=== External Search Pipeline Failed: {} ===", e)
+            _ext_runner_status_text = f"Error: {e}"
+        finally:
+            try:
+                logger.remove(sink_id)
+            except Exception:
+                pass
+
+    _ext_runner_thread = threading.Thread(target=worker, name="ext-runner-thread", daemon=True)
+    _ext_runner_thread.start()
+    return True
+
+
 @app.route("/runner/logs")
 def runner_logs():
     global _config
@@ -1503,32 +1621,391 @@ def runner_logs():
         return jsonify({"logs": "Log file not configured."})
 
     log_path = Path(_config.logging.file)
+    return jsonify({"logs": _tail_log_file(log_path)})
+
+
+@app.route("/runner/external/start", methods=["POST"])
+def runner_external_start():
+    providers = request.form.getlist("providers") or ["indeed", "arbeitsagentur"]
+    limit = int(request.form.get("limit", 10) or 10)
+    keyword_override = request.form.get("keyword", "").strip() or None
+    location_override = request.form.get("location", "").strip() or None
+
+    started = start_external_search_background(
+        providers=providers,
+        limit=limit,
+        keyword_override=keyword_override,
+        location_override=location_override,
+    )
+    if started:
+        flash("External search started in background. Monitor progress in External Search Logs.", "info")
+    else:
+        flash("External search is already running.", "warning")
+    return redirect(url_for("runner_dashboard"))
+
+
+@app.route("/runner/external/stop", methods=["POST"])
+def runner_external_stop():
+    global _ext_runner_stop_event, _ext_runner_thread
+    if _ext_runner_thread is not None and _ext_runner_thread.is_alive():
+        _ext_runner_stop_event.set()
+        flash("Stop requested for external search. It will exit shortly.", "warning")
+    else:
+        flash("External search is not running.", "info")
+    return redirect(url_for("runner_dashboard"))
+
+
+@app.route("/runner/external/status")
+def runner_external_status():
+    global _ext_runner_thread, _ext_runner_status_text, _ext_runner_stats
+    is_running = _ext_runner_thread is not None and _ext_runner_thread.is_alive()
+    return jsonify({
+        "is_running": is_running,
+        "status_text": _ext_runner_status_text,
+        "stats": _ext_runner_stats,
+    })
+
+
+@app.route("/runner/external/logs")
+def runner_external_logs():
+    log_path = Path(EXTERNAL_LOG_FILE)
     if not log_path.exists():
-        return jsonify({"logs": "Log file not found."})
+        return jsonify({"logs": "No external search logs available yet. Start an external search to see live output."})
+    return jsonify({"logs": _tail_log_file(log_path)})
 
-    # Read the last N lines. Since log files can be large, we'll read from the end.
+
+# ---------------------------------------------------------------------------
+# External Jobs Routes (Non-LinkedIn)
+# ---------------------------------------------------------------------------
+
+@app.route("/external-jobs")
+def external_jobs():
+    ext_db = get_ext_db()
+    page = max(1, int(request.args.get("page", 1) or 1))
+    
+    # Sources filter (supports multi-select comma-separated or repeated param)
+    sources_param = request.args.getlist("source")
+    if len(sources_param) == 1 and "," in sources_param[0]:
+        sources = [s.strip().lower() for s in sources_param[0].split(",") if s.strip()]
+    elif sources_param:
+        sources = [s.strip().lower() for s in sources_param if s.strip()]
+    else:
+        sources = []
+    source_str = ",".join(sources) if sources else "all"
+
+    # Status filter (supports 'all', 'pending', 'applied', 'skipped', 'expired')
+    status_param = request.args.get("status", "").strip().lower()
+    
+    # LinkedIn Match filter (supports multi-select checkbox list or comma-separated string)
+    matched_param_raw = request.args.getlist("matched") or request.args.getlist("mt")
+    if len(matched_param_raw) == 1 and "," in matched_param_raw[0]:
+        matched_items = [m.strip().lower() for m in matched_param_raw[0].split(",") if m.strip()]
+    elif matched_param_raw:
+        matched_items = [m.strip().lower() for m in matched_param_raw if m.strip()]
+    else:
+        matched_items = []
+
+    if "all" in matched_items:
+        matched_items = []
+
+    matched_str = ",".join(matched_items) if matched_items else "all"
+
+    keyword = request.args.get("kw", request.args.get("keyword", "all")).strip()
+    lang = request.args.get("lang", "").strip().lower()
+    date_from = request.args.get("date_from", "").strip()
+    date_to = request.args.get("date_to", "").strip()
+    sort_by = request.args.get("sort", "created_at").strip()
+    sort_dir = request.args.get("dir", "desc").strip()
+    search_q = request.args.get("q", request.args.get("search", "")).strip()
+
+    # Synchronize LinkedIn statuses for matched records from jobs.db
+    ext_db.sync_matched_linkedin_statuses()
+
+    jobs, total_count = ext_db.get_jobs(
+        page=page,
+        page_size=_PAGE_SIZE,
+        source=sources if sources and "all" not in sources else None,
+        application_status=status_param if status_param and status_param != "all" else None,
+        prefilter_status="accepted",
+        keyword=keyword if keyword != "all" else None,
+        matched_only=matched_items if matched_items else None,
+        search_query=search_q if search_q else None,
+        language=lang if lang and lang != "all" else None,
+        date_from=date_from if date_from else None,
+        date_to=date_to if date_to else None,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+    stats = ext_db.get_stats()
+    total_pages = max(1, (total_count + _PAGE_SIZE - 1) // _PAGE_SIZE)
+
+    return render_template(
+        "external_jobs.html",
+        jobs=jobs,
+        stats=stats,
+        total_count=total_count,
+        total_pages=total_pages,
+        current_page=page,
+        current_sources=sources,
+        current_source_str=source_str,
+        current_status=status_param,
+        current_matched=matched_str,
+        current_matched_list=matched_items,
+        current_keyword=keyword,
+        current_lang=lang,
+        current_date_from=date_from,
+        current_date_to=date_to,
+        current_sort=sort_by,
+        current_dir=sort_dir,
+        search_query=search_q,
+        ext_is_running=(_ext_runner_thread is not None and _ext_runner_thread.is_alive()),
+    )
+
+
+@app.route("/external-jobs/<int:job_id>")
+def external_job_detail(job_id: int):
+    ext_db = get_ext_db()
+    job = ext_db.get_job(job_id)
+    if not job:
+        abort(404)
+
+    from job_search.ai.assistant import load_chat
+    chat_file = job.get("assistant_chat_file")
+    assistant_chat_history = load_chat(chat_file) if chat_file else []
+    assistant_model = getattr(getattr(_config, "assistant", None), "model", "gemini-2.5-flash") if _config else "gemini-2.5-flash"
+
+    return render_template(
+        "external_job_detail.html",
+        job=job,
+        assistant_chat_history=assistant_chat_history,
+        assistant_model=assistant_model,
+    )
+
+
+@app.route("/external-jobs/<int:job_id>/status", methods=["POST"])
+def update_external_job_status(job_id: int):
+    ext_db = get_ext_db()
+    status = request.form.get("status", "").strip().lower()
+    ext_db.update_application_status(job_id, status)
+    if status:
+        flash(f"Status updated to '{status.capitalize()}'.", "success")
+    else:
+        flash("Status reset to Pending.", "info")
+    return redirect(request.referrer or url_for("external_job_detail", job_id=job_id))
+
+
+@app.route("/external-jobs/<int:job_id>/screen", methods=["POST"])
+def screen_external_job_route(job_id: int):
+    ext_db = get_ext_db()
+    job = ext_db.get_job(job_id)
+    if not job:
+        abort(404)
+
     try:
-        with open(log_path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            filesize = f.tell()
-            block_size = 8192
-            
-            # Go back one block at a time
-            lines = []
-            pos = max(0, filesize - block_size)
-            f.seek(pos, os.SEEK_SET)
-            
-            data = f.read().decode("utf-8", errors="replace")
-            lines = data.splitlines()
-            
-            # If the file is larger than our block, keep looking backwards to get up to 200 lines
-            while len(lines) < 200 and pos > 0:
-                pos = max(0, pos - block_size)
-                f.seek(pos, os.SEEK_SET)
-                data = f.read(block_size).decode("utf-8", errors="replace")
-                lines = (data + lines[0]).splitlines() + lines[1:]
-
-            last_lines = lines[-200:]
-            return jsonify({"logs": "\n".join(last_lines)})
+        from job_search.ai.external_ai import screen_external_job
+        res = screen_external_job(job, config=_config)
+        ext_db.update_screening_result(
+            job_id,
+            cv_match_score=res["cv_match_score"],
+            archetype=res["archetype"],
+            reasoning=res["screening_reasoning"],
+        )
+        flash(f"Screened job! CV Match Score: {int(res['cv_match_score'] * 100)}% (Archetype {res['archetype']})", "success")
     except Exception as e:
-        return jsonify({"logs": f"Error reading logs: {e}"})
+        from loguru import logger
+        logger.error("Failed to screen external job #{}: {}", job_id, e)
+        flash(f"Error screening job: {e}", "danger")
+
+    return redirect(url_for("external_job_detail", job_id=job_id))
+
+
+@app.route("/external-jobs/<int:job_id>/generate-cl", methods=["POST"])
+def generate_external_cl_route(job_id: int):
+    ext_db = get_ext_db()
+    job = ext_db.get_job(job_id)
+    if not job:
+        abort(404)
+
+    try:
+        from job_search.ai.external_ai import generate_external_cover_letter
+        cl_text = generate_external_cover_letter(job, config=_config)
+        ext_db.update_cover_letter(job_id, cl_text)
+        flash("Generated cover letter draft!", "success")
+    except Exception as e:
+        from loguru import logger
+        logger.error("Failed to generate cover letter for external job #{}: {}", job_id, e)
+        flash(f"Error generating cover letter: {e}", "danger")
+
+    return redirect(url_for("external_job_detail", job_id=job_id))
+
+
+@app.route("/external-jobs/<int:job_id>/save-cl", methods=["POST"])
+def save_external_cl_route(job_id: int):
+    ext_db = get_ext_db()
+    job = ext_db.get_job(job_id)
+    if not job:
+        abort(404)
+
+    cl_text = request.form.get("cover_letter_text", "").strip()
+    ext_db.update_cover_letter(job_id, cl_text)
+    flash("Cover letter changes saved successfully.", "success")
+    return redirect(url_for("external_job_detail", job_id=job_id))
+
+
+@app.route("/external-jobs/<int:job_id>/export-pdf", methods=["GET", "POST"])
+def export_external_job_pdf(job_id: int):
+    ext_db = get_ext_db()
+    job = ext_db.get_job(job_id)
+    if not job:
+        abort(404)
+
+    cl_text = (job.get("cover_letter_text") or "").strip()
+    if not cl_text:
+        flash("No cover letter text found to export. Generate or write one first.", "warning")
+        return redirect(url_for("external_job_detail", job_id=job_id))
+
+    try:
+        from job_search.export.latex_exporter import generate_cover_letter_pdf
+        project_root = Path(app.root_path).parents[2]
+        pdf_path = generate_cover_letter_pdf(
+            job_id=0,
+            db=get_db(),
+            project_root=project_root,
+            override_title=job["title"],
+            override_company=job["company_name"],
+            override_cl_text=cl_text,
+        )
+        return send_file(pdf_path, as_attachment=True, download_name=pdf_path.name)
+    except Exception as e:
+        from loguru import logger
+        logger.error("Failed to export PDF for external job #{}: {}", job_id, e)
+        flash(f"Error generating PDF: {e}", "danger")
+        return redirect(url_for("external_job_detail", job_id=job_id))
+
+
+@app.route("/external-jobs/<int:job_id>/assistant/chat", methods=["POST"])
+def external_job_assistant_chat(job_id: int):
+    """Ask AI assistant about an external job with full context selection parity."""
+    ext_db = get_ext_db()
+    job = ext_db.get_job(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    data = request.get_json(silent=True) or request.form
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "Message cannot be empty"}), 400
+
+    context_types = data.get("context_types")
+    if isinstance(context_types, str):
+        context_types = [c.strip() for c in context_types.split(",") if c.strip()]
+    elif not isinstance(context_types, list):
+        context_types = ["job_description", "cv"]
+
+    from types import SimpleNamespace
+    from job_search.ai.assistant import (
+        AssistantError,
+        ask_assistant,
+        load_chat,
+        save_chat,
+    )
+    from job_search.ai.prompt_manager import PromptManager
+    from job_search.core.config import load_secrets
+
+    try:
+        api_keys = load_secrets().gemini_api_keys
+        if not api_keys:
+            return jsonify({"error": "No Gemini API keys configured. Set GEMINI_API_KEY_1 in config/.env."}), 500
+
+        try:
+            prompts = PromptManager()
+            cv_data = prompts._cv
+            narrative_data = prompts._narrative
+        except Exception:
+            cv_data = None
+            narrative_data = None
+
+        job_obj = SimpleNamespace(**job)
+        chat_file = job.get("assistant_chat_file")
+        history = load_chat(chat_file)
+
+        reply, updated_messages = ask_assistant(
+            config=_config,
+            api_keys=api_keys,
+            job=job_obj,
+            message=message,
+            context_types=context_types,
+            history=history,
+            cv_data=cv_data,
+            cover_letter_text=job.get("cover_letter_text"),
+            narrative_data=narrative_data,
+        )
+
+        chat_dir = getattr(getattr(_config, "assistant", None), "chat_dir", "data/chats")
+        file_path = save_chat(job_id, updated_messages, chat_dir=chat_dir)
+        ext_db.update_assistant_chat_file(job_id, file_path)
+
+        return jsonify({
+            "success": True,
+            "reply": reply,
+            "history": updated_messages,
+            "chat_file": file_path,
+        })
+    except AssistantError as exc:
+        return jsonify({"error": str(exc)}), 502
+    except Exception as exc:
+        from loguru import logger
+        logger.exception("External assistant chat route failed for job {}", job_id)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/external-jobs/<int:job_id>/assistant/clear", methods=["POST"])
+def external_job_assistant_clear(job_id: int):
+    """Clear conversation history for an external job."""
+    ext_db = get_ext_db()
+    job = ext_db.get_job(job_id)
+    if not job:
+        abort(404)
+
+    from job_search.ai.assistant import delete_chat
+    chat_file = job.get("assistant_chat_file")
+    if chat_file:
+        delete_chat(chat_file)
+        ext_db.update_assistant_chat_file(job_id, "")
+
+    return jsonify({"success": True})
+
+
+@app.route("/external-jobs/run-search", methods=["POST"])
+def run_external_search_route():
+    providers = request.form.getlist("providers") or ["indeed", "arbeitsagentur"]
+    limit = int(request.form.get("limit", 10) or 10)
+    keyword_override = request.form.get("keyword", "").strip() or None
+    location_override = request.form.get("location", "").strip() or None
+
+    started = start_external_search_background(
+        providers=providers,
+        limit=limit,
+        keyword_override=keyword_override,
+        location_override=location_override,
+    )
+    if started:
+        flash("External search started in background. You can monitor live logs on the Runner page.", "info")
+    else:
+        flash("External search is already running.", "warning")
+
+    return redirect(url_for("external_jobs"))
+
+
+@app.route("/external-jobs/stop-search", methods=["POST"])
+def stop_external_search_route():
+    global _ext_runner_stop_event, _ext_runner_thread
+    if _ext_runner_thread is not None and _ext_runner_thread.is_alive():
+        _ext_runner_stop_event.set()
+        flash("Stop requested for external search. It will exit shortly.", "warning")
+    else:
+        flash("External search is not running.", "info")
+    return redirect(url_for("external_jobs"))
+
+

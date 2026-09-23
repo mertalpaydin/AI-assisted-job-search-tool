@@ -97,7 +97,7 @@ def build_assistant_context(
             "### Job Information:",
             f"- Title: {getattr(job, 'title', None) or 'Unknown'}",
             f"- Company: {getattr(job, 'company_name', None) or 'Unknown'}",
-            f"- Location: {getattr(job, 'formattedLocation', None) or 'Unknown'}",
+            f"- Location: {getattr(job, 'formattedLocation', None) or getattr(job, 'location', None) or 'Unknown'}",
         ]
         desc = getattr(job, "description", None)
         if desc:

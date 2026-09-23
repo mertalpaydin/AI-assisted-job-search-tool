@@ -866,5 +866,96 @@ def web(config: str, host: str, port: int, debug: bool) -> None:
     flask_app.run(host=host, port=port, debug=debug, threaded=True)
 
 
+@main.command("external-search")
+@click.option("--config", default="config/config.yaml", show_default=True, help="Path to config file")
+@click.option(
+    "--provider", "-p", multiple=True,
+    type=click.Choice(["all", "indeed", "arbeitsagentur", "serpapi", "rapidapi"]),
+    help="Providers to query (default: all). Repeat for multiple: -p indeed -p arbeitsagentur",
+)
+@click.option("--keyword", "-k", multiple=True, help="Override search keywords (default: all keywords from config)")
+@click.option("--location", "-l", default=None, help="Override search location (default: location from config)")
+@click.option("--limit", type=int, default=10, show_default=True, help="Max results per query per provider")
+@click.option("--scheduled", is_flag=True, default=False, help="Mark as a scheduled run")
+@click.option("--log-level", default=None, help="Override log level (DEBUG, INFO, WARNING, ERROR)")
+def external_search(
+    config: str,
+    provider: tuple[str, ...],
+    keyword: tuple[str, ...],
+    location: str | None,
+    limit: int,
+    scheduled: bool,
+    log_level: str | None,
+) -> None:
+    """Search external job portals (Indeed, Arbeitsagentur, SerpApi, RapidAPI)."""
+    cfg = load_config(config)
+    setup_logging(level=log_level or cfg.logging.level, log_file=cfg.logging.file)
+
+    from pathlib import Path
+    from loguru import logger
+    ext_log_path = Path("logs/external_search.log")
+    ext_log_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.add(
+        str(ext_log_path),
+        level="INFO",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} - {message}",
+        rotation="10 MB",
+        retention="7 days",
+        encoding="utf-8",
+    )
+
+    from job_search.core import runcontrol
+    from job_search.scraping.external.orchestrator import ExternalSearchOrchestrator
+
+    # A scheduled run checks the pause first. Auto-resume happens here: if the
+    # resume moment has passed, pause_state clears the file and we continue.
+    if scheduled:
+        paused = runcontrol.pause_state(cfg.schedule.pause_file)
+        if paused is not None:
+            remaining = runcontrol.pause_remaining(cfg.schedule.pause_file)
+            logger.info("External scheduled run skipped: schedule is paused ({} remaining)", remaining)
+            click.echo(f"Schedule is paused ({remaining} remaining). Exiting.")
+            return
+
+    # Default to working providers if not explicitly specified
+    if not provider:
+        providers_list = ["indeed", "arbeitsagentur"]
+    elif "all" in provider:
+        providers_list = None
+    else:
+        providers_list = list(provider)
+
+    keywords_list = list(keyword) if keyword else None
+
+    orchestrator = ExternalSearchOrchestrator(config=cfg)
+    click.echo(
+        f"Starting external search | Providers: {providers_list or 'all'} | "
+        f"Keywords: {len(keywords_list) if keywords_list else 'from config'} | Limit: {limit}"
+    )
+
+    stats = orchestrator.run_search(
+        provider_names=providers_list,
+        keywords_override=keywords_list,
+        location_override=location,
+        limit_per_search=limit,
+    )
+
+    click.echo("\n" + "=" * 45)
+    click.echo("EXTERNAL SEARCH SUMMARY")
+    click.echo("=" * 45)
+    click.echo(f"Total jobs extracted:        {stats.get('total_found', 0)}")
+    click.echo(f"New jobs saved:              {stats.get('new_inserted', 0)}")
+    click.echo(f"Existing jobs updated:       {stats.get('updated', 0)}")
+    click.echo(f"LinkedIn matches identified: {stats.get('matched_linkedin', 0)}")
+    click.echo(f"Prefiltered (Title):         {stats.get('prefiltered_title', 0)}")
+    click.echo(f"Prefiltered (Company):       {stats.get('prefiltered_company', 0)}")
+    click.echo("-" * 45)
+    click.echo("By Provider:")
+    for prov, count in stats.get("by_provider", {}).items():
+        click.echo(f"  - {prov}: {count} raw found")
+    click.echo("=" * 45)
+
+
 if __name__ == "__main__":
     main()
+

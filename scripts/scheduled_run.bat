@@ -51,8 +51,10 @@ if /i "%MODE%"=="daily" (
     uv run job-search batch collect
 ) else if /i "%MODE%"=="clean" (
     uv run job-search clean --scheduled
+) else if /i "%MODE%"=="external" (
+    uv run --no-sync job-search external-search --scheduled
 ) else (
-    echo Unknown mode "%MODE%". Use daily^|collect^|clean^|scrape^|screen-cl.
+    echo Unknown mode "%MODE%". Use daily^|collect^|clean^|scrape^|screen-cl^|external.
     exit /b 1
 )
 

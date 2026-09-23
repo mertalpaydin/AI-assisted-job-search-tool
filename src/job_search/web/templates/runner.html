@@ -382,11 +382,13 @@
     </div>
 </div>
 
-<div class="row">
-    <div class="col-md-4 mb-4">
+<div class="row mb-4">
+    <div class="col-md-4 mb-3">
         <div class="card shadow-sm h-100">
             <div class="card-header pb-0 border-bottom-0">
-                <h5 class="card-title mt-2 fw-semibold">Pipeline Configuration</h5>
+                <h5 class="card-title mt-2 fw-semibold">
+                    <i class="bi bi-linkedin text-primary me-2"></i>LinkedIn Pipeline Configuration
+                </h5>
             </div>
             <div class="card-body">
                 <!-- Preset Buttons -->
@@ -443,10 +445,6 @@
                                     <i class="bi bi-stars me-1 text-danger"></i>5. Clean Expired Jobs
                                 </label>
                             </div>
-                            {# The sweep cannot reach the far end of the backlog inside its
-                               runtime budget, so a fixed order leaves the same jobs unchecked
-                               every run. Picking per run is what lets the whole database get
-                               covered. #}
                             <div class="ms-4 mb-2">
                                 <label for="cleanOrder" class="form-label small text-muted mb-1">
                                     Check jobs in this order
@@ -462,26 +460,22 @@
                                 <small class="text-muted d-block mt-1" style="font-size:0.72rem;">
                                     {{ "{:,}".format(clean_backlog) }} jobs eligible &middot; roughly
                                     {{ "%.1f"|format(clean_backlog * 1.5 / 3600) }}h to check them all.
-                                    A run that is cut short always stops at the same end, so alternate
-                                    &mdash; or leave it on the fair rotation.
                                 </small>
                             </div>
-                            <small class="text-muted d-block mt-1">If none selected, runs all stages
-                                sequentially.</small>
+                            <small class="text-muted d-block mt-1">If none selected, runs all stages sequentially.</small>
                         </div>
 
                         <div class="mb-4">
                             <label class="form-label fw-semibold small text-secondary">Checkpointing</label>
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" name="resume" id="resumeToggle" checked>
-                                <label class="form-check-label small" for="resumeToggle">Resume from last
-                                    checkpoint</label>
+                                <label class="form-check-label small" for="resumeToggle">Resume from last checkpoint</label>
                             </div>
                         </div>
 
                         <div class="d-grid gap-2">
                             <button type="submit" class="btn btn-primary" {% if is_running %}disabled{% endif %}>
-                                <i class="bi bi-play-fill me-1"></i> Start Pipeline Runner
+                                <i class="bi bi-play-fill me-1"></i> Start LinkedIn Pipeline
                             </button>
                         </div>
                     </fieldset>
@@ -500,35 +494,181 @@
         </div>
     </div>
 
-    <div class="col-md-8 mb-4">
+    <div class="col-md-8 mb-3">
+        <!-- LinkedIn Pipeline Live Execution Logs -->
         <div class="card shadow-sm h-100">
-            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-                <div class="d-flex align-items-center gap-2">
-                    <h5 class="card-title mb-0 fs-6 fw-bold">Live Execution Logs</h5>
-                    <span class="badge bg-secondary-subtle text-secondary border">Realtime</span>
-                </div>
-
-                <!-- Log Filters & Search -->
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button type="button" class="btn btn-outline-secondary active" id="filterAll"
-                            onclick="setLogFilter('all')">ALL</button>
-                        <button type="button" class="btn btn-outline-secondary" id="filterInfo"
-                            onclick="setLogFilter('info')">INFO</button>
-                        <button type="button" class="btn btn-outline-secondary" id="filterWarn"
-                            onclick="setLogFilter('warning')">WARN</button>
-                        <button type="button" class="btn btn-outline-secondary" id="filterErr"
-                            onclick="setLogFilter('error')">ERR</button>
+            <div class="card-header py-2">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <h5 class="card-title mb-0 fs-6 fw-bold">
+                            <i class="bi bi-linkedin text-primary me-2"></i>LinkedIn Pipeline Logs
+                        </h5>
+                        <span class="badge bg-secondary-subtle text-secondary border small" id="badgeLiStatus">
+                            {% if is_running %}
+                            <span class="spinner-grow spinner-grow-sm text-success me-1"></span>Running
+                            {% else %}
+                            Realtime
+                            {% endif %}
+                        </span>
                     </div>
-                    <input type="text" id="logSearchInput" class="form-control form-control-sm" style="width:130px"
-                        placeholder="Search log..." onkeyup="filterLogs()">
-                    <button class="btn btn-sm btn-outline-secondary" id="autoScrollBtn" onclick="toggleAutoScroll()">
-                        <i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON
-                    </button>
+
+                    <!-- Log Filters & Search -->
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn btn-outline-secondary active" id="filterLiAll"
+                                onclick="setLogFilterLi('all')">ALL</button>
+                            <button type="button" class="btn btn-outline-secondary" id="filterLiInfo"
+                                onclick="setLogFilterLi('info')">INFO</button>
+                            <button type="button" class="btn btn-outline-secondary" id="filterLiWarn"
+                                onclick="setLogFilterLi('warning')">WARN</button>
+                            <button type="button" class="btn btn-outline-secondary" id="filterLiErr"
+                                onclick="setLogFilterLi('error')">ERR</button>
+                        </div>
+                        <input type="text" id="logSearchInputLi" class="form-control form-control-sm" style="width:130px"
+                            placeholder="Search log..." onkeyup="renderLinkedinLogs()">
+                        <button class="btn btn-sm btn-outline-secondary" id="autoScrollBtnLi" onclick="toggleAutoScrollLi()">
+                            <i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="card-body p-0">
-                <div id="logViewer" class="log-viewer">Loading live log output...</div>
+                <div id="logViewerLinkedin" class="log-viewer" style="height: 520px;">Loading LinkedIn live log output...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Row 2: External Job Search -->
+<div class="row mb-4">
+    <div class="col-md-4 mb-3">
+        <!-- External Search Panel -->
+        <div class="card shadow-sm h-100 border-info-subtle">
+            <div class="card-header bg-dark-subtle d-flex justify-content-between align-items-center py-2">
+                <h5 class="card-title mb-0 fs-6 fw-bold">
+                    <i class="bi bi-globe2 text-info me-2"></i>External Job Search
+                </h5>
+                {% if ext_is_running %}
+                <span class="badge bg-info-subtle text-info border border-info-subtle">
+                    <span class="spinner-grow spinner-grow-sm me-1"></span>Running
+                </span>
+                {% else %}
+                <span class="badge bg-secondary-subtle text-secondary border">Idle</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-3">
+                    Query Indeed, Arbeitsagentur, Google for Jobs, and RapidAPI independently without running the LinkedIn pipeline.
+                </p>
+
+                {% if ext_is_running %}
+                <div class="alert alert-info py-2 px-3 small d-flex align-items-center justify-content-between mb-3 border border-info-subtle">
+                    <div class="d-flex align-items-center">
+                        <span class="spinner-grow spinner-grow-sm me-2 text-info"></span>
+                        <span><strong>Search running in background...</strong></span>
+                    </div>
+                    <form method="POST" action="/runner/external/stop" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-danger py-0 px-2 fw-semibold">
+                            <i class="bi bi-stop-circle me-1"></i>Stop
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
+
+                <form action="/runner/external/start" method="POST">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-secondary">Providers</label>
+                        <div class="d-flex flex-column gap-1">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="providers" value="indeed" id="r_prov_indeed" checked>
+                                <label class="form-check-label small" for="r_prov_indeed">Indeed (TLS scraper)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="providers" value="arbeitsagentur" id="r_prov_aa" checked>
+                                <label class="form-check-label small" for="r_prov_aa">Arbeitsagentur (Official API)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="providers" value="serpapi" id="r_prov_serp">
+                                <label class="form-check-label small" for="r_prov_serp">Google for Jobs (SerpApi)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="providers" value="rapidapi" id="r_prov_rapid">
+                                <label class="form-check-label small" for="r_prov_rapid">RapidAPI (JSearch)</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-secondary">Keyword Override (optional)</label>
+                        <input type="text" name="keyword" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="Config keywords by default">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-secondary">Limit per query</label>
+                        <input type="number" name="limit" class="form-control form-control-sm bg-dark text-light border-secondary" value="10" min="1" max="50">
+                    </div>
+
+                    {% if ext_is_running %}
+                    <button type="submit" formaction="/runner/external/stop" class="btn btn-danger btn-sm w-100 fw-semibold">
+                        <i class="bi bi-stop-circle me-1"></i>Stop External Search
+                    </button>
+                    {% else %}
+                    <button type="submit" class="btn btn-outline-info btn-sm w-100 fw-semibold" id="btnRunExternalSearch">
+                        <i class="bi bi-play-circle me-1"></i>Run External Search
+                    </button>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8 mb-3">
+        <!-- External Search Live Execution Logs -->
+        <div class="card shadow-sm h-100 border-info-subtle">
+            <div class="card-header bg-dark-subtle py-2">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <h5 class="card-title mb-0 fs-6 fw-bold">
+                            <i class="bi bi-globe2 text-info me-2"></i>External Search Logs
+                        </h5>
+                        <span class="badge bg-secondary-subtle text-secondary border small" id="badgeExtStatus">
+                            {% if ext_is_running %}
+                            <span class="spinner-grow spinner-grow-sm text-info me-1"></span>Running
+                            {% else %}
+                            Realtime
+                            {% endif %}
+                        </span>
+                        <span id="quickExtStopWrapper" style="{{ 'display:inline-block;' if ext_is_running else 'display:none;' }}">
+                            <form method="POST" action="/runner/external/stop" class="d-inline">
+                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2 fw-semibold" style="font-size:0.75rem;" title="Stop External Search">
+                                    <i class="bi bi-stop-circle me-1"></i>Stop External
+                                </button>
+                            </form>
+                        </span>
+                    </div>
+
+                    <!-- Log Filters & Search -->
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn btn-outline-secondary active" id="filterExtAll"
+                                onclick="setLogFilterExt('all')">ALL</button>
+                            <button type="button" class="btn btn-outline-secondary" id="filterExtInfo"
+                                onclick="setLogFilterExt('info')">INFO</button>
+                            <button type="button" class="btn btn-outline-secondary" id="filterExtWarn"
+                                onclick="setLogFilterExt('warning')">WARN</button>
+                            <button type="button" class="btn btn-outline-secondary" id="filterExtErr"
+                                onclick="setLogFilterExt('error')">ERR</button>
+                        </div>
+                        <input type="text" id="logSearchInputExt" class="form-control form-control-sm" style="width:130px"
+                            placeholder="Search log..." onkeyup="renderExternalLogs()">
+                        <button class="btn btn-sm btn-outline-secondary" id="autoScrollBtnExt" onclick="toggleAutoScrollExt()">
+                            <i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="logViewerExternal" class="log-viewer" style="height: 380px;">Loading External Search live log output...</div>
             </div>
         </div>
     </div>
@@ -537,29 +677,192 @@
 
 {% block scripts %}
 <script>
-    const logViewer = document.getElementById('logViewer');
-    const autoScrollBtn = document.getElementById('autoScrollBtn');
-    let autoScroll = true;
     let isRunning = {{ 'true' if is_running else 'false' }};
-    let rawLogLines = [];
-    let currentFilter = 'all';
+    let isExtRunning = {{ 'true' if ext_is_running else 'false' }};
 
-    function toggleAutoScroll() {
-        autoScroll = !autoScroll;
-        if (autoScroll) {
-            autoScrollBtn.innerHTML = '<i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON';
-            autoScrollBtn.classList.replace('btn-secondary', 'btn-outline-secondary');
-            scrollToBottom();
+    // LinkedIn Logs state
+    let rawLiLogLines = [];
+    let currentFilterLi = 'all';
+    let autoScrollLi = true;
+    const viewerLi = document.getElementById('logViewerLinkedin');
+    const autoScrollBtnLi = document.getElementById('autoScrollBtnLi');
+
+    // External Logs state
+    let rawExtLogLines = [];
+    let currentFilterExt = 'all';
+    let autoScrollExt = true;
+    const viewerExt = document.getElementById('logViewerExternal');
+    const autoScrollBtnExt = document.getElementById('autoScrollBtnExt');
+
+    function toggleAutoScrollLi() {
+        autoScrollLi = !autoScrollLi;
+        if (autoScrollLi) {
+            autoScrollBtnLi.innerHTML = '<i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON';
+            autoScrollBtnLi.classList.replace('btn-secondary', 'btn-outline-secondary');
+            if (viewerLi) viewerLi.scrollTop = viewerLi.scrollHeight;
         } else {
-            autoScrollBtn.innerHTML = '<i class="bi bi-pause-circle"></i> Auto-scroll: OFF';
-            autoScrollBtn.classList.replace('btn-outline-secondary', 'btn-secondary');
+            autoScrollBtnLi.innerHTML = '<i class="bi bi-pause-circle"></i> Auto-scroll: OFF';
+            autoScrollBtnLi.classList.replace('btn-outline-secondary', 'btn-secondary');
         }
     }
 
-    function scrollToBottom() {
-        if (autoScroll) {
-            logViewer.scrollTop = logViewer.scrollHeight;
+    function toggleAutoScrollExt() {
+        autoScrollExt = !autoScrollExt;
+        if (autoScrollExt) {
+            autoScrollBtnExt.innerHTML = '<i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON';
+            autoScrollBtnExt.classList.replace('btn-secondary', 'btn-outline-secondary');
+            if (viewerExt) viewerExt.scrollTop = viewerExt.scrollHeight;
+        } else {
+            autoScrollBtnExt.innerHTML = '<i class="bi bi-pause-circle"></i> Auto-scroll: OFF';
+            autoScrollBtnExt.classList.replace('btn-outline-secondary', 'btn-secondary');
         }
+    }
+
+    function setLogFilterLi(filter) {
+        currentFilterLi = filter;
+        ['All', 'Info', 'Warn', 'Err'].forEach(f => {
+            const btn = document.getElementById('filterLi' + f);
+            if (btn) btn.classList.remove('active');
+        });
+        const activeBtn = document.getElementById('filterLi' + filter.charAt(0).toUpperCase() + filter.slice(1));
+        if (activeBtn) activeBtn.classList.add('active');
+        renderLinkedinLogs();
+    }
+
+    function setLogFilterExt(filter) {
+        currentFilterExt = filter;
+        ['All', 'Info', 'Warn', 'Err'].forEach(f => {
+            const btn = document.getElementById('filterExt' + f);
+            if (btn) btn.classList.remove('active');
+        });
+        const activeBtn = document.getElementById('filterExt' + filter.charAt(0).toUpperCase() + filter.slice(1));
+        if (activeBtn) activeBtn.classList.add('active');
+        renderExternalLogs();
+    }
+
+    function formatLogLines(rawLines, searchVal, filterVal) {
+        const search = (searchVal || '').toLowerCase();
+        const filtered = rawLines.filter(line => {
+            const lower = line.toLowerCase();
+            if (search && !lower.includes(search)) return false;
+            if (filterVal === 'info') return lower.includes('info');
+            if (filterVal === 'warning') return lower.includes('warn');
+            if (filterVal === 'error') return lower.includes('error') || lower.includes('fail') || lower.includes('exception');
+            return true;
+        });
+
+        return filtered.map(line => {
+            const lower = line.toLowerCase();
+            let cls = '';
+            if (lower.includes('error') || lower.includes('fail') || lower.includes('exception')) cls = 'log-line-error';
+            else if (lower.includes('warn')) cls = 'log-line-warning';
+            else if (lower.includes('stage') || lower.includes('starting') || lower.includes('completed') || lower.includes('=== starting') || lower.includes('=== external')) cls = 'log-line-stage';
+            else if (lower.includes('success') || lower.includes('selected') || lower.includes('finished')) cls = 'log-line-success';
+            else if (lower.includes('info')) cls = 'log-line-info';
+            return `<div class="${cls}">${escapeHtml(line)}</div>`;
+        }).join('');
+    }
+
+    function escapeHtml(text) {
+        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function renderLinkedinLogs() {
+        if (!viewerLi) return;
+        const searchInput = document.getElementById('logSearchInputLi');
+        viewerLi.innerHTML = formatLogLines(rawLiLogLines, searchInput ? searchInput.value : '', currentFilterLi);
+        if (autoScrollLi) viewerLi.scrollTop = viewerLi.scrollHeight;
+    }
+
+    function renderExternalLogs() {
+        if (!viewerExt) return;
+        const searchInput = document.getElementById('logSearchInputExt');
+        viewerExt.innerHTML = formatLogLines(rawExtLogLines, searchInput ? searchInput.value : '', currentFilterExt);
+        if (autoScrollExt) viewerExt.scrollTop = viewerExt.scrollHeight;
+    }
+
+    function fetchLinkedinLogs() {
+        fetch('/runner/logs')
+            .then(res => res.json())
+            .then(data => {
+                const logsText = data.logs || "No LinkedIn logs available yet.";
+                rawLiLogLines = logsText.split('\n');
+                renderLinkedinLogs();
+            })
+            .catch(err => console.error("Error fetching LinkedIn logs:", err));
+    }
+
+    function fetchExternalLogs() {
+        fetch('/runner/external/logs')
+            .then(res => res.json())
+            .then(data => {
+                const logsText = data.logs || "No External Search logs available yet.";
+                rawExtLogLines = logsText.split('\n');
+                renderExternalLogs();
+            })
+            .catch(err => console.error("Error fetching External logs:", err));
+    }
+
+    function pollStatus() {
+        fetch('/runner/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.is_running !== isRunning) {
+                    window.location.reload();
+                }
+                if (data.pipeline_stats) {
+                    const st = data.pipeline_stats;
+                    const detailsPending = document.getElementById('cntDetailsPending');
+                    if (detailsPending) detailsPending.textContent = st.details_pending || 0;
+
+                    const screenPending = document.getElementById('cntScreenPending');
+                    if (screenPending) screenPending.textContent = st.screen_pending_auto ?? 0;
+
+                    const screenDeferred = document.getElementById('cntScreenDeferred');
+                    if (screenDeferred) screenDeferred.textContent = st.screen_deferred ?? 0;
+
+                    const screenAuto = document.getElementById('cntScreenAuto');
+                    if (screenAuto) screenAuto.textContent = st.screen_pending_auto ?? 0;
+
+                    const clPending = document.getElementById('cntClPending');
+                    if (clPending) clPending.textContent = st.cl_pending || 0;
+
+                    const prefiltered = document.getElementById('cntPrefiltered');
+                    if (prefiltered) prefiltered.textContent = st.prefiltered_total || 0;
+
+                    const inFlight = st.screen_in_flight || 0;
+                    const inFlightEl = document.getElementById('cntInFlight');
+                    if (inFlightEl) inFlightEl.textContent = inFlight;
+
+                    const inFlightWrap = document.getElementById('cntInFlightWrap');
+                    if (inFlightWrap) inFlightWrap.style.display = inFlight ? '' : 'none';
+
+                    const errTotal = (st.details_error || 0) + (st.screened_error || 0) + (st.cl_error || 0);
+                    const errorsEl = document.getElementById('cntErrors');
+                    if (errorsEl) errorsEl.textContent = errTotal;
+                }
+            })
+            .catch(() => { });
+    }
+
+    function pollExternalStatus() {
+        fetch('/runner/external/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.is_running !== isExtRunning) {
+                    window.location.reload();
+                }
+                isExtRunning = data.is_running;
+                const badge = document.getElementById('badgeExtStatus');
+                if (badge) {
+                    badge.innerHTML = isExtRunning
+                        ? '<span class="spinner-grow spinner-grow-sm text-info me-1"></span>Running'
+                        : 'Realtime';
+                }
+                const stopWrapper = document.getElementById('quickExtStopWrapper');
+                if (stopWrapper) stopWrapper.style.display = isExtRunning ? 'inline-block' : 'none';
+            })
+            .catch(() => { });
     }
 
     function applyPreset(type) {
@@ -596,121 +899,33 @@
         }
     }
 
-    function setLogFilter(filter) {
-        currentFilter = filter;
-        ['All', 'Info', 'Warn', 'Err'].forEach(f => {
-            const btn = document.getElementById('filter' + f);
-            if (btn) btn.classList.remove('active');
+    // Scroll listeners
+    if (viewerLi) {
+        viewerLi.addEventListener('scroll', () => {
+            const isAtBottom = viewerLi.scrollHeight - viewerLi.scrollTop <= viewerLi.clientHeight + 10;
+            if (!isAtBottom && autoScrollLi) {
+                toggleAutoScrollLi();
+            }
         });
-        const activeBtn = document.getElementById('filter' + filter.charAt(0).toUpperCase() + filter.slice(1));
-        if (activeBtn) activeBtn.classList.add('active');
-        renderLogs();
     }
-
-    function renderLogs() {
-        const search = document.getElementById('logSearchInput').value.toLowerCase();
-        const filtered = rawLogLines.filter(line => {
-            const lower = line.toLowerCase();
-            if (search && !lower.includes(search)) return false;
-            if (currentFilter === 'info') return lower.includes('info');
-            if (currentFilter === 'warning') return lower.includes('warn');
-            if (currentFilter === 'error') return lower.includes('error') || lower.includes('fail') || lower.includes('exception');
-            return true;
+    if (viewerExt) {
+        viewerExt.addEventListener('scroll', () => {
+            const isAtBottom = viewerExt.scrollHeight - viewerExt.scrollTop <= viewerExt.clientHeight + 10;
+            if (!isAtBottom && autoScrollExt) {
+                toggleAutoScrollExt();
+            }
         });
-
-        // Syntax color-coded HTML output
-        logViewer.innerHTML = filtered.map(line => {
-            const lower = line.toLowerCase();
-            let cls = '';
-            if (lower.includes('error') || lower.includes('fail') || lower.includes('exception')) cls = 'log-line-error';
-            else if (lower.includes('warn')) cls = 'log-line-warning';
-            else if (lower.includes('stage') || lower.includes('starting') || lower.includes('completed')) cls = 'log-line-stage';
-            else if (lower.includes('success') || lower.includes('selected')) cls = 'log-line-success';
-            else if (lower.includes('info')) cls = 'log-line-info';
-            return `<div class="${cls}">${escapeHtml(line)}</div>`;
-        }).join('');
-
-        scrollToBottom();
     }
 
-    function escapeHtml(text) {
-        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-
-    function filterLogs() {
-        renderLogs();
-    }
-
-    function fetchLogs() {
-        fetch('/runner/logs')
-            .then(response => response.json())
-            .then(data => {
-                const logsText = data.logs || "No logs available yet.";
-                rawLogLines = logsText.split('\n');
-                renderLogs();
-            })
-            .catch(error => {
-                console.error("Error fetching logs:", error);
-            });
-    }
-
-    function pollStatus() {
-        fetch('/runner/status')
-            .then(response => response.json())
-            .then(data => {
-                if (data.is_running !== isRunning) {
-                    window.location.reload();
-                }
-                if (data.pipeline_stats) {
-                    const st = data.pipeline_stats;
-                    const detailsPending = document.getElementById('cntDetailsPending');
-                    if (detailsPending) detailsPending.textContent = st.details_pending || 0;
-
-                    // To be screened displays the actual auto-screening count:
-                    const screenPending = document.getElementById('cntScreenPending');
-                    if (screenPending) screenPending.textContent = st.screen_pending_auto ?? 0;
-
-                    const screenDeferred = document.getElementById('cntScreenDeferred');
-                    if (screenDeferred) screenDeferred.textContent = st.screen_deferred ?? 0;
-
-                    const screenAuto = document.getElementById('cntScreenAuto');
-                    if (screenAuto) screenAuto.textContent = st.screen_pending_auto ?? 0;
-
-                    const clPending = document.getElementById('cntClPending');
-                    if (clPending) clPending.textContent = st.cl_pending || 0;
-
-                    const prefiltered = document.getElementById('cntPrefiltered');
-                    if (prefiltered) prefiltered.textContent = st.prefiltered_total || 0;
-
-                    const inFlight = st.screen_in_flight || 0;
-                    const inFlightEl = document.getElementById('cntInFlight');
-                    if (inFlightEl) inFlightEl.textContent = inFlight;
-
-                    const inFlightWrap = document.getElementById('cntInFlightWrap');
-                    if (inFlightWrap) inFlightWrap.style.display = inFlight ? '' : 'none';
-
-                    const errTotal = (st.details_error || 0) + (st.screened_error || 0) + (st.cl_error || 0);
-                    const errorsEl = document.getElementById('cntErrors');
-                    if (errorsEl) errorsEl.textContent = errTotal;
-                }
-            })
-            .catch(() => { });
-    }
-
-    // Fetch immediately
-    fetchLogs();
+    // Initial load and timers
+    fetchLinkedinLogs();
+    fetchExternalLogs();
     pollStatus();
+    pollExternalStatus();
 
-    // Poll logs and status (relaxed intervals to minimize DB and server contention)
-    setInterval(fetchLogs, isRunning ? 3000 : 8000);
+    setInterval(fetchLinkedinLogs, isRunning ? 3000 : 8000);
+    setInterval(fetchExternalLogs, isExtRunning ? 3000 : 8000);
     setInterval(pollStatus, isRunning ? 5000 : 10000);
-
-    // Auto-scroll toggle on manual scroll
-    logViewer.addEventListener('scroll', () => {
-        const isAtBottom = logViewer.scrollHeight - logViewer.scrollTop <= logViewer.clientHeight + 10;
-        if (!isAtBottom && autoScroll) {
-            toggleAutoScroll();
-        }
-    });
+    setInterval(pollExternalStatus, isExtRunning ? 3000 : 8000);
 </script>
-{% endblock %}
+{% endblock %}

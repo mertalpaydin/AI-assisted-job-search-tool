@@ -26,8 +26,9 @@ $prefix = "JobSearch"
 $tasks = @(
     @{ Name = "$prefix-Daily";   Mode = "daily";   Trigger = "Daily 07:00" },
     @{ Name = "$prefix-Catchup"; Mode = "daily";   Trigger = "AtLogOn" },
-    @{ Name = "$prefix-Collect"; Mode = "collect"; Trigger = "Daily 08:00, 20:00" },
-    @{ Name = "$prefix-Clean";   Mode = "clean";   Trigger = "Weekly Sunday 03:00" }
+    @{ Name = "$prefix-Collect";  Mode = "collect";  Trigger = "Daily 08:00, 20:00" },
+    @{ Name = "$prefix-Clean";    Mode = "clean";    Trigger = "Weekly Sunday 03:00" },
+    @{ Name = "$prefix-External"; Mode = "external"; Trigger = "Weekly Sunday 08:00" }
 )
 
 # Remove every existing JobSearch-* task, not just the ones in $tasks, so a
