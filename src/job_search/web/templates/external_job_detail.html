@@ -51,6 +51,24 @@
     color: #cbd5e1;
     white-space: pre-wrap;
   }
+  /* Rendered Markdown: let the HTML structure handle spacing instead of raw newlines. */
+  .job-desc-text.markdown-rendered { white-space: normal; }
+  .job-desc-text.markdown-rendered h1,
+  .job-desc-text.markdown-rendered h2,
+  .job-desc-text.markdown-rendered h3,
+  .job-desc-text.markdown-rendered h4 {
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #f1f5f9;
+    margin: 1.4em 0 0.5em;
+  }
+  .job-desc-text.markdown-rendered > :first-child { margin-top: 0; }
+  .job-desc-text.markdown-rendered p { margin: 0 0 0.9em; }
+  .job-desc-text.markdown-rendered ul,
+  .job-desc-text.markdown-rendered ol { margin: 0 0 0.9em; padding-left: 1.4em; }
+  .job-desc-text.markdown-rendered li { margin-bottom: 0.25em; }
+  .job-desc-text.markdown-rendered strong { color: #f1f5f9; }
+  .job-desc-text.markdown-rendered a { color: #38bdf8; }
   .reader-toolbar {
     display: inline-flex;
     align-items: center;
@@ -458,7 +476,8 @@
         </div>
       </div>
       <div class="card-body p-4">
-        <div class="job-desc-text" id="jobDescBox">{{ job.description }}</div>
+        <div class="job-desc-text" id="jobDescBox"
+             data-format="{{ 'markdown' if description_is_markdown else 'text' }}">{{ job.description }}</div>
       </div>
     </div>
     {% endif %}
@@ -580,9 +599,31 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <script>
+  // Render a Markdown job description (Indeed). The text comes from external
+  // sites, so the HTML is sanitized before insertion; without marked or
+  // DOMPurify the escaped plain text is left in place.
+  function renderJobDescription() {
+    const box = document.getElementById("jobDescBox");
+    if (!box || box.dataset.format !== "markdown") return;
+    if (!window.marked || !window.DOMPurify) return;
+    // JobSpy sometimes glues a heading onto the previous sentence
+    // ("Manager.### Tasks"); move it to its own line. Only 2+ hashes, so
+    // "C#" and the like are untouched.
+    const raw = box.textContent.replace(/([^\n#\\])(#{2,6} )/g, "$1\n\n$2");
+    const html = DOMPurify.sanitize(marked.parse(raw));
+    box.innerHTML = html;
+    box.querySelectorAll("a").forEach(a => {
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+    });
+    box.classList.add("markdown-rendered");
+  }
+
   // Render Assistant markdown replies on page load
   document.addEventListener("DOMContentLoaded", () => {
+    renderJobDescription();
     document.querySelectorAll(".assistant-reply-box").forEach(el => {
       const raw = el.getAttribute("data-raw-content");
       if (raw && window.marked) {

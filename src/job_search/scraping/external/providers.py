@@ -15,6 +15,10 @@ from loguru import logger
 
 from job_search.core.config import load_secrets
 
+# Sources whose descriptions are stored as Markdown (JobSpy's default output
+# format). The others return plain text and are shown as-is.
+MARKDOWN_SOURCES = frozenset({"indeed"})
+
 
 def _stable_id(*parts: Any) -> str:
     """Deterministic fallback ID for postings the source gives no ID for.

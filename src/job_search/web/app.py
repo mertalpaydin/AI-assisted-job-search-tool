@@ -1785,9 +1785,12 @@ def external_job_detail(job_id: int):
     assistant_chat_history = load_chat(chat_file) if chat_file else []
     assistant_model = getattr(getattr(_config, "assistant", None), "model", "gemini-2.5-flash") if _config else "gemini-2.5-flash"
 
+    from job_search.scraping.external.providers import MARKDOWN_SOURCES
+
     return render_template(
         "external_job_detail.html",
         job=job,
+        description_is_markdown=job.get("source") in MARKDOWN_SOURCES,
         assistant_chat_history=assistant_chat_history,
         assistant_model=assistant_model,
     )
