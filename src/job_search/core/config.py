@@ -4,14 +4,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-# Auto-load environment variables from config/.env or .env if present
-for _env_path in [Path("config/.env"), Path(".env")]:
-    if _env_path.exists():
-        load_dotenv(str(_env_path), override=False)
 
 
 # ---------------------------------------------------------------------------

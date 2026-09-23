@@ -871,7 +871,8 @@ def web(config: str, host: str, port: int, debug: bool) -> None:
 @click.option(
     "--provider", "-p", multiple=True,
     type=click.Choice(["all", "indeed", "arbeitsagentur", "serpapi", "rapidapi"]),
-    help="Providers to query (default: all). Repeat for multiple: -p indeed -p arbeitsagentur",
+    help="Providers to query (default: indeed, arbeitsagentur; 'all' adds serpapi and rapidapi). "
+         "Repeat for multiple: -p indeed -p arbeitsagentur",
 )
 @click.option("--keyword", "-k", multiple=True, help="Override search keywords (default: all keywords from config)")
 @click.option("--location", "-l", default=None, help="Override search location (default: location from config)")
@@ -905,7 +906,7 @@ def external_search(
     )
 
     from job_search.core import runcontrol
-    from job_search.scraping.external.orchestrator import ExternalSearchOrchestrator
+    from job_search.scraping.external.orchestrator import DEFAULT_PROVIDERS, ExternalSearchOrchestrator
 
     # A scheduled run checks the pause first. Auto-resume happens here: if the
     # resume moment has passed, pause_state clears the file and we continue.
@@ -917,9 +918,8 @@ def external_search(
             click.echo(f"Schedule is paused ({remaining} remaining). Exiting.")
             return
 
-    # Default to working providers if not explicitly specified
     if not provider:
-        providers_list = ["indeed", "arbeitsagentur"]
+        providers_list = list(DEFAULT_PROVIDERS)
     elif "all" in provider:
         providers_list = None
     else:
@@ -949,6 +949,7 @@ def external_search(
     click.echo(f"LinkedIn matches identified: {stats.get('matched_linkedin', 0)}")
     click.echo(f"Prefiltered (Title):         {stats.get('prefiltered_title', 0)}")
     click.echo(f"Prefiltered (Company):       {stats.get('prefiltered_company', 0)}")
+    click.echo(f"Skipped (errors):            {stats.get('errors', 0)}")
     click.echo("-" * 45)
     click.echo("By Provider:")
     for prov, count in stats.get("by_provider", {}).items():
@@ -958,4 +959,3 @@ def external_search(
 
 if __name__ == "__main__":
     main()
-

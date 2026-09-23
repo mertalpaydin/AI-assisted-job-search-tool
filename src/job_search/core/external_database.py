@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Generator
@@ -60,6 +60,67 @@ CREATE INDEX IF NOT EXISTS idx_ext_jobs_matched_id ON external_jobs(matched_link
 """
 
 APPLICATION_STATUSES = ["pending", "applied", "skipped", "expired"]
+
+# Bumped when a one-off data migration runs, so it is not repeated on every start.
+_SCHEMA_VERSION = 1
+
+_MATCH_FIELDS = (
+    "matched_linkedin_job_id",
+    "matched_similarity",
+    "matched_linkedin_status",
+    "matched_linkedin_title",
+    "matched_linkedin_company",
+)
+
+_LI_STATUS = "LOWER(matched_linkedin_status)"
+_LI_SET = "matched_linkedin_status IS NOT NULL"
+
+# LinkedIn-match filter key -> SQL condition. Several keys are aliases kept for
+# old bookmarked URLs.
+_MATCH_FILTERS: dict[str, str] = {}
+for _keys, _cond in [
+    (("net_new", "no"), "matched_linkedin_job_id IS NULL"),
+    (("yes", "matched"), "matched_linkedin_job_id IS NOT NULL"),
+    (("hide_applied", "exclude_applied", "not_applied"),
+     f"(matched_linkedin_status IS NULL OR {_LI_STATUS} NOT LIKE '%applied%')"),
+    (("applied", "li_applied"), f"({_LI_SET} AND {_LI_STATUS} LIKE '%applied%')"),
+    (("selected", "li_selected"),
+     f"({_LI_SET} AND {_LI_STATUS} LIKE '%selected%' AND {_LI_STATUS} NOT LIKE '%not selected%')"),
+    (("not_selected", "li_not_selected"), f"({_LI_SET} AND {_LI_STATUS} LIKE '%not selected%')"),
+    (("unscreened", "li_unscreened"), f"({_LI_SET} AND {_LI_STATUS} LIKE '%unscreened%')"),
+    (("expired", "li_expired"), f"({_LI_SET} AND {_LI_STATUS} LIKE '%expired%')"),
+    (("skipped", "li_skipped"), f"({_LI_SET} AND {_LI_STATUS} LIKE '%skipped%')"),
+]:
+    for _k in _keys:
+        _MATCH_FILTERS[_k] = _cond
+
+
+def normalize_status(raw: str | None) -> str:
+    """Map any stored or submitted status (incl. legacy 'dismissed'/'new') to APPLICATION_STATUSES."""
+    st = (raw or "").strip().lower()
+    if st in ("dismissed", "skipped"):
+        return "skipped"
+    if st in ("applied", "expired"):
+        return st
+    return "pending"
+
+
+def linkedin_status_desc(app_status: str | None, is_selected: int | None, score: float | None) -> str:
+    """Human-readable LinkedIn status stored on a matched external job."""
+    if app_status and app_status != "pending":
+        return f"LinkedIn: {app_status.capitalize()}"
+    if is_selected == 1:
+        score_str = f" ({score:.2f})" if score is not None else ""
+        return f"LinkedIn: Selected{score_str}"
+    if is_selected == 0:
+        return "LinkedIn: Not selected"
+    return "LinkedIn: Unscreened"
+
+
+def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    d = dict(row)
+    d["application_status"] = normalize_status(d.get("application_status"))
+    return d
 
 
 class ExternalDatabaseManager:
@@ -121,38 +182,48 @@ class ExternalDatabaseManager:
         # Create index after column is guaranteed to exist
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ext_jobs_lang ON external_jobs(detected_language)")
 
-        # Auto-backfill language for existing rows with missing detected_language
-        try:
-            from job_search.utils.language import detect_language
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT id, description FROM external_jobs "
-                "WHERE (detected_language IS NULL OR detected_language = '') "
-                "AND description IS NOT NULL AND description != ''"
-            )
-            rows = cur.fetchall()
-            for r_id, r_desc in rows:
-                lang, ratio = detect_language(r_desc)
-                conn.execute(
-                    "UPDATE external_jobs SET detected_language = ?, german_stopword_ratio = ? WHERE id = ?",
-                    (lang, ratio, r_id),
-                )
-            cur.close()
-        except Exception as e:
-            logger.warning("Language backfill failed during schema init: {}", e)
+        # One-off language backfill for rows saved before detection existed.
+        # New rows get their language on insert, so this only runs once.
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version < _SCHEMA_VERSION:
+            try:
+                self._backfill_language(conn)
+                conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+            except Exception as e:
+                logger.warning("Language backfill failed during schema init: {}", e)
 
         conn.commit()
         conn.close()
         logger.debug("External database schema initialized at {}", self._path)
+
+    @staticmethod
+    def _backfill_language(conn: sqlite3.Connection) -> None:
+        from job_search.utils.language import detect_language
+
+        rows = conn.execute(
+            "SELECT id, description FROM external_jobs "
+            "WHERE (detected_language IS NULL OR detected_language = '') "
+            "AND description IS NOT NULL AND description != ''"
+        ).fetchall()
+        for r_id, r_desc in rows:
+            lang, ratio = detect_language(r_desc)
+            conn.execute(
+                "UPDATE external_jobs SET detected_language = ?, german_stopword_ratio = ? WHERE id = ?",
+                (lang, ratio, r_id),
+            )
+        if rows:
+            logger.info("Backfilled language for {} external jobs", len(rows))
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn is not None:
             self._local.conn.close()
             self._local.conn = None
 
-    def upsert_job(self, job_data: dict[str, Any]) -> tuple[int, bool]:
+    def upsert_job(self, job_data: dict[str, Any], clear_match: bool = False) -> tuple[int, bool]:
         """
         Insert or update an external job.
+        clear_match=True resets the LinkedIn match columns on an existing row
+        (the posting no longer matches); otherwise None values are left alone.
         Returns (id, is_new).
         """
         from job_search.utils.language import detect_language
@@ -171,16 +242,7 @@ class ExternalDatabaseManager:
             job_data["detected_language"] = lang
             job_data["german_stopword_ratio"] = ratio
 
-        # Normalize application status to standard lingo
-        raw_status = job_data.get("application_status", "pending")
-        if raw_status in ("dismissed", "skipped"):
-            app_status = "skipped"
-        elif raw_status == "applied":
-            app_status = "applied"
-        elif raw_status == "expired":
-            app_status = "expired"
-        else:
-            app_status = "pending"
+        app_status = normalize_status(job_data.get("application_status"))
 
         with self._cursor() as cur:
             cur.execute(
@@ -206,6 +268,9 @@ class ExternalDatabaseManager:
                     if field in job_data and job_data[field] is not None:
                         update_fields.append(f"{field} = ?")
                         params.append(job_data[field])
+
+                if clear_match:
+                    update_fields.extend(f"{field} = NULL" for field in _MATCH_FIELDS)
 
                 # Update description if existing was empty and new has content
                 new_desc = job_data.get("description")
@@ -263,15 +328,7 @@ class ExternalDatabaseManager:
         with self._cursor() as cur:
             cur.execute("SELECT * FROM external_jobs WHERE id = ?", (job_id,))
             row = cur.fetchone()
-            if not row:
-                return None
-            d = dict(row)
-            # Map legacy status strings to standard lingo
-            if d.get("application_status") in ("dismissed", "skipped"):
-                d["application_status"] = "skipped"
-            elif d.get("application_status") in ("new", None, ""):
-                d["application_status"] = "pending"
-            return d
+            return _row_to_dict(row) if row else None
 
     def get_jobs(
         self,
@@ -351,26 +408,7 @@ class ExternalDatabaseManager:
                     matched_items = []
 
                 if matched_items:
-                    sub_conds = []
-                    for st in matched_items:
-                        if st in ("net_new", "no"):
-                            sub_conds.append("matched_linkedin_job_id IS NULL")
-                        elif st in ("yes", "matched"):
-                            sub_conds.append("matched_linkedin_job_id IS NOT NULL")
-                        elif st in ("hide_applied", "exclude_applied", "not_applied"):
-                            sub_conds.append("(matched_linkedin_status IS NULL OR LOWER(matched_linkedin_status) NOT LIKE '%applied%')")
-                        elif st in ("applied", "li_applied"):
-                            sub_conds.append("(matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%applied%')")
-                        elif st in ("selected", "li_selected"):
-                            sub_conds.append("(matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%selected%' AND LOWER(matched_linkedin_status) NOT LIKE '%not selected%')")
-                        elif st in ("not_selected", "li_not_selected"):
-                            sub_conds.append("(matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%not selected%')")
-                        elif st in ("unscreened", "li_unscreened"):
-                            sub_conds.append("(matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%unscreened%')")
-                        elif st in ("expired", "li_expired"):
-                            sub_conds.append("(matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%expired%')")
-                        elif st in ("skipped", "li_skipped"):
-                            sub_conds.append("(matched_linkedin_status IS NOT NULL AND LOWER(matched_linkedin_status) LIKE '%skipped%')")
+                    sub_conds = [_MATCH_FILTERS[st] for st in matched_items if st in _MATCH_FILTERS]
                     if sub_conds:
                         conditions.append(f"({' OR '.join(sub_conds)})")
 
@@ -420,29 +458,13 @@ class ExternalDatabaseManager:
                 LIMIT ? OFFSET ?
             """
             cur.execute(query, params + [page_size, offset])
-            rows = []
-            for r in cur.fetchall():
-                d = dict(r)
-                if d.get("application_status") in ("dismissed", "skipped"):
-                    d["application_status"] = "skipped"
-                elif d.get("application_status") in ("new", None, ""):
-                    d["application_status"] = "pending"
-                rows.append(d)
+            rows = [_row_to_dict(r) for r in cur.fetchall()]
 
         return rows, total
 
     def update_application_status(self, job_id: int, status: str) -> None:
         """Update job application status using standard lingo."""
-        norm_status = status.strip().lower() if status else ""
-        if norm_status in ("dismissed", "skipped"):
-            norm_status = "skipped"
-        elif norm_status == "applied":
-            norm_status = "applied"
-        elif norm_status == "expired":
-            norm_status = "expired"
-        elif norm_status in ("", "pending", "new", "clear"):
-            norm_status = "pending"
-
+        norm_status = normalize_status(status)
         applied_at = datetime.now() if norm_status == "applied" else None
         with self._cursor() as cur:
             cur.execute(
@@ -518,14 +540,7 @@ class ExternalDatabaseManager:
                 "expired": 0,
             }
             for k, v in raw_by_status.items():
-                if k in ("dismissed", "skipped"):
-                    by_status["skipped"] += v
-                elif k == "applied":
-                    by_status["applied"] += v
-                elif k == "expired":
-                    by_status["expired"] += v
-                else:
-                    by_status["pending"] += v
+                by_status[normalize_status(k)] += v
 
             cur.execute("SELECT detected_language, COUNT(*) FROM external_jobs WHERE prefilter_status = 'accepted' AND detected_language IS NOT NULL GROUP BY detected_language")
             by_language = dict(cur.fetchall())
@@ -589,46 +604,36 @@ class ExternalDatabaseManager:
                 if not matched_rows:
                     return 0
 
-                li_conn = sqlite3.connect(f"file:{li_path}?mode=ro", uri=True)
-                li_conn.row_factory = sqlite3.Row
-                li_cur = li_conn.cursor()
-
-                for row in matched_rows:
-                    ext_id = row["id"]
-                    li_id = row["matched_linkedin_job_id"]
-                    cur_status = row["matched_linkedin_status"]
-
-                    li_cur.execute(
-                        "SELECT application_status, is_selected, cv_match_score FROM jobs WHERE job_id = ?",
-                        (li_id,)
-                    )
-                    li_row = li_cur.fetchone()
-                    if not li_row:
-                        continue
-
-                    app_status = li_row["application_status"]
-                    is_sel = li_row["is_selected"]
-                    score = li_row["cv_match_score"]
-
-                    if app_status and app_status != "pending":
-                        new_status = f"LinkedIn: {app_status.capitalize()}"
-                    elif is_sel == 1:
-                        score_str = f" ({score:.2f})" if score is not None else ""
-                        new_status = f"LinkedIn: Selected{score_str}"
-                    elif is_sel == 0:
-                        new_status = "LinkedIn: Not selected"
-                    else:
-                        new_status = "LinkedIn: Unscreened"
-
-                    if new_status != cur_status:
-                        ext_cur.execute(
-                            "UPDATE external_jobs SET matched_linkedin_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                            (new_status, ext_id),
-                        )
-                        updated_count += 1
-
-                li_conn.close()
+                with closing(sqlite3.connect(f"file:{li_path}?mode=ro", uri=True)) as li_conn:
+                    li_conn.row_factory = sqlite3.Row
+                    li_cur = li_conn.cursor()
+                    updated_count = self._apply_linkedin_statuses(ext_cur, li_cur, matched_rows)
         except Exception as e:
-            logger.debug("Failed syncing matched LinkedIn statuses: {}", e)
+            logger.warning("Failed syncing matched LinkedIn statuses: {}", e)
 
+        return updated_count
+
+    @staticmethod
+    def _apply_linkedin_statuses(
+        ext_cur: sqlite3.Cursor, li_cur: sqlite3.Cursor, matched_rows: list[sqlite3.Row]
+    ) -> int:
+        updated_count = 0
+        for row in matched_rows:
+            li_cur.execute(
+                "SELECT application_status, is_selected, cv_match_score FROM jobs WHERE job_id = ?",
+                (row["matched_linkedin_job_id"],),
+            )
+            li_row = li_cur.fetchone()
+            if not li_row:
+                continue
+
+            new_status = linkedin_status_desc(
+                li_row["application_status"], li_row["is_selected"], li_row["cv_match_score"]
+            )
+            if new_status != row["matched_linkedin_status"]:
+                ext_cur.execute(
+                    "UPDATE external_jobs SET matched_linkedin_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (new_status, row["id"]),
+                )
+                updated_count += 1
         return updated_count

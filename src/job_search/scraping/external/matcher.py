@@ -12,6 +12,34 @@ from typing import Any
 
 from loguru import logger
 
+from job_search.core.external_database import linkedin_status_desc
+
+# Normalized company names shorter than this are too ambiguous to match on.
+MIN_COMPANY_LEN = 3
+# SequenceMatcher ratio above which two company names that share a word but
+# are not whole-word contained still count as the same employer (small
+# spelling variants such as "boehringer ingelheim" vs "böhringer ingelheim").
+COMPANY_FUZZY_THRESHOLD = 0.85
+
+
+def companies_match(a: str, b: str) -> bool:
+    """True if two normalized company names plausibly refer to the same employer.
+
+    Whole-word containment (every word of the shorter name appears in the
+    longer one) or a high character-level similarity. Plain substring checks
+    are avoided: "sap" would match "sapient".
+    """
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    if len(short) < MIN_COMPANY_LEN:
+        return False
+    if set(short.split()) <= set(long_.split()):
+        return True
+    return difflib.SequenceMatcher(None, a, b).ratio() >= COMPANY_FUZZY_THRESHOLD
+
 
 def normalize_text(text: str | None) -> str:
     """Normalize company name or title for fuzzy and exact matching."""
@@ -44,6 +72,9 @@ class LinkedInMatcher:
         self._db_path = Path(db_path)
         self._indexed = False
         self._company_index: dict[str, list[dict[str, Any]]] = {}
+        # word -> normalized company names containing it, to avoid scanning
+        # every company for each posting.
+        self._token_index: dict[str, set[str]] = {}
 
     def _load_index(self) -> None:
         if self._indexed:
@@ -67,23 +98,16 @@ class LinkedInMatcher:
             rows = cur.fetchall()
             for r in rows:
                 norm_c = normalize_text(r["company_name"])
+                if not norm_c:
+                    continue
                 if norm_c not in self._company_index:
                     self._company_index[norm_c] = []
+                    for token in norm_c.split():
+                        self._token_index.setdefault(token, set()).add(norm_c)
 
-                # Format LinkedIn status
-                app_status = r["application_status"]
-                is_sel = r["is_selected"]
-                score = r["cv_match_score"]
-
-                if app_status and app_status != "pending":
-                    status_desc = f"LinkedIn: {app_status.capitalize()}"
-                elif is_sel == 1:
-                    score_str = f" ({score:.2f})" if score is not None else ""
-                    status_desc = f"LinkedIn: Selected{score_str}"
-                elif is_sel == 0:
-                    status_desc = "LinkedIn: Not selected"
-                else:
-                    status_desc = "LinkedIn: Unscreened"
+                status_desc = linkedin_status_desc(
+                    r["application_status"], r["is_selected"], r["cv_match_score"]
+                )
 
                 self._company_index[norm_c].append({
                     "job_id": r["job_id"],
@@ -116,17 +140,21 @@ class LinkedInMatcher:
         norm_comp = normalize_text(company_name)
         norm_title = normalize_text(title)
 
-        if not norm_comp or not norm_title:
+        if len(norm_comp) < MIN_COMPANY_LEN or not norm_title:
             return None
 
         candidates = []
         if norm_comp in self._company_index:
             candidates.extend(self._company_index[norm_comp])
         else:
-            # Fuzzy company match (contains or contained-in)
-            for c_key, c_jobs in self._company_index.items():
-                if norm_comp in c_key or c_key in norm_comp:
-                    candidates.extend(c_jobs)
+            # Only companies sharing at least one word can pass companies_match's
+            # containment check; the fuzzy fallback covers spacing variants.
+            keys: set[str] = set()
+            for token in norm_comp.split():
+                keys |= self._token_index.get(token, set())
+            for c_key in keys:
+                if companies_match(norm_comp, c_key):
+                    candidates.extend(self._company_index[c_key])
 
         if not candidates:
             return None

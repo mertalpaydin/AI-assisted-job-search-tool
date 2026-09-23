@@ -5,12 +5,52 @@ Each provider handles rate limits, quotas, and errors gracefully.
 from __future__ import annotations
 
 import base64
-import os
+import hashlib
+import math
 import time
 from typing import Any
 
 import requests
 from loguru import logger
+
+from job_search.core.config import load_secrets
+
+
+def _stable_id(*parts: Any) -> str:
+    """Deterministic fallback ID for postings the source gives no ID for.
+
+    Built-in hash() is salted per process, so it would hand the same posting a
+    new ID on every run and defeat the (source, external_id) dedup.
+    """
+    key = "|".join(str(p or "").strip().lower() for p in parts)
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _is_missing(value: Any) -> bool:
+    return value is None or (isinstance(value, float) and math.isnan(value))
+
+
+def _clean(value: Any) -> str:
+    """Stringify a DataFrame cell, treating None/NaN as empty instead of 'nan'."""
+    return "" if _is_missing(value) else str(value).strip()
+
+
+def _indeed_salary(row: Any) -> str | None:
+    """Format JobSpy's compensation columns, e.g. 'EUR 50,000 - 65,000 / yearly'."""
+    lo, hi = row.get("min_amount"), row.get("max_amount")
+    lo = None if _is_missing(lo) else lo
+    hi = None if _is_missing(hi) else hi
+    if lo is None and hi is None:
+        return None
+    if lo is not None and hi is not None:
+        amount = f"{int(lo):,} - {int(hi):,}"
+    elif lo is not None:
+        amount = f"from {int(lo):,}"
+    else:
+        amount = f"up to {int(hi):,}"
+    text = f"{_clean(row.get('currency'))} {amount}".strip()
+    interval = _clean(row.get("interval"))
+    return f"{text} / {interval}" if interval else text
 
 
 class BaseProvider:
@@ -31,9 +71,13 @@ class IndeedProvider(BaseProvider):
         self._delay = delay_between_calls
 
     def search(self, keyword: str, location: str, limit: int = 15) -> list[dict[str, Any]]:
-        from jobspy import scrape_jobs
-
         results = []
+        try:
+            from jobspy import scrape_jobs
+        except ImportError as e:
+            logger.error("[Indeed] python-jobspy is not installed or failed to import ({}); run `uv sync`.", e)
+            return results
+
         try:
             logger.info("[Indeed] Searching for '{}' in '{}'...", keyword, location)
             df = scrape_jobs(
@@ -47,23 +91,28 @@ class IndeedProvider(BaseProvider):
 
             if df is not None and not df.empty:
                 for _, row in df.iterrows():
-                    jk = str(row.get("id") or "").strip()
-                    job_url = str(row.get("job_url") or "").strip()
+                    title = _clean(row.get("title"))
+                    company = _clean(row.get("company"))
+                    if not title or not company:
+                        continue
+                    location_str = _clean(row.get("location"))
+                    jk = _clean(row.get("id"))
+                    job_url = _clean(row.get("job_url"))
                     if not jk and "jk=" in job_url:
                         jk = job_url.split("jk=")[-1].split("&")[0]
                     if not jk:
-                        jk = str(hash(f"{row.get('company')}_{row.get('title')}"))
+                        jk = _stable_id(company, title, location_str)
 
                     results.append({
                         "source": "indeed",
                         "external_id": jk,
-                        "title": str(row.get("title") or "").strip(),
-                        "company_name": str(row.get("company") or "").strip(),
-                        "location": str(row.get("location") or "").strip(),
+                        "title": title,
+                        "company_name": company,
+                        "location": location_str,
                         "url": job_url,
-                        "description": str(row.get("description") or "").strip(),
-                        "salary_info": str(row.get("salary_source") or "").strip() or None,
-                        "posted_at": str(row.get("date_posted") or "").strip() or None,
+                        "description": _clean(row.get("description")),
+                        "salary_info": _indeed_salary(row),
+                        "posted_at": _clean(row.get("date_posted")) or None,
                         "search_keyword": keyword,
                     })
             logger.info("[Indeed] Found {} results for '{}'", len(results), keyword)
@@ -170,20 +219,13 @@ class SerpApiProvider(BaseProvider):
     name: str = "serpapi"
 
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
-        if not key:
-            try:
-                from job_search.core.config import load_secrets
-                key = load_secrets().serpapi_api_key
-            except Exception:
-                pass
-        self._api_key = key
+        self._api_key = api_key or load_secrets().serpapi_api_key
         self._quota_exhausted = False
 
     def search(self, keyword: str, location: str, limit: int = 15) -> list[dict[str, Any]]:
         results = []
         if not self._api_key:
-            logger.warning("[SerpApi] No SERPAPI_API_KEY found; skipping provider.")
+            logger.warning("[SerpApi] No SERPAPI_API_KEY in config/.env; skipping provider.")
             return results
         if self._quota_exhausted:
             logger.warning("[SerpApi] Quota previously exhausted; skipping search for '{}'.", keyword)
@@ -228,7 +270,7 @@ class SerpApiProvider(BaseProvider):
                 if not title or not company:
                     continue
                 if not job_id:
-                    job_id = str(hash(f"{company}_{title}"))
+                    job_id = _stable_id(company, title, j.get("location"))
 
                 apply_links = [opt.get("link") for opt in j.get("apply_options", []) if opt.get("link")]
                 url_apply = apply_links[0] if apply_links else f"https://www.google.com/search?q={keyword}&ibp=htl;jobs"
@@ -258,20 +300,13 @@ class RapidApiProvider(BaseProvider):
     name: str = "rapidapi"
 
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or os.getenv("RAPIDAPI_KEY") or os.getenv("RAPID_API_KEY")
-        if not key:
-            try:
-                from job_search.core.config import load_secrets
-                key = load_secrets().rapidapi_key
-            except Exception:
-                pass
-        self._api_key = key
+        self._api_key = api_key or load_secrets().rapidapi_key
         self._quota_exhausted = False
 
     def search(self, keyword: str, location: str, limit: int = 15) -> list[dict[str, Any]]:
         results = []
         if not self._api_key:
-            logger.warning("[RapidAPI] No RAPIDAPI_KEY found; skipping provider.")
+            logger.warning("[RapidAPI] No RAPIDAPI_KEY in config/.env; skipping provider.")
             return results
         if self._quota_exhausted:
             logger.warning("[RapidAPI] Quota previously exhausted; skipping search for '{}'.", keyword)
@@ -318,7 +353,7 @@ class RapidApiProvider(BaseProvider):
                 if not title or not company:
                     continue
                 if not job_id:
-                    job_id = str(hash(f"{company}_{title}"))
+                    job_id = _stable_id(company, title, j.get("job_city"))
 
                 city = j.get("job_city", "")
                 country = j.get("job_country", "")

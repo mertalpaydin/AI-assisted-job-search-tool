@@ -391,3 +391,188 @@ def test_external_runner_web_routes(tmp_path: Path):
     # 3. Stop when not running
     r_stop = client.post("/runner/external/stop")
     assert r_stop.status_code == 302
+
+
+# ---------------------------------------------------------------------------
+# 4. Regression tests for review fixes
+# ---------------------------------------------------------------------------
+
+def _make_orchestrator(tmp_path: Path, provider: BaseProvider, li_db: Path | None = None) -> ExternalSearchOrchestrator:
+    ext_db = ExternalDatabaseManager(db_path=tmp_path / "ext.db")
+    orch = ExternalSearchOrchestrator(config=load_config("config/config.yaml"), external_db=ext_db)
+    orch.blocked_companies = frozenset()
+    orch.matcher = LinkedInMatcher(db_path=li_db or tmp_path / "missing_li.db")
+    orch.providers = {provider.name: provider}
+    return orch
+
+
+class _ListProvider(BaseProvider):
+    name = "listprov"
+
+    def __init__(self, jobs: list[dict[str, Any]]) -> None:
+        self.jobs = jobs
+
+    def search(self, keyword: str, location: str, limit: int = 10) -> list[dict[str, Any]]:
+        return [dict(j) for j in self.jobs]
+
+
+def _job(ext_id: str, title: str = "AI Solutions Architect", company: str = "Acme") -> dict[str, Any]:
+    return {"source": "listprov", "external_id": ext_id, "title": title, "company_name": company}
+
+
+def _run(orch: ExternalSearchOrchestrator) -> dict[str, Any]:
+    return orch.run_search(provider_names=["listprov"], keywords_override=["AI"], location_override="Frankfurt")
+
+
+def test_one_bad_job_does_not_drop_the_batch(tmp_path: Path):
+    provider = _ListProvider([_job("a"), _job("bad", company=""), _job("c")])
+    orch = _make_orchestrator(tmp_path, provider)
+
+    stats = _run(orch)
+
+    assert stats["errors"] == 1
+    assert stats["new_inserted"] == 2
+    ids = {j["external_id"] for j in orch.ext_db.get_jobs(prefilter_status=None)[0]}
+    assert ids == {"a", "c"}
+
+
+def test_stale_linkedin_match_is_cleared(tmp_path: Path, linkedin_db: Path):
+    provider = _ListProvider([_job("m1", company="Cisco Systems")])
+    orch = _make_orchestrator(tmp_path, provider, li_db=linkedin_db)
+    _run(orch)
+    job = orch.ext_db.get_jobs()[0][0]
+    assert job["matched_linkedin_job_id"] == 101
+
+    # Next run: the LinkedIn job is gone, so the posting no longer matches.
+    orch.matcher = LinkedInMatcher(db_path=tmp_path / "missing_li.db")
+    _run(orch)
+    job = orch.ext_db.get_job(job["id"])
+    assert job["matched_linkedin_job_id"] is None
+    assert job["matched_linkedin_status"] is None
+    assert job["matched_similarity"] is None
+
+
+def test_stable_id_is_deterministic_across_processes():
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "from job_search.scraping.external.providers import _stable_id;"
+        "print(_stable_id('Acme', 'AI Lead', 'Berlin'))"
+    )
+    outs = {
+        subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True,
+            env={**os.environ, "PYTHONHASHSEED": seed},
+        ).stdout.strip()
+        for seed in ("1", "2")
+    }
+    assert len(outs) == 1
+
+
+def test_indeed_provider_handles_nan_and_formats_salary(monkeypatch: pytest.MonkeyPatch):
+    import sys
+    import types
+
+    import pandas as pd
+
+    from job_search.scraping.external.providers import IndeedProvider, _stable_id
+
+    nan = float("nan")
+    df = pd.DataFrame([
+        {"id": nan, "title": "AI Lead", "company": "Acme", "location": "Berlin", "job_url": "https://x/1",
+         "description": nan, "date_posted": nan, "min_amount": 50000.0, "max_amount": 65000.0,
+         "currency": "EUR", "interval": "yearly"},
+        {"id": "in-2", "title": "ML Engineer", "company": nan, "location": nan, "job_url": nan,
+         "description": nan, "date_posted": nan, "min_amount": nan, "max_amount": nan,
+         "currency": nan, "interval": nan},
+    ])
+    fake = types.ModuleType("jobspy")
+    fake.scrape_jobs = lambda **kwargs: df
+    monkeypatch.setitem(sys.modules, "jobspy", fake)
+
+    results = IndeedProvider(delay_between_calls=0).search("AI", "Berlin", limit=5)
+
+    assert len(results) == 1  # the row without a company is skipped
+    job = results[0]
+    assert job["external_id"] == _stable_id("Acme", "AI Lead", "Berlin")
+    assert job["description"] == ""
+    assert job["posted_at"] is None
+    assert job["salary_info"] == "EUR 50,000 - 65,000 / yearly"
+    assert "nan" not in {str(v) for v in job.values()}
+
+
+def test_matcher_rejects_short_and_substring_companies(tmp_path: Path):
+    db_path = tmp_path / "li.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE jobs (job_id INTEGER PRIMARY KEY, title TEXT, company_name TEXT, "
+                 "application_status TEXT, is_selected INTEGER, cv_match_score REAL)")
+    conn.executemany("INSERT INTO jobs VALUES (?, ?, ?, 'pending', NULL, NULL)", [
+        (1, "Data Scientist", "Sapient"),
+        (2, "Data Scientist", "AG"),  # normalizes to an empty name
+    ])
+    conn.commit()
+    conn.close()
+    matcher = LinkedInMatcher(db_path=db_path)
+
+    assert matcher.find_match("SAP", "Data Scientist") is None
+    assert matcher.find_match("GmbH", "Data Scientist") is None
+    assert matcher.find_match("Sapient GmbH", "Data Scientist")["matched_linkedin_job_id"] == 1
+
+
+def test_language_backfill_runs_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    db_path = tmp_path / "ext.db"
+    ExternalDatabaseManager(db_path=db_path)
+    conn = sqlite3.connect(str(db_path))
+    assert conn.execute("PRAGMA user_version").fetchone()[0] >= 1
+    conn.close()
+
+    calls = []
+    monkeypatch.setattr(ExternalDatabaseManager, "_backfill_language", staticmethod(lambda c: calls.append(c)))
+    ExternalDatabaseManager(db_path=db_path)
+    assert calls == []
+
+
+@pytest.fixture
+def _external_ai(monkeypatch: pytest.MonkeyPatch, config_dir: Path):
+    """external_ai with a real PromptManager on test config and a fake Gemini client."""
+    from types import SimpleNamespace
+
+    from job_search.ai import external_ai
+    from job_search.ai.prompt_manager import PromptManager
+
+    monkeypatch.setattr(external_ai, "PromptManager", lambda: PromptManager(
+        prompts_path=str(config_dir / "prompts.yaml"),
+        cv_path=str(config_dir / "cv.yaml"),
+        draft_cover_letter_path=str(config_dir / "missing_draft.txt"),
+    ))
+    monkeypatch.setattr(external_ai, "load_secrets", lambda: SimpleNamespace(gemini_api_keys=["test-key"]))
+
+    replies: list[str] = []
+    fake_client = SimpleNamespace(models=SimpleNamespace(
+        generate_content=lambda **kw: SimpleNamespace(text=replies.pop(0))
+    ))
+    monkeypatch.setattr(external_ai.genai, "Client", lambda api_key: fake_client)
+    return external_ai, replies
+
+
+_EXT_JOB = {"id": 1, "title": "AI Lead", "company_name": "Acme", "location": "Berlin", "description": "Build AI."}
+
+
+def test_screen_external_job_runs(_external_ai):
+    external_ai, replies = _external_ai
+    replies.append('{"cv_match_score": 0.8, "archetype": "a", "reasoning": "fits"}')
+
+    res = external_ai.screen_external_job(_EXT_JOB, config=load_config("config/config.yaml"))
+
+    assert res == {"cv_match_score": 0.8, "archetype": "A", "screening_reasoning": "fits"}
+
+
+def test_generate_external_cover_letter_runs(_external_ai):
+    external_ai, replies = _external_ai
+    replies.append("Dear Hiring Team,\n\nI am applying.")
+
+    text = external_ai.generate_external_cover_letter(_EXT_JOB, config=load_config("config/config.yaml"))
+
+    assert "I am applying." in text

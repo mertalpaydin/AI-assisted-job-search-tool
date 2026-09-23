@@ -17,6 +17,7 @@ dependencies = [
     "llama-cpp-python>=0.3.0",
     "flask>=3.0.0",
     "pypdf>=3.0.0",
+    "python-jobspy>=1.1.80",
 ]
 
 [project.optional-dependencies]

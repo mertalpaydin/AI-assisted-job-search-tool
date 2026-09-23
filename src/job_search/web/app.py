@@ -28,6 +28,7 @@ from job_search.core.database import (
     CLEAN_ORDERS,
     DatabaseManager,
 )
+from job_search.scraping.external.orchestrator import DEFAULT_PROVIDERS
 from job_search.utils.formatting import clean_cover_letter_text
 
 # Flask finds templates relative to this file's directory
@@ -1626,7 +1627,7 @@ def runner_logs():
 
 @app.route("/runner/external/start", methods=["POST"])
 def runner_external_start():
-    providers = request.form.getlist("providers") or ["indeed", "arbeitsagentur"]
+    providers = request.form.getlist("providers") or list(DEFAULT_PROVIDERS)
     limit = int(request.form.get("limit", 10) or 10)
     keyword_override = request.form.get("keyword", "").strip() or None
     location_override = request.form.get("location", "").strip() or None
@@ -1979,7 +1980,7 @@ def external_job_assistant_clear(job_id: int):
 
 @app.route("/external-jobs/run-search", methods=["POST"])
 def run_external_search_route():
-    providers = request.form.getlist("providers") or ["indeed", "arbeitsagentur"]
+    providers = request.form.getlist("providers") or list(DEFAULT_PROVIDERS)
     limit = int(request.form.get("limit", 10) or 10)
     keyword_override = request.form.get("keyword", "").strip() or None
     location_override = request.form.get("location", "").strip() or None
