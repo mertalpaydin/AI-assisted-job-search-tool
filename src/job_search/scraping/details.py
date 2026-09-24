@@ -16,9 +16,11 @@ from job_search.scraping.auth import make_headers
 from job_search.scraping.models import CompanyData, ParsedJobDetails
 from job_search.utils.language import detect_language
 
-class _JobNotFoundError(Exception):
+class JobNotFoundError(Exception):
+    """LinkedIn returned 404: the posting no longer exists."""
+
     def __init__(self, job_id: int) -> None:
-        super().__init__(f"Job {job_id} returned 404 — deleted from DB")
+        super().__init__(f"Job {job_id} returned 404 — no longer on LinkedIn")
         self.job_id = job_id
 
 
@@ -124,6 +126,55 @@ def _parse_details_response(job_id: int, response: dict) -> ParsedJobDetails:
     return ParsedJobDetails(job_id=job_id, job_fields=job_fields, company=company)
 
 
+def fetch_job_details(
+    session: requests.Session,
+    job_id: int,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Fetch one job's full record from the Voyager API.
+
+    Returns the job fields ready for DatabaseManager.update_job_details,
+    including company size and detected ad language. Raises JobNotFoundError
+    on 404 and RuntimeError on any other non-200 response. No filtering or
+    database writes happen here; callers decide what to do with the result.
+    """
+    url = _DETAILS_URL.format(job_id=job_id)
+    resp = session.get(url, headers=headers or make_headers(session), timeout=15)
+
+    if resp.status_code == 404:
+        raise JobNotFoundError(job_id)
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"HTTP {resp.status_code} for job {job_id}: {resp.text}"
+        )
+
+    parsed = _parse_details_response(job_id, resp.json())
+    fields = parsed.job_fields
+
+    if parsed.company:
+        cf = parsed.company.fields
+        fields["company_name"] = cf.get("name")
+        fields["company_url"] = cf.get("url")
+        fields["company_staff_count"] = cf.get("staffCount")
+        fields["company_universal_name"] = cf.get("universalName")
+
+        # Two different numbers, and they disagree badly. staffCount is how
+        # many LinkedIn members list the company as their employer;
+        # staffCountRange is the band the company declares, which is what
+        # its About page shows. gategroup declares 10,001+ and has 2,457
+        # members. Keep both: the band is authoritative for size but
+        # saturates at 10,001+, so the count is the only thing that
+        # separates a 20k employer from a 700k one.
+        start, end = _staff_range(cf.get("staffCountRange"))
+        fields["company_staff_range_start"] = start
+        fields["company_staff_range_end"] = end
+
+    lang, ratio = detect_language(fields.get("description"))
+    fields["detected_language"] = lang
+    fields["german_stopword_ratio"] = ratio
+    return fields
+
+
 class DetailsWorker:
     """
     Pulls job IDs from the details queue, fetches full job data from the
@@ -175,7 +226,7 @@ class DetailsWorker:
             try:
                 self._fetch_and_save(job_id)
                 self._error_count = 0
-            except _JobNotFoundError:
+            except JobNotFoundError:
                 logger.debug("Job {} no longer exists on LinkedIn — removing from DB", job_id)
                 self._db.delete_job(job_id)
             except Exception as exc:
@@ -195,48 +246,18 @@ class DetailsWorker:
         logger.info("Details worker stopped")
 
     def _fetch_and_save(self, job_id: int) -> None:
-        url = _DETAILS_URL.format(job_id=job_id)
-        resp = self._session.get(url, headers=self._headers, timeout=15)
+        fields = fetch_job_details(self._session, job_id, self._headers)
 
-        if resp.status_code == 404:
-            raise _JobNotFoundError(job_id)
-        if resp.status_code != 200:
-            raise RuntimeError(
-                f"HTTP {resp.status_code} for job {job_id}: {resp.text}"
-            )
-
-        parsed = _parse_details_response(job_id, resp.json())
-
-        if parsed.company:
-            cf = parsed.company.fields
-            parsed.job_fields["company_name"] = cf.get("name")
-            parsed.job_fields["company_url"] = cf.get("url")
-            parsed.job_fields["company_staff_count"] = cf.get("staffCount")
-            parsed.job_fields["company_universal_name"] = cf.get("universalName")
-
-            # Two different numbers, and they disagree badly. staffCount is how
-            # many LinkedIn members list the company as their employer;
-            # staffCountRange is the band the company declares, which is what
-            # its About page shows. gategroup declares 10,001+ and has 2,457
-            # members. Keep both: the band is authoritative for size but
-            # saturates at 10,001+, so the count is the only thing that
-            # separates a 20k employer from a 700k one.
-            start, end = _staff_range(cf.get("staffCountRange"))
-            parsed.job_fields["company_staff_range_start"] = start
-            parsed.job_fields["company_staff_range_end"] = end
-
-        company_name: str | None = parsed.job_fields.get("company_name")
+        company_name: str | None = fields.get("company_name")
         if company_name and company_name.lower() in self._blocked_companies:
             logger.debug("Blocked company '{}' — deleting job {}", company_name, job_id)
             self._db.delete_job(job_id)
             return
 
-        desc = parsed.job_fields.get("description")
-        lang, ratio = detect_language(desc)
-        parsed.job_fields["detected_language"] = lang
-        parsed.job_fields["german_stopword_ratio"] = ratio
+        lang = fields["detected_language"]
+        ratio = fields["german_stopword_ratio"]
 
-        self._db.update_job_details(job_id, parsed.job_fields)
+        self._db.update_job_details(job_id, fields)
 
         # If this job came from a remote-only geo search but LinkedIn says it's
         # not remote, the API filter didn't apply correctly — discard it.
@@ -252,9 +273,9 @@ class DetailsWorker:
         # Deterministic checks that need the full record. A match records the
         # reason and skips the screening call; the row is kept for auditing.
         reason = self._prefilter.reason(
-            employment_status=parsed.job_fields.get("formattedEmploymentStatus"),
-            experience_level=parsed.job_fields.get("formattedExperienceLevel"),
-            description=parsed.job_fields.get("description"),
+            employment_status=fields.get("formattedEmploymentStatus"),
+            experience_level=fields.get("formattedExperienceLevel"),
+            description=fields.get("description"),
         )
         if reason:
             self._db.mark_prefiltered(job_id, reason)
@@ -267,9 +288,9 @@ class DetailsWorker:
         auto_cfg = self._config.screening.auto_screen
         if auto_cfg.enabled:
             eligible = is_auto_screen_eligible(
-                company_staff_count=parsed.job_fields.get("company_staff_count"),
-                company_staff_range_start=parsed.job_fields.get("company_staff_range_start"),
-                company_staff_range_end=parsed.job_fields.get("company_staff_range_end"),
+                company_staff_count=fields.get("company_staff_count"),
+                company_staff_range_start=fields.get("company_staff_range_start"),
+                company_staff_range_end=fields.get("company_staff_range_end"),
                 detected_language=lang,
                 german_stopword_ratio=ratio,
                 min_company_size=auto_cfg.min_company_size,

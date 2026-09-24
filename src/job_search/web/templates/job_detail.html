@@ -202,7 +202,15 @@
     </a>
     {% endif %}
 
-    {% if job.cv_match_score is none %}
+    {% if not job.description %}
+    <form method="post" action="/jobs/{{ job.job_id }}/fetch-details" class="d-inline ms-2">
+      <input type="hidden" name="source" value="detail">
+      <button type="submit" class="btn btn-sm btn-outline-info" title="Fetch the full job details from LinkedIn"
+              onclick="this.disabled=true; this.innerHTML='Fetching…'; this.form.submit();">
+        <i class="bi bi-cloud-download me-1"></i>Get Details
+      </button>
+    </form>
+    {% elif job.cv_match_score is none %}
     <form method="post" action="/jobs/{{ job.job_id }}/screen" class="d-inline ms-2">
       <input type="hidden" name="source" value="detail">
       <button type="submit" class="btn btn-sm btn-outline-warning" title="Screen this job on demand with AI">
@@ -364,7 +372,30 @@
           </div>
         </div>
 
-        {% if job.cv_match_score is none %}
+        {% if not job.description %}
+        <hr class="border-secondary opacity-25">
+        <div class="p-3 rounded bg-dark border border-secondary d-flex justify-content-between align-items-center flex-wrap gap-3">
+          <div>
+            <div class="fw-semibold text-info mb-1">
+              <i class="bi bi-cloud-slash me-1"></i>Job Details Not Fetched
+            </div>
+            <div class="small text-muted">
+              {% if job.prefilter_reason %}
+                The title prefilter rejected this job before its details were scraped.
+              {% else %}
+                This job's details have not been scraped yet.
+              {% endif %}
+              Fetch them from LinkedIn to see the description and screen it.
+            </div>
+          </div>
+          <form method="post" action="/jobs/{{ job.job_id }}/fetch-details" class="m-0">
+            <input type="hidden" name="source" value="detail">
+            <button type="submit" class="btn btn-info btn-sm px-3 shadow-sm" onclick="this.disabled=true; this.innerText='Fetching...'; this.form.submit();">
+              <i class="bi bi-cloud-download me-1"></i>Get Details
+            </button>
+          </form>
+        </div>
+        {% elif job.cv_match_score is none %}
         <hr class="border-secondary opacity-25">
         <div class="p-3 rounded bg-dark border border-secondary d-flex justify-content-between align-items-center flex-wrap gap-3">
           <div>

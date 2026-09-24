@@ -1106,6 +1106,51 @@ def screen_job_now(job_id: int):
     return _redirect_back(request.form, job_id)
 
 
+@app.route("/jobs/<int:job_id>/fetch-details", methods=["POST"])
+def fetch_job_details_now(job_id: int):
+    """Fetch LinkedIn details for one job on demand.
+
+    For jobs the title prefilter rejected before their details were scraped:
+    without a description, screening them has nothing to work with. Unlike the
+    pipeline's details worker this never deletes the job (blocked company,
+    404) or re-applies prefilters — the user asked for this one explicitly, so
+    the job and its existing prefilter reason are left as they are.
+    """
+    if _config is None:
+        abort(500, "Configuration not loaded")
+    db = get_db()
+    if db.get_job_details(job_id) is None:
+        abort(404, f"Job #{job_id} not found")
+
+    from job_search.core.session_store import load_session
+    from job_search.scraping.details import JobNotFoundError, fetch_job_details
+
+    session = load_session(_config.auth.session_file)
+    if session is None:
+        flash("No saved LinkedIn session. Run `uv run job-search login`, then try again.", "danger")
+        return _redirect_back(request.form, job_id)
+
+    try:
+        fields = fetch_job_details(session, job_id)
+    except JobNotFoundError:
+        flash(f"Job #{job_id} no longer exists on LinkedIn; nothing to fetch.", "warning")
+        return _redirect_back(request.form, job_id)
+    except Exception as exc:
+        hint = " Your LinkedIn session may have expired: run `uv run job-search login`." \
+            if " 401 " in f" {exc} " or " 403 " in f" {exc} " else ""
+        flash(f"Could not fetch details for job #{job_id}: {str(exc)[:200]}.{hint}", "danger")
+        return _redirect_back(request.form, job_id)
+
+    db.update_job_details(job_id, fields)
+    flash(f"Details fetched for job #{job_id}. You can screen it now.", "success")
+
+    company = (fields.get("company_name") or "").strip()
+    if company and company.lower() in {c.lower() for c in _config.search.blocked_companies}:
+        flash(f"Note: '{company}' is on your blocked companies list.", "warning")
+
+    return _redirect_back(request.form, job_id)
+
+
 @app.route("/jobs/batch-screen", methods=["POST"])
 def batch_screen_jobs():
     global _config
