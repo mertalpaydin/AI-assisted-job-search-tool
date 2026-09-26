@@ -10,6 +10,20 @@
 param([switch]$Remove)
 
 $ErrorActionPreference = "Stop"
+# Ensure script runs with Administrator privileges so triggers (Logon, Event) and operational logs can be configured
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    try {
+        $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"")
+        if ($Remove) { $argList += "-Remove" }
+        $proc = Start-Process powershell.exe -ArgumentList $argList -Verb RunAs -Wait -PassThru -ErrorAction Stop
+        exit $proc.ExitCode
+    } catch {
+        # Self-elevation via UI prompt is not supported in non-interactive/background console runners.
+        Write-Host "Running with current user privileges."
+    }
+}
+
 $repo = Split-Path -Parent $PSScriptRoot
 $bat  = Join-Path $repo "scripts\scheduled_run.bat"
 $prefix = "JobSearch"
@@ -18,25 +32,26 @@ $prefix = "JobSearch"
 # task, so the second leg starts when the first actually finishes rather than
 # after a guessed 15-minute gap that scraping twice overran.
 #
-# Catchup runs the SAME mode at logon. On a laptop the 07:00 trigger is usually
-# missed because the machine is asleep, and StartWhenAvailable did not reliably
-# recover it — scraping silently stopped happening for days at a time. Both
-# triggers are guarded by --once-daily, so whichever gets there first does the
-# work and the other exits immediately.
+# Catchup runs the SAME mode upon waking from sleep or hibernation (WakeResume)
+# or at logon (Catchup). On a laptop the 07:00 trigger is usually missed because
+# the machine is asleep or hibernating, and StartWhenAvailable did not reliably
+# recover it. All daily triggers are guarded by --once-daily, so whichever gets
+# there first does the work and the others exit immediately.
 $tasks = @(
-    @{ Name = "$prefix-Daily";   Mode = "daily";   Trigger = "Daily 07:00" },
-    @{ Name = "$prefix-Catchup"; Mode = "daily";   Trigger = "AtLogOn" },
-    @{ Name = "$prefix-Collect";  Mode = "collect";  Trigger = "Daily 08:00, 20:00" },
-    @{ Name = "$prefix-Clean";    Mode = "clean";    Trigger = "Weekly Sunday 03:00" },
-    @{ Name = "$prefix-External"; Mode = "external"; Trigger = "Weekly Sunday 08:00" }
+    @{ Name = "$prefix-Daily";      Mode = "daily";    Trigger = "Daily 07:00" },
+    @{ Name = "$prefix-WakeResume"; Mode = "daily";    Trigger = "AtResume" },
+    @{ Name = "$prefix-Catchup";    Mode = "daily";    Trigger = "AtLogOn" },
+    @{ Name = "$prefix-Collect";    Mode = "collect";   Trigger = "Daily 08:00, 20:00" },
+    @{ Name = "$prefix-Clean";      Mode = "clean";     Trigger = "Weekly Sunday 03:00" },
+    @{ Name = "$prefix-External";   Mode = "external";  Trigger = "Weekly Sunday 08:00" }
 )
 
-# Remove every existing JobSearch-* task, not just the ones in $tasks, so a
-# renamed or dropped task (e.g. an old separate Screen/CoverLetter) cannot be
-# left orphaned and firing on its old schedule.
+# Remove orphaned JobSearch-* tasks, but leave currently active ones in place
 Get-ScheduledTask -TaskName "$prefix-*" -ErrorAction SilentlyContinue | ForEach-Object {
-    Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false
-    Write-Host "removed $($_.TaskName)"
+    if ($Remove -or ($tasks.Name -notcontains $_.TaskName)) {
+        Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false
+        Write-Host "removed $($_.TaskName)"
+    }
 }
 if ($Remove) { Write-Host "All JobSearch tasks removed."; exit 0 }
 
@@ -75,15 +90,34 @@ function New-Trigger($spec) {
             $t.Delay = "PT5M"
             return $t
         }
+        "AtResume" {
+            # Two minutes after waking from sleep or hibernation (S4 / Modern Standby),
+            # allowing network (Wi-Fi) to reconnect.
+            # Event ID 1: Microsoft-Windows-Power-Troubleshooter (returned from low power state / hibernation)
+            # Event ID 107/507: Microsoft-Windows-Kernel-Power (resumed from sleep / exiting Modern Standby)
+            $class = Get-CimClass -Namespace "Root/Microsoft/Windows/TaskScheduler" -ClassName MSFT_TaskEventTrigger
+            $query = "<QueryList><Query Id='0' Path='System'><Select Path='System'>*[System[Provider[@Name='Microsoft-Windows-Power-Troubleshooter'] and EventID=1]]</Select><Select Path='System'>*[System[Provider[@Name='Microsoft-Windows-Kernel-Power'] and (EventID=107 or EventID=507)]]</Select></Query></QueryList>"
+            return New-CimInstance -CimClass $class -ClientOnly -Property @{
+                Enabled      = $true
+                Subscription = $query
+                Delay        = "PT2M"
+            }
+        }
     }
 }
+
+$user = $env:USERNAME
 
 foreach ($t in $tasks) {
     $action  = New-ScheduledTaskAction -Execute $bat -Argument $t.Mode -WorkingDirectory $repo
     $trigger = New-Trigger $t.Trigger
-    Register-ScheduledTask -TaskName $t.Name -Action $action -Trigger $trigger `
-        -Settings $settings -Description "AI job search: $($t.Mode)" -Force | Out-Null
-    Write-Host "registered $($t.Name)  ($($t.Trigger))"
+    try {
+        Register-ScheduledTask -TaskName $t.Name -Action $action -Trigger $trigger `
+            -Settings $settings -User $user -Description "AI job search: $($t.Mode)" -Force | Out-Null
+        Write-Host "registered $($t.Name)  ($($t.Trigger))"
+    } catch {
+        Write-Warning "Could not register $($t.Name): $($_.Exception.Message)"
+    }
 }
 
 # Windows keeps no record of why a task did not fire unless this log is on, and

@@ -306,12 +306,12 @@ powershell -ExecutionPolicy Bypass -File scripts/install_tasks.ps1
 | Task | Trigger | What it runs |
 |------|---------|--------------|
 | `JobSearch-Daily` | Daily 07:00 | Scrape (1h), then **scrape-details-then-screen** + cover letters (2h) |
-| `JobSearch-Catchup` | 5 min after logon | The same daily work, skipped if 07:00 already did it |
+| `JobSearch-Catchup` | 5 min after logon / 2 min after wake from hibernation or sleep | The same daily work, skipped if 07:00 already did it |
 | `JobSearch-Collect` | Twice daily (08:00, 20:00) | `batch collect` — writes back finished screening batches |
 | `JobSearch-Clean` | Weekly, Sunday 03:00 | Expiry sweep, bounded by `cleaner.scheduled_max_runtime_hours` (2h) |
 | `JobSearch-External` | Weekly, Sunday 08:00 | `external-search --scheduled` — Indeed + Arbeitsagentur |
 
-**Two triggers for one job, because a laptop is not a server.** The 07:00 trigger is missed whenever the machine is asleep, and `StartWhenAvailable` did not reliably recover it — scraping silently stopped happening for days. The logon trigger closes that gap. Both legs carry `--once-daily`, so whichever fires first does the work and the other exits immediately; if scraping succeeded but screening died, the catch-up re-runs only the screening. State lives in `data/last_run.json`, keyed by leg and compared on the calendar date.
+**Multiple triggers for one job, because a laptop is not a server.** The 07:00 trigger is missed whenever the machine is asleep or hibernating, and `StartWhenAvailable` did not reliably recover it — scraping silently stopped happening for days. The catchup task closes that gap by triggering both at user logon (5 min delay) and whenever the system resumes from sleep or hibernation (2 min delay to allow Wi-Fi to reconnect). Both legs carry `--once-daily`, so whichever fires first does the work and the other exits immediately; if scraping succeeded but screening died, the catch-up re-runs only the screening. State lives in `data/last_run.json`, keyed by leg and compared on the calendar date.
 
 Scrape and screen run **in sequence within one task** rather than as two tasks 15 minutes apart. The old gap assumed scraping always finished inside its hour; twice it did not, and screening exited with *"another run is already in progress"* instead of running.
 
