@@ -68,7 +68,7 @@ class ExternalSearchOrchestrator:
         provider_names: list[str] | None = None,
         keywords_override: list[str] | None = None,
         location_override: str | None = None,
-        limit_per_search: int = 10,
+        limit_per_search: int = 30,
         progress_callback: Callable[[str], None] | None = None,
         should_stop: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:

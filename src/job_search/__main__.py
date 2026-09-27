@@ -876,7 +876,7 @@ def web(config: str, host: str, port: int, debug: bool) -> None:
 )
 @click.option("--keyword", "-k", multiple=True, help="Override search keywords (default: all keywords from config)")
 @click.option("--location", "-l", default=None, help="Override search location (default: location from config)")
-@click.option("--limit", type=int, default=10, show_default=True, help="Max results per query per provider")
+@click.option("--limit", type=int, default=30, show_default=True, help="Max results per query per provider")
 @click.option("--scheduled", is_flag=True, default=False, help="Mark as a scheduled run")
 @click.option("--log-level", default=None, help="Override log level (DEBUG, INFO, WARNING, ERROR)")
 def external_search(

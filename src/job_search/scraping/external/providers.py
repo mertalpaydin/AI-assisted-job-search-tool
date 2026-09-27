@@ -62,7 +62,7 @@ class BaseProvider:
 
     name: str = "base"
 
-    def search(self, keyword: str, location: str, limit: int = 15) -> list[dict[str, Any]]:
+    def search(self, keyword: str, location: str, limit: int = 30) -> list[dict[str, Any]]:
         raise NotImplementedError
 
 
@@ -74,7 +74,7 @@ class IndeedProvider(BaseProvider):
     def __init__(self, delay_between_calls: float = 2.0) -> None:
         self._delay = delay_between_calls
 
-    def search(self, keyword: str, location: str, limit: int = 15) -> list[dict[str, Any]]:
+    def search(self, keyword: str, location: str, limit: int = 30) -> list[dict[str, Any]]:
         results = []
         try:
             from jobspy import scrape_jobs
@@ -133,7 +133,7 @@ class ArbeitsagenturProvider(BaseProvider):
     BASE_URL = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service"
     HEADERS = {"X-API-Key": "jobboerse-jobsuche", "User-Agent": "Mozilla/5.0"}
 
-    def search(self, keyword: str, location: str, limit: int = 15) -> list[dict[str, Any]]:
+    def search(self, keyword: str, location: str, limit: int = 30) -> list[dict[str, Any]]:
         results = []
         try:
             logger.info("[Arbeitsagentur] Searching for '{}' in '{}'...", keyword, location)
@@ -226,7 +226,7 @@ class SerpApiProvider(BaseProvider):
         self._api_key = api_key or load_secrets().serpapi_api_key
         self._quota_exhausted = False
 
-    def search(self, keyword: str, location: str, limit: int = 15) -> list[dict[str, Any]]:
+    def search(self, keyword: str, location: str, limit: int = 30) -> list[dict[str, Any]]:
         results = []
         if not self._api_key:
             logger.warning("[SerpApi] No SERPAPI_API_KEY in config/.env; skipping provider.")
@@ -307,7 +307,7 @@ class RapidApiProvider(BaseProvider):
         self._api_key = api_key or load_secrets().rapidapi_key
         self._quota_exhausted = False
 
-    def search(self, keyword: str, location: str, limit: int = 15) -> list[dict[str, Any]]:
+    def search(self, keyword: str, location: str, limit: int = 30) -> list[dict[str, Any]]:
         results = []
         if not self._api_key:
             logger.warning("[RapidAPI] No RAPIDAPI_KEY in config/.env; skipping provider.")

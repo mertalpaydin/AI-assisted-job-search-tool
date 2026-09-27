@@ -1591,7 +1591,7 @@ def _tail_log_file(log_path: Path, max_lines: int = 200) -> str:
 
 def start_external_search_background(
     providers: list[str],
-    limit: int = 10,
+    limit: int = 30,
     keyword_override: str | None = None,
     location_override: str | None = None,
 ) -> bool:
@@ -1673,7 +1673,7 @@ def runner_logs():
 @app.route("/runner/external/start", methods=["POST"])
 def runner_external_start():
     providers = request.form.getlist("providers") or list(DEFAULT_PROVIDERS)
-    limit = int(request.form.get("limit", 10) or 10)
+    limit = int(request.form.get("limit", 30) or 30)
     keyword_override = request.form.get("keyword", "").strip() or None
     location_override = request.form.get("location", "").strip() or None
 
