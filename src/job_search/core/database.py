@@ -85,7 +85,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 
     detected_language TEXT,
     german_stopword_ratio REAL,
-    assistant_chat_file TEXT
+    assistant_chat_file TEXT,
+    user_notes TEXT
 );
 
 CREATE TABLE IF NOT EXISTS screening_results (
@@ -215,6 +216,7 @@ class JobRow:
     company_staff_range_end: int | None = None
     detected_language: str | None = None
     german_stopword_ratio: float | None = None
+    user_notes: str | None = None
 
     @property
     def is_easy_apply(self) -> bool:
@@ -1243,7 +1245,8 @@ class DatabaseManager:
                        workRemoteAllowed, formattedExperienceLevel, jobPostingUrl,
                        company_name, scraped, archetype,
                        formattedEmploymentStatus, formattedJobFunctions,
-                       formattedIndustries, company_staff_count
+                       formattedIndustries, company_staff_count,
+                       user_notes
                 FROM jobs
                 WHERE job_id = ?
             """, (job_id,))

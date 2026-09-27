@@ -344,6 +344,7 @@ class PromptManager:
         job_location: str | None,
         job_description: str | None,
         archetype: str | None = None,
+        user_notes: str | None = None,
     ) -> tuple[str, str]:
         """Return (system_prompt, user_prompt) for cover letter generation.
 
@@ -361,6 +362,9 @@ class PromptManager:
             "{archetype_guidance}", self.archetype_guidance(archetype)
         ).strip()
 
+        notes_str = (user_notes or "").strip()
+        rendered_notes = self._escape(notes_str) if notes_str else "(No additional notes provided.)"
+
         user = cfg["user_prompt_template"].format(
             cv_text=self._escape(self._cv_text),
             draft_cover_letter=self._escape(self._draft_cover_letter),
@@ -371,5 +375,10 @@ class PromptManager:
             archetype=self._escape(_ARCHETYPE_DESCRIPTIONS[key]),
             narrative=self._escape(self.render_narrative(archetype)
                                    or "(No narrative material provided.)"),
+            user_notes=rendered_notes,
         )
+
+        if "{user_notes}" not in cfg["user_prompt_template"] and notes_str:
+            user += f"\n\n--- CANDIDATE'S ADDITIONAL NOTES & INSTRUCTIONS FOR THIS JOB ---\n{self._escape(notes_str)}\n"
+
         return system, user

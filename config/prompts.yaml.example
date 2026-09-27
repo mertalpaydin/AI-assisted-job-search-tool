@@ -104,6 +104,11 @@ cover_letter:
        project or degree at most once, then say something new about it.
     10. ROLE-SPECIFIC EMPHASIS. The posting has been classified into one role
         family. The guidance below decides what the letter leads with.
+    11. CANDIDATE'S CUSTOM INSTRUCTIONS: If custom notes or instructions are
+        provided under 'CANDIDATE'S ADDITIONAL NOTES & INSTRUCTIONS FOR THIS JOB',
+        treat them with high priority. Follow and incorporate these job-specific
+        directives (such as emphasizing specific projects, skills, angles, or tone
+        adjustments), as long as they align with truthfulness to the CV.
 
     {archetype_guidance}
 
@@ -145,6 +150,10 @@ cover_letter:
     Role family (archetype): {archetype}
     Description:
     {job_description}
+
+    --- CANDIDATE'S ADDITIONAL NOTES & INSTRUCTIONS FOR THIS JOB ---
+    {user_notes}
+
 
 # ---------------------------------------------------------------------------
 # Recruiter message

@@ -125,6 +125,28 @@ class TestCoverLetterPrompt:
         _, user = pm.format_cover_letter_prompt("Dev", "Co", "loc", long_desc)
         assert "y" * 5000 in user
 
+    def test_user_prompt_contains_custom_instructions(self, pm: PromptManager) -> None:
+        """Cover letter prompt includes candidate custom instructions when provided."""
+        _, user = pm.format_cover_letter_prompt(
+            "Dev", "Co", "loc", "desc",
+            user_notes="Emphasize Kubernetes leadership and talk about cloud cost reduction."
+        )
+        assert "Emphasize Kubernetes leadership and talk about cloud cost reduction." in user
+        assert "CANDIDATE'S ADDITIONAL NOTES & INSTRUCTIONS FOR THIS JOB" in user
+
+    def test_user_prompt_empty_custom_instructions_fallback(self, pm: PromptManager) -> None:
+        """When no instructions are provided, graceful fallback text is rendered."""
+        _, user = pm.format_cover_letter_prompt("Dev", "Co", "loc", "desc", user_notes=None)
+        assert "No additional notes provided" in user
+
+    def test_user_prompt_handles_braces_in_custom_instructions(self, pm: PromptManager) -> None:
+        """Braces in custom instructions do not cause str.format syntax errors."""
+        _, user = pm.format_cover_letter_prompt(
+            "Dev", "Co", "loc", "desc",
+            user_notes="Mention JSON config {key: value} and {{double braces}} safely."
+        )
+        assert "{key: value}" in user
+
 
 class TestRecruiterMessagePrompt:
     """Two lengths share one instruction set; only one guidance block is sent."""

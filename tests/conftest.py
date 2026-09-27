@@ -86,6 +86,8 @@ MINIMAL_PROMPTS_YAML = textwrap.dedent("""\
         Location: {job_location}
         Description: {job_description}
         Family: {archetype}
+        --- CANDIDATE'S ADDITIONAL NOTES & INSTRUCTIONS FOR THIS JOB ---
+        {user_notes}
     recruiter_message:
       system_prompt: |
         You write recruiter outreach messages.

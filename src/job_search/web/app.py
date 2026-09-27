@@ -631,9 +631,38 @@ def clean_jobs():
 @app.route("/jobs/<int:job_id>/notes", methods=["POST"])
 def update_notes(job_id: int):
     db = get_db()
+    if db.get_selected_job(job_id) is None:
+        abort(404)
     notes = request.form.get("notes", "").strip()
     db.update_user_notes(job_id, notes if notes else None)
-    return redirect(url_for("job_detail", job_id=job_id))
+
+    action = request.form.get("action", "save")
+    if action == "save_and_regenerate":
+        # 1. Clear existing cover letter record & export files
+        db.prepare_cover_letter_regeneration(job_id)
+        from job_search.export.exporter import delete_cover_letter_export
+        project_root = Path(app.root_path).parents[2]
+        delete_cover_letter_export(db, job_id, output_dir=str(project_root / "data" / "export"))
+
+        # 2. Push job into live runner queue if active
+        global _runner_coordinator, _runner_thread
+        enqueued = False
+        if _runner_coordinator is not None and _runner_thread is not None and _runner_thread.is_alive():
+            try:
+                _runner_coordinator._cover_letter_queue.put(job_id)
+                enqueued = True
+            except Exception as exc:
+                from loguru import logger
+                logger.warning("Could not push job {} to live queue: {}", job_id, exc)
+
+        if enqueued:
+            flash(f"Instructions saved and cover letter reset for job #{job_id}! Pushed to live generation queue.", "success")
+        else:
+            flash(f"Instructions saved and cover letter reset for job #{job_id} (marked approved). Start the runner to generate.", "info")
+    else:
+        flash("Cover letter instructions saved.", "success")
+
+    return _redirect_back(request.form, job_id)
 
 
 @app.route("/jobs/<int:job_id>/cover-letter/update", methods=["POST"])
@@ -968,6 +997,7 @@ def cover_letter_prompt(job_id: int):
         job_location=job.formattedLocation,
         job_description=job.description,
         archetype=job.archetype,
+        user_notes=job.user_notes,
     )
     combined = (
         "===== SYSTEM PROMPT =====\n\n" + system

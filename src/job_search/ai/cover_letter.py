@@ -148,6 +148,7 @@ class CoverLetterWorker:
                     job_location=job.formattedLocation,
                     job_description=job.description,
                     archetype=job.archetype,
+                    user_notes=job.user_notes,
                 )
 
                 async for attempt in AsyncRetrying(

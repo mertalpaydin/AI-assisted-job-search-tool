@@ -56,6 +56,16 @@ class TestJobOperations:
         job = next((j for j in jobs if j.job_id == 3005), None)
         assert job is not None
 
+    def test_update_user_notes_and_get_job_details(self, db: DatabaseManager) -> None:
+        db.insert_job(3006, "kw", "loc")
+        db.update_job_details(3006, {"title": "Dev"})
+        assert db.get_job_details(3006).user_notes is None
+        db.update_user_notes(3006, "Emphasize Python and AWS")
+        row = db.get_job_details(3006)
+        assert row.user_notes == "Emphasize Python and AWS"
+        selected = db.get_selected_job(3006)
+        assert selected.user_notes == "Emphasize Python and AWS"
+
     def test_mark_job_error(self, db: DatabaseManager) -> None:
         db.insert_job(4001, "kw", "loc")
         db.mark_job_error(4001)

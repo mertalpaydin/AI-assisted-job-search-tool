@@ -473,3 +473,65 @@ def test_assistant_chat_success_and_clear(db: DatabaseManager, configured_client
         job_cleared = db.get_selected_job(96010)
         assert job_cleared.assistant_chat_file is None
 
+
+def test_update_notes_save(db: DatabaseManager, client) -> None:
+    db.insert_job(97001, "kw", "loc")
+    db.update_job_details(97001, {"title": "Full Stack Dev", "company_name": "Tech Corp"})
+    db.save_screening_result(97001, ScreeningResult(0.9, "none", True, "Good fit"))
+
+    res = client.post("/jobs/97001/notes", data={
+        "notes": "Emphasize React and Django",
+        "action": "save",
+        "source": "detail",
+    }, follow_redirects=True)
+    assert res.status_code == 200
+
+    job = db.get_selected_job(97001)
+    assert job is not None
+    assert job.user_notes == "Emphasize React and Django"
+
+    html = res.get_data(as_text=True)
+    assert "Cover Letter Instructions" in html
+    assert "Emphasize React and Django" in html
+
+
+def test_update_notes_save_and_regenerate(db: DatabaseManager, client) -> None:
+    db.insert_job(97002, "kw", "loc")
+    db.update_job_details(97002, {"title": "Backend Dev", "company_name": "Dev Corp"})
+    db.save_screening_result(97002, ScreeningResult(0.95, "none", True, "Great fit"))
+    db.save_cover_letter(97002, "Old cover letter text", "gemini-test", 0)
+
+    # Job has generated cover letter
+    job = db.get_selected_job(97002)
+    assert job.cover_letter_text == "Old cover letter text"
+
+    # Post with save_and_regenerate
+    res = client.post("/jobs/97002/notes", data={
+        "notes": "Focus on high throughput data pipelines",
+        "action": "save_and_regenerate",
+        "source": "detail",
+    }, follow_redirects=True)
+    assert res.status_code == 200
+
+    job_after = db.get_selected_job(97002)
+    assert job_after.user_notes == "Focus on high throughput data pipelines"
+    # Cover letter was cleared for regeneration
+    assert job_after.cover_letter_text is None
+    assert job_after.user_cl_approved == 1
+
+
+def test_cover_letter_prompt_includes_user_notes(db: DatabaseManager, client) -> None:
+    db.insert_job(97003, "kw", "loc")
+    db.update_job_details(97003, {
+        "title": "ML Engineer",
+        "company_name": "AI Studio",
+        "description": "Develop LLM apps.",
+    })
+    db.save_screening_result(97003, ScreeningResult(0.92, "none", True, "Fit"))
+    db.update_user_notes(97003, "Mention open-source LangChain contribution")
+
+    res = client.get("/jobs/97003/cover-letter/prompt")
+    assert res.status_code == 200
+    html = res.get_data(as_text=True)
+    assert "Mention open-source LangChain contribution" in html
+
