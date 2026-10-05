@@ -108,8 +108,11 @@ EXTERNAL_LOG_FILE: str = "logs/external_search.log"
 
 
 def get_db() -> DatabaseManager:
+    global _db
     if _db is None:
-        raise RuntimeError("DatabaseManager not initialised")
+        cfg = _config or load_config()
+        db_path = getattr(getattr(cfg, "database", None), "path", "data/jobs.db")
+        _db = DatabaseManager(db_path)
     return _db
 
 
@@ -1928,7 +1931,35 @@ def generate_external_cl_route(job_id: int):
     return redirect(url_for("external_job_detail", job_id=job_id))
 
 
+@app.route("/external-jobs/<int:job_id>/notes", methods=["POST"])
+def update_external_notes(job_id: int):
+    ext_db = get_ext_db()
+    job = ext_db.get_job(job_id)
+    if not job:
+        abort(404)
+    notes = request.form.get("notes", "").strip()
+    ext_db.update_user_notes(job_id, notes if notes else None)
+
+    action = request.form.get("action", "save")
+    if action == "save_and_regenerate":
+        try:
+            from job_search.ai.external_ai import generate_external_cover_letter
+            updated_job = ext_db.get_job(job_id)
+            cl_text = generate_external_cover_letter(updated_job, config=_config)
+            ext_db.update_cover_letter(job_id, cl_text)
+            flash("Instructions saved and cover letter regenerated!", "success")
+        except Exception as exc:
+            from loguru import logger
+            logger.error("Failed to regenerate cover letter for external job #{}: {}", job_id, exc)
+            flash(f"Instructions saved, but cover letter generation failed: {exc}", "danger")
+    else:
+        flash("Cover letter instructions saved.", "success")
+
+    return redirect(url_for("external_job_detail", job_id=job_id))
+
+
 @app.route("/external-jobs/<int:job_id>/save-cl", methods=["POST"])
+@app.route("/external-jobs/<int:job_id>/cover-letter/update", methods=["POST"])
 def save_external_cl_route(job_id: int):
     ext_db = get_ext_db()
     job = ext_db.get_job(job_id)
@@ -1936,11 +1967,25 @@ def save_external_cl_route(job_id: int):
         abort(404)
 
     cl_text = request.form.get("cover_letter_text", "").strip()
-    ext_db.update_cover_letter(job_id, cl_text)
+    job_title = (request.form.get("job_title") or request.form.get("pdf_job_title") or "").strip()
+    company_name = (request.form.get("company_name") or request.form.get("pdf_company_name") or "").strip()
+
+    updates = {}
+    if cl_text:
+        updates["cover_letter_text"] = cl_text
+    if job_title:
+        updates["title"] = job_title
+    if company_name:
+        updates["company_name"] = company_name
+
+    if updates:
+        ext_db.update_job_details(job_id, updates)
+
     flash("Cover letter changes saved successfully.", "success")
     return redirect(url_for("external_job_detail", job_id=job_id))
 
 
+@app.route("/external-jobs/<int:job_id>/cover-letter/pdf", methods=["GET", "POST"])
 @app.route("/external-jobs/<int:job_id>/export-pdf", methods=["GET", "POST"])
 def export_external_job_pdf(job_id: int):
     ext_db = get_ext_db()
@@ -1948,8 +1993,46 @@ def export_external_job_pdf(job_id: int):
     if not job:
         abort(404)
 
-    cl_text = (job.get("cover_letter_text") or "").strip()
+    override_title = (
+        request.form.get("job_title")
+        or request.form.get("pdf_job_title")
+        or request.args.get("job_title")
+        or request.args.get("pdf_job_title")
+    )
+    override_company = (
+        request.form.get("company_name")
+        or request.form.get("pdf_company_name")
+        or request.args.get("company_name")
+        or request.args.get("pdf_company_name")
+    )
+    override_cl_text = (
+        request.form.get("cover_letter_text")
+        or request.args.get("cover_letter_text")
+    )
+
+    # Auto-save edits to external DB so edits are preserved persistently
+    updates = {}
+    if override_cl_text and override_cl_text.strip():
+        updates["cover_letter_text"] = override_cl_text.strip()
+    if override_title and override_title.strip():
+        updates["title"] = override_title.strip()
+    if override_company and override_company.strip():
+        updates["company_name"] = override_company.strip()
+
+    if updates:
+        try:
+            ext_db.update_job_details(job_id, updates)
+        except Exception as e:
+            from loguru import logger
+            logger.warning("Could not auto-save external job details live draft: {}", e)
+
+    effective_title = (override_title.strip() if override_title and override_title.strip() else job.get("title", ""))
+    effective_company = (override_company.strip() if override_company and override_company.strip() else job.get("company_name", ""))
+    cl_text = (override_cl_text.strip() if override_cl_text and override_cl_text.strip() else (job.get("cover_letter_text") or "").strip())
+
     if not cl_text:
+        if request.method == "POST" or request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json:
+            return jsonify({"error": "No cover letter text found to export. Generate or write one first."}), 400
         flash("No cover letter text found to export. Generate or write one first.", "warning")
         return redirect(url_for("external_job_detail", job_id=job_id))
 
@@ -1960,14 +2043,28 @@ def export_external_job_pdf(job_id: int):
             job_id=0,
             db=get_db(),
             project_root=project_root,
-            override_title=job["title"],
-            override_company=job["company_name"],
+            override_title=effective_title,
+            override_company=effective_company,
             override_cl_text=cl_text,
         )
-        return send_file(pdf_path, as_attachment=True, download_name=pdf_path.name)
+        rel_path = str(pdf_path.resolve())
+
+        # Return JSON confirmation for POST/AJAX requests instead of forcing file download
+        if request.method == "POST" or request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json:
+            return jsonify({
+                "success": True,
+                "pdf_path": str(pdf_path.resolve()),
+                "relative_path": rel_path,
+                "filename": pdf_path.name,
+                "message": f"PDF generated successfully at {rel_path}",
+            })
+
+        return send_file(pdf_path, as_attachment=False)
     except Exception as e:
         from loguru import logger
         logger.error("Failed to export PDF for external job #{}: {}", job_id, e)
+        if request.method == "POST" or request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json:
+            return jsonify({"error": str(e)}), 500
         flash(f"Error generating PDF: {e}", "danger")
         return redirect(url_for("external_job_detail", job_id=job_id))
 

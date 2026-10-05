@@ -535,3 +535,111 @@ def test_cover_letter_prompt_includes_user_notes(db: DatabaseManager, client) ->
     html = res.get_data(as_text=True)
     assert "Mention open-source LangChain contribution" in html
 
+
+def test_external_job_pdf_export_and_overrides(tmp_path, client, monkeypatch) -> None:
+    from unittest.mock import patch
+    from job_search.core.external_database import ExternalDatabaseManager
+    import job_search.web.app as web_app
+
+    ext_db = ExternalDatabaseManager(db_path=tmp_path / "test_ext_jobs.db")
+    job_id, _ = ext_db.upsert_job({
+        "source": "indeed",
+        "external_id": "test-ext-123",
+        "title": "Smart Manufacturing Graduate Programme, Germany, 2027 (f/m/d)",
+        "company_name": "GSK",
+        "cover_letter_text": "Dear Hiring Manager,\n\nOriginal draft.\n\nSincerely,\nApplicant",
+    })
+    monkeypatch.setattr(web_app, "_ext_db", ext_db)
+
+    dummy_pdf = tmp_path / "Applicant_CoverLetter_GSK.pdf"
+    dummy_pdf.write_bytes(b"%PDF-1.4 mock pdf content " + b"1" * 500)
+
+    # 1. Test POST with live overrides returning JSON confirmation (live compilation)
+    with patch("job_search.export.latex_exporter.generate_cover_letter_pdf", return_value=dummy_pdf) as mock_gen:
+        res = client.post(
+            f"/external-jobs/{job_id}/cover-letter/pdf",
+            data={
+                "job_title": "Smart Manufacturing Graduate Programme",
+                "company_name": "GlaxoSmithKline",
+                "cover_letter_text": "Dear Hiring Manager,\n\nUpdated text.\n\nSincerely,\nApplicant",
+            },
+        )
+        assert res.status_code == 200
+        json_data = res.get_json()
+        assert json_data["success"] is True
+        assert json_data["relative_path"] == str(dummy_pdf.resolve())
+
+        # Verify generate_cover_letter_pdf was called with overridden title and company
+        mock_gen.assert_called_once()
+        _, kwargs = mock_gen.call_args
+        assert kwargs["override_title"] == "Smart Manufacturing Graduate Programme"
+        assert kwargs["override_company"] == "GlaxoSmithKline"
+        assert kwargs["override_cl_text"] == "Dear Hiring Manager,\n\nUpdated text.\n\nSincerely,\nApplicant"
+
+        # Verify external DB was persistently updated with the overrides
+        updated_job = ext_db.get_job(job_id)
+        assert updated_job["title"] == "Smart Manufacturing Graduate Programme"
+        assert updated_job["company_name"] == "GlaxoSmithKline"
+        assert updated_job["cover_letter_text"] == "Dear Hiring Manager,\n\nUpdated text.\n\nSincerely,\nApplicant"
+
+    # 1b. Test GET returning PDF stream
+    with patch("job_search.export.latex_exporter.generate_cover_letter_pdf", return_value=dummy_pdf):
+        get_res = client.get(f"/external-jobs/{job_id}/cover-letter/pdf")
+        assert get_res.status_code == 200
+        assert get_res.mimetype == "application/pdf"
+        assert get_res.data == dummy_pdf.read_bytes()
+
+    # 2. Test saving via /save-cl
+    save_res = client.post(
+        f"/external-jobs/{job_id}/save-cl",
+        data={
+            "job_title": "Lead Manufacturing Engineer",
+            "company_name": "GSK Marburg",
+            "cover_letter_text": "Dear Hiring Manager,\n\nSaved text.\n\nSincerely,\nApplicant",
+        },
+        follow_redirects=True,
+    )
+    assert save_res.status_code == 200
+    saved_job = ext_db.get_job(job_id)
+    assert saved_job["title"] == "Lead Manufacturing Engineer"
+    assert saved_job["company_name"] == "GSK Marburg"
+    assert saved_job["cover_letter_text"] == "Dear Hiring Manager,\n\nSaved text.\n\nSincerely,\nApplicant"
+
+    # 3. Test saving notes via /external-jobs/{job_id}/notes
+    notes_res = client.post(
+        f"/external-jobs/{job_id}/notes",
+        data={"notes": "Emphasize smart manufacturing and Industry 4.0 expertise", "action": "save"},
+        follow_redirects=True,
+    )
+    assert notes_res.status_code == 200
+    noted_job = ext_db.get_job(job_id)
+    assert noted_job["user_notes"] == "Emphasize smart manufacturing and Industry 4.0 expertise"
+
+
+def test_latex_exporter_single_and_double_newline_handling(db: DatabaseManager, tmp_path) -> None:
+    from pypdf import PdfReader
+    from job_search.export.latex_exporter import generate_cover_letter_pdf
+
+    db.insert_job(70002, "kw", "loc")
+    db.update_job_details(70002, {"title": "AI Engineer", "company_name": "Test Co"})
+
+    # Single-newline separated text (which previously merged into 1 paragraph)
+    single_nl_text = (
+        "Dear Hiring Manager,\n"
+        "Paragraph one discussing industrial engineering background and leadership experience.\n"
+        "Paragraph two discussing Python, machine learning, and Databricks pipelines.\n"
+        "Paragraph three discussing continuous improvement and change management.\n"
+        "Sincerely,\n"
+        "Applicant Name"
+    )
+    pdf = generate_cover_letter_pdf(
+        70002, db, ".", output_pdf_path=tmp_path / "single_nl.pdf", override_cl_text=single_nl_text
+    )
+    assert pdf.exists()
+    reader = PdfReader(pdf)
+    assert len(reader.pages) == 1
+    text = reader.pages[0].extract_text()
+    assert "Paragraph one" in text
+    assert "Paragraph two" in text
+    assert "Paragraph three" in text
+

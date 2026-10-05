@@ -577,6 +577,14 @@ def test_generate_external_cover_letter_runs(_external_ai):
 
     assert "I am applying." in text
 
+def test_generate_external_cover_letter_preserves_paragraphs(_external_ai):
+    external_ai, replies = _external_ai
+    replies.append("Dear Hiring Team,\n\nParagraph one.\n\nParagraph two.\n\nSincerely,\nCandidate")
+
+    text = external_ai.generate_external_cover_letter(_EXT_JOB, config=load_config("config/config.yaml"))
+
+    assert "Paragraph one.\n\nParagraph two." in text
+
 
 def test_filter_counts_match_results_under_other_filters(ext_db: ExternalDatabaseManager):
     """The number next to a filter option equals the result count when it is ticked."""

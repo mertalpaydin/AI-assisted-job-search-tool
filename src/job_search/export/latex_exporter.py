@@ -95,8 +95,8 @@ def find_latex_compiler() -> str | None:
 
 def generate_cover_letter_pdf(
     job_id: int,
-    db: DatabaseManager,
-    project_root: str | Path,
+    db: DatabaseManager | None = None,
+    project_root: str | Path = ".",
     output_pdf_path: str | Path | None = None,
     override_title: str | None = None,
     override_company: str | None = None,
@@ -112,7 +112,7 @@ def generate_cover_letter_pdf(
     if not compiler:
         raise RuntimeError("No LaTeX compiler (xelatex/pdflatex) found on system.")
 
-    job = db.get_selected_job(job_id)
+    job = db.get_selected_job(job_id) if db and job_id else None
     
     # Determine effective values (using live overrides if provided)
     raw_title = (override_title.strip() if override_title is not None and override_title.strip() else (job.title if job else "Position"))
@@ -163,9 +163,29 @@ def generate_cover_letter_pdf(
     else:
         signature_block = "\\vspace{1.0cm}"
 
-    # Prepare body content: split by newlines, format markdown, wrap paragraphs
-    raw_body = raw_cl_text.strip()
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", raw_body) if p.strip()]
+    # Prepare body content: normalize linebreaks and cleanly split paragraphs
+    raw_body = raw_cl_text.strip().replace("\r\n", "\n").replace("\r", "\n")
+
+    # If the text has blank lines (double newlines), split on them;
+    # if it only has single newlines, treat each non-empty line as a paragraph.
+    if re.search(r"\n\s*\n+", raw_body):
+        raw_paras = [p.strip() for p in re.split(r"\n\s*\n+", raw_body) if p.strip()]
+    elif "\n" in raw_body:
+        raw_paras = [p.strip() for p in raw_body.split("\n") if p.strip()]
+    else:
+        raw_paras = [raw_body] if raw_body else []
+
+    # Clean up paragraphs: ensure salutation line (e.g. "Dear ...") is separated from body text
+    paragraphs = []
+    for p in raw_paras:
+        lines = [line.strip() for line in p.split("\n") if line.strip()]
+        if lines and lines[0].lower().startswith("dear ") and len(lines) > 1:
+            paragraphs.append(lines[0])
+            paragraphs.extend(lines[1:])
+        elif len(lines) > 1 and not re.search(r"\n\s*\n+", raw_body):
+            paragraphs.extend(lines)
+        else:
+            paragraphs.append(p)
 
     # Extract salutation if present at start
     salutation = "Dear Hiring Manager,"

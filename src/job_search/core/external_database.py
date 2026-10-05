@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS external_jobs (
     screening_reasoning TEXT,
 
     cover_letter_text TEXT,
+    user_notes TEXT,
     application_status TEXT DEFAULT 'pending',
     applied_at TIMESTAMP,
     assistant_chat_file TEXT,
@@ -180,7 +181,11 @@ class ExternalDatabaseManager:
         existing_cols = {row[1] for row in cur.fetchall()}
         cur.close()
 
-        for col, col_type in [("detected_language", "TEXT"), ("german_stopword_ratio", "REAL")]:
+        for col, col_type in [
+            ("detected_language", "TEXT"),
+            ("german_stopword_ratio", "REAL"),
+            ("user_notes", "TEXT"),
+        ]:
             if col not in existing_cols:
                 try:
                     conn.execute(f"ALTER TABLE external_jobs ADD COLUMN {col} {col_type}")
@@ -577,6 +582,31 @@ class ExternalDatabaseManager:
                 WHERE id = ?
                 """,
                 (cl_text, job_id),
+            )
+
+    def update_job_details(self, job_id: int, fields: dict[str, Any]) -> None:
+        """Update job fields (e.g. title, company_name, cover_letter_text, user_notes). Unknown fields are ignored."""
+        allowed_cols = {
+            "title", "company_name", "location", "cover_letter_text", "user_notes", "detected_language",
+            "application_status", "archetype", "cv_match_score", "screening_reasoning",
+        }
+        valid = {k: v for k, v in fields.items() if k in allowed_cols}
+        if not valid:
+            return
+        set_clause = ", ".join(f"{col} = ?" for col in valid)
+        values = list(valid.values()) + [job_id]
+        with self._cursor() as cur:
+            cur.execute(
+                f"UPDATE external_jobs SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                values,
+            )
+
+    def update_user_notes(self, job_id: int, notes: str | None) -> None:
+        """Update or clear user notes / custom instructions for an external job."""
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE external_jobs SET user_notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (notes, job_id),
             )
 
     def update_assistant_chat_file(self, job_id: int, file_path: str) -> None:

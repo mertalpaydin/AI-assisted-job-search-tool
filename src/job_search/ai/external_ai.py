@@ -15,7 +15,6 @@ from loguru import logger
 
 from job_search.ai.prompt_manager import PromptManager
 from job_search.core.config import Config, load_config, load_secrets
-from job_search.utils.formatting import clean_cover_letter_text
 
 
 def _get_gemini_client() -> genai.Client:
@@ -105,6 +104,7 @@ def generate_external_cover_letter(
         job_location=job_dict.get("location", ""),
         job_description=job_dict.get("description", ""),
         archetype=archetype,
+        user_notes=job_dict.get("user_notes"),
     )
 
     model_name = cfg.cover_letter.model
@@ -120,6 +120,6 @@ def generate_external_cover_letter(
         ),
     )
 
-    raw_cl = response.text or ""
-    return clean_cover_letter_text(raw_cl)
+    raw_cl = (response.text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    return re.sub(r"\n{3,}", "\n\n", raw_cl)
 
