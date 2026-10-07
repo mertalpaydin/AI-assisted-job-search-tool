@@ -42,7 +42,6 @@ $tasks = @(
     @{ Name = "$prefix-WakeResume"; Mode = "daily";    Trigger = "AtResume" },
     @{ Name = "$prefix-Catchup";    Mode = "daily";    Trigger = "AtLogOn" },
     @{ Name = "$prefix-Collect";    Mode = "collect";   Trigger = "Daily 08:00, 20:00" },
-    @{ Name = "$prefix-Clean";      Mode = "clean";     Trigger = "Weekly Sunday 03:00" },
     @{ Name = "$prefix-External";   Mode = "external";  Trigger = "Weekly Sunday 08:00" }
 )
 

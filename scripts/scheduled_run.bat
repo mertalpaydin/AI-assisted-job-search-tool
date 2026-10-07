@@ -50,7 +50,8 @@ if /i "%MODE%"=="daily" (
 ) else if /i "%MODE%"=="collect" (
     uv run job-search batch collect
 ) else if /i "%MODE%"=="clean" (
-    uv run job-search clean --scheduled
+    echo Scheduled cleaning has been disabled.
+    exit /b 0
 ) else if /i "%MODE%"=="external" (
     uv run job-search external-search --scheduled --limit 30
 ) else (
