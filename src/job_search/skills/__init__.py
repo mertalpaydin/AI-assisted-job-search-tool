@@ -2,6 +2,7 @@
 Skills module: Open-vocabulary skill extraction, normalization, garbage filtering,
 and experimentation framework for skill gap analysis.
 """
+from job_search.skills.experimentation import ABTestEngine, HypothesisTestResult
 from job_search.skills.filter_pipeline import SkillFilterPipeline, clean_candidate_token
 from job_search.skills.harvester import HarvestedSkill, SkillHarvester
 from job_search.skills.normalizer import SkillNormalizer
@@ -14,4 +15,6 @@ __all__ = [
     "OpenSkillExtractor",
     "SkillHarvester",
     "HarvestedSkill",
+    "ABTestEngine",
+    "HypothesisTestResult",
 ]
