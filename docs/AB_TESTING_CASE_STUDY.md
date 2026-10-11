@@ -218,6 +218,14 @@ The entire experimentation suite was engineered with clean, modular Python and S
 4. **`src/job_search/skills/experimentation.py`**: [ABTestEngine](file:///c:/Users/merta/Desktop/AI-assisted-job-search-tool/src/job_search/skills/experimentation.py#L76) with standard-library numerical approximations for Normal CDF, PPF, survival function, and Benjamini-Hochberg rank adjustment.
 5. **`src/job_search/web/app.py` & `skills.html`**: Interactive web dashboard featuring KPI cards, Chart.js time series, dynamic hypothesis test calculator, and modal job ad inspector.
 
+![A/B Testing Lab UI](screenshots/skills_ab_lab.png)
+
+*Figure 1: Interactive A/B Testing Lab showing two-proportion Z-test results for A/B Testing, 2x2 contingency matrix, Wald 95% confidence interval error bar, and automated portfolio narrative generation.*
+
+![Skill Gap Leaderboard](screenshots/skills_leaderboard.png)
+
+*Figure 2: Skill Gap Leaderboard ranking extracted market skills by candidate behavioral delta with Benjamini-Hochberg FDR significance control.*
+
 ---
 
 ## 7. How to Run the A/B Testing Lab

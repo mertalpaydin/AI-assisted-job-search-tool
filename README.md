@@ -138,6 +138,24 @@ flowchart TD
     class C1,C2,C3,C4 lab;
 ```
 
+#### Interactive A/B Testing Lab & Experimentation UI
+
+The local web interface (`/skills`) provides dedicated statistical tooling to investigate market dynamics and candidate behavioral selection:
+
+![A/B Testing Lab](docs/screenshots/skills_ab_lab.png)
+
+> **Interactive A/B Testing Lab**: Select any market skill to evaluate a full two-sample proportion $Z$-test. Displays sample sizes ($n_{\text{applied}}=744, n_{\text{skipped}}=622$), $2 \times 2$ contingency matrix, exact $Z$-score, two-tailed $p$-value, Cohen's $h$ effect size, Wald 95% Confidence Interval error bar, statistical power, and an automated case study narrative generator.
+
+![Skill Gap Leaderboard](docs/screenshots/skills_leaderboard.png)
+
+> **Skill Gap Leaderboard**: Real-time ranking of skills by candidate behavioral gap ($\Delta p$). Features statistical significance badges ($p < 0.05$ and Benjamini-Hochberg FDR control), time horizon filtering (`All Time`, `180d`, `90d`, `30d`), and modal job inspection.
+
+![Longitudinal Time Trends](docs/screenshots/skills_trends.png)
+
+> **Longitudinal Time Trends**: Dual-axis Chart.js visualization mapping monthly employer market demand against candidate application rates (May – October 2026) with interactive metric switching between rate (%) and raw volume (#).
+
+---
+
 ## Setup
 
 ### 1. Install dependencies
