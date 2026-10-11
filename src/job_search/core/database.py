@@ -165,6 +165,18 @@ CREATE TABLE IF NOT EXISTS batch_jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_usage_timestamp ON api_usage(request_timestamp);
+
+CREATE TABLE IF NOT EXISTS job_skills (
+    job_id INTEGER NOT NULL,
+    skill_name TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'extracted',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (job_id, skill_name),
+    FOREIGN KEY (job_id) REFERENCES jobs(job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_skills_name ON job_skills(skill_name);
+CREATE INDEX IF NOT EXISTS idx_job_skills_job_id ON job_skills(job_id);
 """
 
 # ---------------------------------------------------------------------------
@@ -594,6 +606,27 @@ class DatabaseManager:
         self._migrate_v13(conn)
         self._migrate_v14(conn)
         self._migrate_v15(conn)
+        self._migrate_v16(conn)
+
+    def _migrate_v16(self, conn: sqlite3.Connection) -> None:
+        """Add job_skills table and indexes for extracted skills."""
+        for stmt in (
+            """CREATE TABLE IF NOT EXISTS job_skills (
+                job_id INTEGER NOT NULL,
+                skill_name TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'extracted',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (job_id, skill_name),
+                FOREIGN KEY (job_id) REFERENCES jobs(job_id)
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_job_skills_name ON job_skills(skill_name)",
+            "CREATE INDEX IF NOT EXISTS idx_job_skills_job_id ON job_skills(job_id)",
+        ):
+            try:
+                conn.execute(stmt)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
     def _migrate_v15(self, conn: sqlite3.Connection) -> None:
         """Add assistant_chat_file column to jobs table."""
@@ -2675,6 +2708,202 @@ class DatabaseManager:
             "screening": self.reset_screening_errors(),
             "cover_letter": self.purge_cover_letter_errors(),
         }
+
+    # -----------------------------------------------------------------------
+    # Skill Extraction & Gap Analytics
+    # -----------------------------------------------------------------------
+
+    def index_job_skills(self, job_id: int, skills: Iterable[str], source: str = "extracted") -> int:
+        """Insert skills for a job, ignoring duplicates. Returns count of inserted skills."""
+        if not skills:
+            return 0
+        rows = [(job_id, s.strip(), source) for s in skills if s.strip()]
+        if not rows:
+            return 0
+        with self._cursor() as cur:
+            cur.executemany(
+                "INSERT OR IGNORE INTO job_skills (job_id, skill_name, source) VALUES (?, ?, ?)",
+                rows,
+            )
+            return cur.rowcount
+
+    def index_jobs_skills_batch(self, batch_skills: list[tuple[int, str, str]]) -> int:
+        """Batch insert (job_id, skill_name, source) tuples efficiently."""
+        if not batch_skills:
+            return 0
+        with self._cursor() as cur:
+            cur.executemany(
+                "INSERT OR IGNORE INTO job_skills (job_id, skill_name, source) VALUES (?, ?, ?)",
+                batch_skills,
+            )
+            return cur.rowcount
+
+    def get_skills_for_job(self, job_id: int) -> list[str]:
+        """Return list of skill names extracted for a given job_id."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT skill_name FROM job_skills WHERE job_id = ? ORDER BY skill_name ASC",
+                (job_id,),
+            )
+            return [row[0] for row in cur.fetchall()]
+
+    def get_skills_for_jobs_batch(self, job_ids: list[int]) -> dict[int, list[str]]:
+        """Return mapping of job_id -> list of skills for multiple jobs."""
+        if not job_ids:
+            return {}
+        result: dict[int, list[str]] = {jid: [] for jid in job_ids}
+        with self._cursor() as cur:
+            placeholders = ",".join("?" * len(job_ids))
+            cur.execute(
+                f"SELECT job_id, skill_name FROM job_skills WHERE job_id IN ({placeholders}) ORDER BY skill_name ASC",
+                job_ids,
+            )
+            for row in cur.fetchall():
+                result[row[0]].append(row[1])
+        return result
+
+    def get_skill_stats(
+        self,
+        days: int | None = None,
+        search_keyword: str | None = None,
+        min_frequency: int = 1,
+    ) -> dict[str, Any]:
+        """
+        Aggregate skill demand statistics across applied vs. skipped vs. all jobs.
+        Returns a dict with overall baseline totals and a list of skill breakdown records.
+        """
+        with self._cursor() as cur:
+            where_clauses = ["j.scraped = 1"]
+            params: list[Any] = []
+
+            if days:
+                where_clauses.append(f"j.created_at >= datetime('now', '-{int(days)} days')")
+            if search_keyword:
+                where_clauses.append("j.search_keyword = ?")
+                params.append(search_keyword)
+
+            where_sql = " AND ".join(where_clauses)
+
+            cur.execute(f"""
+                SELECT 
+                    COUNT(*) as total_jobs,
+                    SUM(CASE WHEN application_status = 'applied' THEN 1 ELSE 0 END) as total_applied,
+                    SUM(CASE WHEN application_status = 'skipped' THEN 1 ELSE 0 END) as total_skipped
+                FROM jobs j
+                WHERE {where_sql}
+            """, params)
+            base_row = cur.fetchone()
+            total_jobs = int(base_row[0] or 0)
+            total_applied = int(base_row[1] or 0)
+            total_skipped = int(base_row[2] or 0)
+
+            cur.execute(f"""
+                SELECT 
+                    js.skill_name,
+                    COUNT(DISTINCT j.job_id) as all_count,
+                    SUM(CASE WHEN j.application_status = 'applied' THEN 1 ELSE 0 END) as applied_count,
+                    SUM(CASE WHEN j.application_status = 'skipped' THEN 1 ELSE 0 END) as skipped_count,
+                    COUNT(DISTINCT j.company_name) as company_count
+                FROM job_skills js
+                JOIN jobs j ON js.job_id = j.job_id
+                WHERE {where_sql}
+                GROUP BY js.skill_name
+                HAVING all_count >= ?
+                ORDER BY all_count DESC
+            """, params + [min_frequency])
+
+            skills_list = []
+            for r in cur.fetchall():
+                all_c = int(r["all_count"])
+                app_c = int(r["applied_count"] or 0)
+                skip_c = int(r["skipped_count"] or 0)
+                comp_c = int(r["company_count"] or 0)
+                skills_list.append({
+                    "skill_name": r["skill_name"],
+                    "all_count": all_c,
+                    "all_pct": (all_c / total_jobs * 100.0) if total_jobs > 0 else 0.0,
+                    "applied_count": app_c,
+                    "applied_pct": (app_c / total_applied * 100.0) if total_applied > 0 else 0.0,
+                    "skipped_count": skip_c,
+                    "skipped_pct": (skip_c / total_skipped * 100.0) if total_skipped > 0 else 0.0,
+                    "gap": ((skip_c / total_skipped * 100.0) - (app_c / total_applied * 100.0)) if (total_skipped > 0 and total_applied > 0) else 0.0,
+                    "company_count": comp_c,
+                })
+
+            return {
+                "total_jobs": total_jobs,
+                "total_applied": total_applied,
+                "total_skipped": total_skipped,
+                "skills": skills_list,
+            }
+
+    def get_skill_time_series(self, skill_name: str) -> list[dict[str, Any]]:
+        """Return monthly timeline of skill demand in market, applied, and skipped jobs."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT 
+                    substr(j.created_at, 1, 7) as month,
+                    COUNT(DISTINCT j.job_id) as market_count,
+                    SUM(CASE WHEN j.application_status = 'applied' THEN 1 ELSE 0 END) as applied_count,
+                    SUM(CASE WHEN j.application_status = 'skipped' THEN 1 ELSE 0 END) as skipped_count
+                FROM job_skills js
+                JOIN jobs j ON js.job_id = j.job_id
+                WHERE js.skill_name = ? AND j.created_at IS NOT NULL
+                GROUP BY month
+                ORDER BY month ASC
+            """, (skill_name,))
+            return [
+                {
+                    "month": r["month"],
+                    "market_count": int(r["market_count"] or 0),
+                    "applied_count": int(r["applied_count"] or 0),
+                    "skipped_count": int(r["skipped_count"] or 0),
+                }
+                for r in cur.fetchall()
+            ]
+
+    def get_jobs_for_skill(
+        self,
+        skill_name: str,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Return jobs requiring a specific skill for drilldown modal."""
+        with self._cursor() as cur:
+            where_sql = "js.skill_name = ?"
+            params: list[Any] = [skill_name]
+            if status:
+                where_sql += " AND j.application_status = ?"
+                params.append(status)
+
+            cur.execute(f"""
+                SELECT 
+                    j.job_id, j.title, j.company_name, j.formattedLocation,
+                    j.application_status, j.cv_match_score, j.created_at,
+                    substr(j.description, 1, 250) as snippet
+                FROM job_skills js
+                JOIN jobs j ON js.job_id = j.job_id
+                WHERE {where_sql}
+                ORDER BY j.created_at DESC
+                LIMIT ?
+            """, params + [limit])
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_unindexed_skill_jobs(self, limit: int | None = None) -> list[tuple[int, str | None, str | None, str | None]]:
+        """Return (job_id, company_name, description, skillsDescription) for jobs not yet indexed in job_skills."""
+        with self._cursor() as cur:
+            limit_clause = f"LIMIT {int(limit)}" if limit else ""
+            cur.execute(f"""
+                SELECT j.job_id, j.company_name, j.description, j.skillsDescription
+                FROM jobs j
+                LEFT JOIN (SELECT DISTINCT job_id FROM job_skills) js ON j.job_id = js.job_id
+                WHERE j.scraped = 1 
+                  AND (j.description IS NOT NULL OR j.skillsDescription IS NOT NULL)
+                  AND js.job_id IS NULL
+                ORDER BY j.job_id DESC
+                {limit_clause}
+            """)
+            return [(r[0], r[1], r[2], r[3]) for r in cur.fetchall()]
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn:

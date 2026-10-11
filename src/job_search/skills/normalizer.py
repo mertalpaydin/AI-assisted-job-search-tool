@@ -147,6 +147,10 @@ class SkillNormalizer:
         if upper_c in ("A/B TESTING", "A/B-TESTING", "A/B TEST"):
             return "A/B Testing"
 
+        # Fold any phrase focused on A/B testing or split testing
+        if re.search(r"\ba[/ -]?b[- ]?test(?:ing|s)?\b", cleaned, flags=re.I) or "split testing" in cleaned.lower():
+            return "A/B Testing"
+
         # Check folded map
         folded = fold_token(cleaned)
         if folded in self.fold_map:

@@ -586,6 +586,17 @@ def job_detail(job_id: int):
     if job is None:
         abort(404)
     prev_job_id, next_job_id = db.get_adjacent_job_ids(job_id)
+    skills = db.get_skills_for_job(job_id)
+    if not skills and (job.description or job.skillsDescription):
+        try:
+            from job_search.skills.open_extractor import OpenSkillExtractor
+            extracted = OpenSkillExtractor().extract_all(job.description or "", job.skillsDescription)
+            if extracted:
+                db.index_job_skills(job_id, extracted)
+                skills = sorted(list(extracted))
+        except Exception:
+            pass
+
     from job_search.ai.assistant import load_chat
     assistant_chat_history = load_chat(job.assistant_chat_file)
     assistant_model = getattr(getattr(_config, "assistant", None), "model", "gemini-3.8-flash")
@@ -596,7 +607,8 @@ def job_detail(job_id: int):
                            prev_job_id=prev_job_id,
                            next_job_id=next_job_id,
                            assistant_chat_history=assistant_chat_history,
-                           assistant_model=assistant_model)
+                           assistant_model=assistant_model,
+                           skills=skills)
 
 
 @app.route("/jobs/<int:job_id>/status", methods=["POST"])
@@ -1865,12 +1877,21 @@ def external_job_detail(job_id: int):
 
     from job_search.scraping.external.providers import MARKDOWN_SOURCES
 
+    skills = []
+    if job.get("description"):
+        try:
+            from job_search.skills.open_extractor import OpenSkillExtractor
+            skills = sorted(list(OpenSkillExtractor().extract_from_description(job.get("description", ""))))
+        except Exception:
+            pass
+
     return render_template(
         "external_job_detail.html",
         job=job,
         description_is_markdown=job.get("source") in MARKDOWN_SOURCES,
         assistant_chat_history=assistant_chat_history,
         assistant_model=assistant_model,
+        skills=skills,
     )
 
 

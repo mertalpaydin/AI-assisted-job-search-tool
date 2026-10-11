@@ -28,6 +28,8 @@ STOP_WORDS: Set[str] = {
     "und", "oder", "in", "mit", "von", "zu", "für", "auf", "ist", "sind", "haben", "wir", "sie",
     "deine", "ihre", "unser", "jahre", "berufserfahrung", "kenntnisse", "erfahrung", "erfolgreich",
     "abgeschlossenes", "studium", "deutsch", "englisch", "sehr", "gute", "fliessend",
+    "wort", "schrift", "in wort und schrift", "wort und schrift", "deutschkenntnisse", "englischkenntnisse",
+    "sprachkenntnisse", "fähigkeit", "fähigkeiten", "verhandlungssicher", "e.g", "eg", "i.e",
 }
 
 # Verbs that typically indicate an activity or duty rather than a skill noun phrase

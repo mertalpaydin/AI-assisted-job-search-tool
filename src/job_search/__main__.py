@@ -971,5 +971,33 @@ def external_search(
     click.echo("=" * 45)
 
 
+# ---------------------------------------------------------------------------
+# skills — open-vocabulary skill extraction & indexing
+# ---------------------------------------------------------------------------
+
+@main.group()
+def skills() -> None:
+    """Skill extraction and gap analysis tools."""
+
+
+@skills.command("index")
+@click.option("--config", default="config/config.yaml", show_default=True, help="Path to config file")
+@click.option("--batch-size", default=1000, show_default=True, type=int, help="Batch size for database inserts")
+@click.option("--limit", default=None, type=int, help="Limit number of jobs to process")
+def skills_index(config: str, batch_size: int, limit: int | None) -> None:
+    """Extract and index skills across all eligible jobs in the database."""
+    from job_search.core.database import DatabaseManager
+    from job_search.skills.indexer import index_all_skills
+
+    cfg = load_config(config)
+    db = DatabaseManager(cfg.database.path)
+    click.echo(f"Indexing skills for jobs in {cfg.database.path}...")
+    stats = index_all_skills(db, batch_size=batch_size, limit=limit)
+    click.echo(
+        f"Skill indexing complete: {stats['jobs_processed']} jobs processed, "
+        f"{stats['skills_inserted']} skill mentions indexed in {stats['elapsed_seconds']:.2f}s."
+    )
+
+
 if __name__ == "__main__":
     main()
