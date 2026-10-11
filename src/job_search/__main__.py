@@ -585,13 +585,20 @@ def clean(config: str, limit: int | None, no_interactive: bool, scheduled: bool,
 # backup / restore: verified snapshots
 # ---------------------------------------------------------------------------
 
-def _snapshot_manager(cfg):
+def _snapshot_manager(cfg, db_name: str = "jobs"):
     from job_search.core.backup import SnapshotManager
 
     b = cfg.backup
-    return SnapshotManager(cfg.database.path, directory=b.dir, keep=b.keep,
+    if db_name == "external":
+        db_path = "data/external_jobs.db"
+        prefix = "external_jobs"
+    else:
+        db_path = cfg.database.path
+        prefix = "jobs"
+    return SnapshotManager(db_path, directory=b.dir, keep=b.keep,
                            tier_hours=tuple(b.tier_hours),
-                           offsite=b.offsite_path or None)
+                           offsite=b.offsite_path or None,
+                           prefix=prefix)
 
 
 def _snapshot_before(cfg, reason: str) -> None:
@@ -611,48 +618,55 @@ def _snapshot_before(cfg, reason: str) -> None:
 
 @main.command()
 @click.option("--config", default="config/config.yaml", show_default=True)
+@click.option("--db", "db_name", default="jobs", type=click.Choice(["jobs", "external", "all"]),
+              show_default=True, help="Which database to snapshot: jobs, external, or all.")
 @click.option("--list", "list_only", is_flag=True, default=False,
               help="Show existing snapshots instead of taking one.")
 @click.option("--offsite", is_flag=True, default=False,
               help="Also write the compressed copy to backup.offsite_path.")
 @click.option("--reason", default="manual", show_default=True,
               help="Short label recorded in the snapshot filename.")
-def backup(config: str, list_only: bool, offsite: bool, reason: str) -> None:
+def backup(config: str, db_name: str, list_only: bool, offsite: bool, reason: str) -> None:
     """Take a verified snapshot of the database, or list existing ones."""
     cfg = load_config(config)
     setup_logging(level=cfg.logging.level, log_file=cfg.logging.file)
-    manager = _snapshot_manager(cfg)
 
-    if list_only:
-        snaps = manager.list()
-        if not snaps:
-            click.echo("No snapshots yet.")
-            return
-        click.echo(f"{'snapshot':<38} {'size':>8}  {'age':>10}  reason")
-        for s in snaps:
-            hours = s.age.total_seconds() / 3600
-            age = f"{hours:.1f}h" if hours < 48 else f"{hours / 24:.1f}d"
-            click.echo(f"{s.path.name:<38} {s.size_mb:>7.0f}M  {age:>10}  {s.reason}")
-        return
+    targets = ["jobs", "external"] if db_name == "all" else [db_name]
+    for target_name in targets:
+        manager = _snapshot_manager(cfg, target_name)
+        if list_only:
+            snaps = manager.list()
+            if not snaps:
+                click.echo(f"No {target_name} snapshots yet.")
+                continue
+            click.echo(f"=== {target_name.upper()} SNAPSHOTS ===")
+            click.echo(f"{'snapshot':<45} {'size':>8}  {'age':>10}  reason")
+            for s in snaps:
+                hours = s.age.total_seconds() / 3600
+                age = f"{hours:.1f}h" if hours < 48 else f"{hours / 24:.1f}d"
+                click.echo(f"{s.path.name:<45} {s.size_mb:>7.0f}M  {age:>10}  {s.reason}")
+            continue
 
-    snap = manager.take(reason)
-    if snap is None:
-        raise click.ClickException(
-            "No snapshot taken — the database failed its integrity check. "
-            "See the log, and restore with: uv run job-search restore latest"
-        )
-    click.echo(f"Snapshot {snap.path.name} ({snap.size_mb:.0f}MB)")
-    if offsite:
-        target = manager.push_offsite(snap)
-        click.echo(f"Offsite copy: {target}" if target
-                   else "No backup.offsite_path configured.")
+        snap = manager.take(reason)
+        if snap is None:
+            raise click.ClickException(
+                f"No snapshot taken for {target_name} — database failed integrity check. "
+                f"See the log, and restore with: uv run job-search restore --db {target_name} latest"
+            )
+        click.echo(f"Snapshot {snap.path.name} ({snap.size_mb:.0f}MB)")
+        if offsite:
+            target = manager.push_offsite(snap)
+            click.echo(f"Offsite copy: {target}" if target
+                       else "No backup.offsite_path configured.")
 
 
 @main.command()
 @click.option("--config", default="config/config.yaml", show_default=True)
+@click.option("--db", "db_name", default="jobs", type=click.Choice(["jobs", "external"]),
+              show_default=True, help="Which database to restore: jobs or external.")
 @click.argument("snapshot", default="latest")
 @click.option("--yes", is_flag=True, default=False, help="Skip the confirmation.")
-def restore(config: str, snapshot: str, yes: bool) -> None:
+def restore(config: str, db_name: str, snapshot: str, yes: bool) -> None:
     """Restore a verified snapshot, keeping the current database alongside it.
 
     Pass a snapshot filename from 'job-search backup --list', or "latest".
@@ -670,10 +684,10 @@ def restore(config: str, snapshot: str, yes: bool) -> None:
             f"A run is in progress (pid {holder.pid}). Stop it first: job-search stop"
         )
 
-    manager = _snapshot_manager(cfg)
+    manager = _snapshot_manager(cfg, db_name)
     snaps = manager.list()
     if not snaps:
-        raise click.ClickException("No snapshots to restore from.")
+        raise click.ClickException(f"No {db_name} snapshots to restore from.")
     chosen = snaps[0] if snapshot == "latest" else next(
         (s for s in snaps if s.path.name in (snapshot, f"{snapshot}.db")), None)
     if chosen is None:
@@ -681,7 +695,7 @@ def restore(config: str, snapshot: str, yes: bool) -> None:
 
     hours = chosen.age.total_seconds() / 3600
     click.echo(f"Restoring {chosen.path.name} ({chosen.size_mb:.0f}MB, {hours:.1f}h old).")
-    click.echo("The current database is kept as jobs.db.replaced-<timestamp>.")
+    click.echo(f"The current database is kept as {manager._db.name}.replaced-<timestamp>.")
     if not yes:
         click.confirm("Proceed?", abort=True)
 

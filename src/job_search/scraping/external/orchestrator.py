@@ -118,6 +118,21 @@ class ExternalSearchOrchestrator:
             if progress_callback:
                 progress_callback(msg)
 
+        snap_mgr = None
+        if getattr(self.config, "backup", None) and self.config.backup.enabled:
+            from job_search.core.backup import SnapshotManager
+            try:
+                snap_mgr = SnapshotManager(
+                    self.ext_db.path,
+                    directory=self.config.backup.dir,
+                    keep=self.config.backup.keep,
+                    tier_hours=tuple(self.config.backup.tier_hours),
+                    offsite=self.config.backup.offsite_path or None,
+                )
+                snap_mgr.take(reason="external_search")
+            except Exception as e:
+                logger.warning("Could not snapshot external database before search: {}", e)
+
         log_msg(f"Starting external search with {len(selected_providers)} providers for {len(keywords)} keywords in '{location}'")
 
         for kw in keywords:
@@ -162,6 +177,12 @@ class ExternalSearchOrchestrator:
             f"Prefiltered (Company): {stats['prefiltered_company']}, "
             f"Errors: {stats['errors']}"
         )
+        if snap_mgr and (stats["new_inserted"] > 0 or stats["updated"] > 0):
+            try:
+                snap_mgr.take(reason="external_post")
+            except Exception as e:
+                logger.warning("Could not snapshot external database after search: {}", e)
+
         return stats
 
     def _process_job(self, job_dict: dict[str, Any], stats: dict[str, Any]) -> None:

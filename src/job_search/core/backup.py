@@ -94,9 +94,12 @@ class Snapshot:
         return datetime.now() - self.taken_at
 
 
-def _parse(path: Path) -> Snapshot | None:
+def _parse(path: Path, prefix: str = "jobs") -> Snapshot | None:
     """jobs-20260820-134233-webui.db -> Snapshot."""
-    stem = path.name[len("jobs-"):].removesuffix(".db")
+    pfx = f"{prefix}-"
+    if not path.name.startswith(pfx) or not path.name.endswith(".db"):
+        return None
+    stem = path.name[len(pfx):].removesuffix(".db")
     parts = stem.split("-")
     if len(parts) < 2:
         return None
@@ -112,12 +115,13 @@ class SnapshotManager:
 
     def __init__(self, db_path: str | Path, directory: str | Path = "data/backups",
                  keep: int = 3, tier_hours: tuple[int, ...] = (0, 12, 168),
-                 offsite: str | Path | None = None) -> None:
+                 offsite: str | Path | None = None, prefix: str | None = None) -> None:
         self._db = Path(db_path)
         self._dir = Path(directory)
         self._keep = max(1, keep)
         self._tiers = tier_hours
         self._offsite = Path(offsite) if offsite else None
+        self._prefix = prefix or (self._db.stem if self._db.stem else "jobs")
 
     # ------------------------------------------------------------------
 
@@ -190,7 +194,7 @@ class SnapshotManager:
 
         self._dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime(_STAMP)
-        target = self._dir / f"jobs-{stamp}-{reason}.db"
+        target = self._dir / f"{self._prefix}-{stamp}-{reason}.db"
         partial = target.with_suffix(".db.partial")
 
         started = time.monotonic()
@@ -224,7 +228,7 @@ class SnapshotManager:
         """Newest first."""
         if not self._dir.exists():
             return []
-        found = [s for s in (_parse(p) for p in self._dir.glob("jobs-*.db")) if s]
+        found = [s for s in (_parse(p, self._prefix) for p in self._dir.glob(f"{self._prefix}-*.db")) if s]
         return sorted(found, key=lambda s: s.taken_at, reverse=True)
 
     # ------------------------------------------------------------------

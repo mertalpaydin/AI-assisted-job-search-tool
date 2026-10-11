@@ -432,3 +432,56 @@ class TestOffsite:
         m = SnapshotManager(db, tmp_path / "backups")
         m.take("x")
         assert m.push_offsite() is None
+
+
+class TestExternalDatabaseBackupAndHealing:
+    def test_external_db_snapshots(self, tmp_path: Path) -> None:
+        from job_search.core.external_database import ExternalDatabaseManager
+
+        ext_db_path = tmp_path / "external_jobs.db"
+        manager = ExternalDatabaseManager(ext_db_path)
+        manager.upsert_job({
+            "source": "indeed",
+            "external_id": "test-1",
+            "title": "Engineer",
+            "company_name": "TestCorp",
+        })
+        manager.close()
+
+        backups_dir = tmp_path / "backups"
+        snap_mgr = SnapshotManager(ext_db_path, directory=backups_dir, prefix="external_jobs")
+        snap = snap_mgr.take("test")
+        assert snap is not None
+        assert "external_jobs-" in snap.path.name
+        assert snap_mgr.list()[0].path == snap.path
+
+    def test_external_db_auto_healing(self, tmp_path: Path) -> None:
+        from job_search.core.external_database import ExternalDatabaseManager
+
+        ext_db_path = tmp_path / "external_jobs.db"
+        manager = ExternalDatabaseManager(ext_db_path)
+        manager.upsert_job({
+            "source": "indeed",
+            "external_id": "test-1",
+            "title": "Engineer",
+            "company_name": "TestCorp",
+            "description": "Long test description for auto healing",
+        })
+        manager.close()
+
+        # Intentionally corrupt the database file
+        _corrupt(ext_db_path)
+        assert quick_check(ext_db_path) is not None
+
+        # Reopening with auto_heal=True should self-heal
+        healed_manager = ExternalDatabaseManager(ext_db_path, auto_heal=True)
+        assert quick_check(ext_db_path) is None
+
+        # Corrupt backup was preserved
+        corrupt_backups = [p for p in tmp_path.glob("external_jobs.db.corrupt-*") if not p.name.endswith(("-wal", "-shm"))]
+        assert len(corrupt_backups) == 1
+
+        # Check that jobs can still be queried
+        jobs, count = healed_manager.get_jobs()
+        assert count >= 0
+        healed_manager.close()

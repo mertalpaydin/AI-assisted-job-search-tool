@@ -13,6 +13,8 @@ from typing import Any, Generator
 
 from loguru import logger
 
+from job_search.core.backup import DatabaseCorruptError, assert_healthy, quick_check
+
 EXTERNAL_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS external_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,11 +137,117 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 class ExternalDatabaseManager:
     """Thread-safe SQLite manager for external jobs."""
 
-    def __init__(self, db_path: str | Path = "data/external_jobs.db") -> None:
+    def __init__(self, db_path: str | Path = "data/external_jobs.db", auto_heal: bool = True) -> None:
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
+        self._ensure_healthy(auto_heal=auto_heal)
         self._init_schema()
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def _ensure_healthy(self, auto_heal: bool = True) -> None:
+        failure = quick_check(self._path)
+        if failure is None:
+            return
+        if not auto_heal:
+            assert_healthy(self._path)
+        logger.error(
+            "Corruption detected in external database {}: {}. Initiating auto-recovery...",
+            self._path, failure
+        )
+        self._salvage_database()
+
+    def _salvage_database(self) -> Path:
+        """Salvage all recoverable records from a corrupt database into a clean database.
+
+        1. Renames the corrupt database to <name>.corrupt-<timestamp>
+        2. Unlinks leftover WAL/SHM journal files
+        3. Initializes a clean schema in a new file at self._path
+        4. Copies every undamaged row and column-level salvages any partially damaged row
+        5. Verifies quick_check on the newly created database
+        """
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        corrupt_backup = self._path.with_name(f"{self._path.name}.corrupt-{stamp}")
+
+        # Close any local connection if open
+        self.close()
+
+        # Move corrupt file aside
+        self._path.replace(corrupt_backup)
+        for suffix in ("-wal", "-shm"):
+            self._path.with_name(self._path.name + suffix).unlink(missing_ok=True)
+
+        logger.info("Preserved corrupted database as {}", corrupt_backup.name)
+
+        salvaged_count = 0
+        partial_count = 0
+        try:
+            with sqlite3.connect(str(self._path)) as clean_conn:
+                clean_conn.executescript(EXTERNAL_SCHEMA_SQL)
+                clean_conn.execute("PRAGMA user_version = 1")
+                clean_conn.commit()
+
+                cur = clean_conn.cursor()
+                cur.execute("PRAGMA table_info(external_jobs)")
+                cols = [r[1] for r in cur.fetchall()]
+                cur.close()
+
+                cols_joined = ", ".join(cols)
+                placeholders = ", ".join(["?"] * len(cols))
+                insert_sql = f"INSERT OR IGNORE INTO external_jobs ({cols_joined}) VALUES ({placeholders})"
+
+                s_conn = sqlite3.connect(f"file:{corrupt_backup.as_posix()}?mode=ro", uri=True)
+                s_cur = s_conn.cursor()
+                try:
+                    s_cur.execute("SELECT rowid FROM external_jobs")
+                    rids = [r[0] for r in s_cur.fetchall()]
+                except Exception as e:
+                    logger.warning("Could not read rowids via index/table: {}", e)
+                    rids = []
+
+                for rid in rids:
+                    try:
+                        s_cur.execute(f"SELECT {cols_joined} FROM external_jobs WHERE rowid = ?", (rid,))
+                        row = s_cur.fetchone()
+                        if row and row[cols.index("source")] and row[cols.index("external_id")]:
+                            clean_conn.execute(insert_sql, row)
+                            salvaged_count += 1
+                    except Exception:
+                        salvaged_vals = []
+                        for col in cols:
+                            try:
+                                s_cur.execute(f"SELECT {col} FROM external_jobs WHERE rowid = ?", (rid,))
+                                val = s_cur.fetchone()[0]
+                                salvaged_vals.append(val)
+                            except Exception:
+                                salvaged_vals.append(None)
+                        src_val = salvaged_vals[cols.index("source")]
+                        ext_id_val = salvaged_vals[cols.index("external_id")]
+                        if src_val and ext_id_val:
+                            try:
+                                clean_conn.execute(insert_sql, salvaged_vals)
+                                partial_count += 1
+                            except Exception as insert_err:
+                                logger.debug("Could not insert salvaged row {}: {}", rid, insert_err)
+                clean_conn.commit()
+                s_conn.close()
+                for suffix in ("-wal", "-shm"):
+                    corrupt_backup.with_name(corrupt_backup.name + suffix).unlink(missing_ok=True)
+        except Exception as exc:
+            logger.error("Auto-recovery error: {}", exc)
+
+        failure = quick_check(self._path)
+        if failure is not None:
+            raise DatabaseCorruptError(f"Auto-recovery failed to produce a healthy database: {failure}")
+
+        logger.info(
+            "Auto-recovery complete: restored {} full rows and {} partial rows into {}. Integrity check passed.",
+            salvaged_count, partial_count, self._path.name
+        )
+        return self._path
 
     def _connect(self) -> sqlite3.Connection:
         if not hasattr(self._local, "conn") or self._local.conn is None:
@@ -229,6 +337,10 @@ class ExternalDatabaseManager:
 
     def close(self) -> None:
         if hasattr(self._local, "conn") and self._local.conn is not None:
+            try:
+                self._local.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except Exception:
+                pass
             self._local.conn.close()
             self._local.conn = None
 
