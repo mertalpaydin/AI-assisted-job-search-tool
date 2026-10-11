@@ -218,6 +218,11 @@
           </a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'skills_dashboard' %}active{% endif %}" href="/skills">
+            <i class="bi bi-cpu me-2 text-warning"></i>Skills & A/B Lab
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'import_jobs' %}active{% endif %}" href="/jobs/import">
             <i class="bi bi-plus-circle me-2"></i>Import Jobs
           </a>

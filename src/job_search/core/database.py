@@ -2842,6 +2842,22 @@ class DatabaseManager:
         with self._cursor() as cur:
             cur.execute("""
                 SELECT 
+                    substr(created_at, 1, 7) as month,
+                    COUNT(*) as total_jobs,
+                    SUM(CASE WHEN application_status = 'applied' THEN 1 ELSE 0 END) as total_applied,
+                    SUM(CASE WHEN application_status = 'skipped' THEN 1 ELSE 0 END) as total_skipped
+                FROM jobs
+                WHERE scraped = 1 AND created_at IS NOT NULL
+                GROUP BY month
+                ORDER BY month ASC
+            """)
+            baselines = {
+                r["month"]: (int(r["total_jobs"] or 0), int(r["total_applied"] or 0), int(r["total_skipped"] or 0))
+                for r in cur.fetchall()
+            }
+
+            cur.execute("""
+                SELECT 
                     substr(j.created_at, 1, 7) as month,
                     COUNT(DISTINCT j.job_id) as market_count,
                     SUM(CASE WHEN j.application_status = 'applied' THEN 1 ELSE 0 END) as applied_count,
@@ -2852,15 +2868,27 @@ class DatabaseManager:
                 GROUP BY month
                 ORDER BY month ASC
             """, (skill_name,))
-            return [
-                {
-                    "month": r["month"],
-                    "market_count": int(r["market_count"] or 0),
-                    "applied_count": int(r["applied_count"] or 0),
-                    "skipped_count": int(r["skipped_count"] or 0),
-                }
-                for r in cur.fetchall()
-            ]
+            skill_by_month = {r["month"]: r for r in cur.fetchall()}
+
+            result = []
+            for month, (tot_jobs, tot_app, tot_skip) in baselines.items():
+                r = skill_by_month.get(month)
+                m_count = int(r["market_count"]) if r else 0
+                a_count = int(r["applied_count"]) if r else 0
+                s_count = int(r["skipped_count"]) if r else 0
+                result.append({
+                    "month": month,
+                    "market_count": m_count,
+                    "applied_count": a_count,
+                    "skipped_count": s_count,
+                    "market_pct": round((m_count / tot_jobs * 100.0), 2) if tot_jobs > 0 else 0.0,
+                    "applied_pct": round((a_count / tot_app * 100.0), 2) if tot_app > 0 else 0.0,
+                    "skipped_pct": round((s_count / tot_skip * 100.0), 2) if tot_skip > 0 else 0.0,
+                    "total_jobs": tot_jobs,
+                    "total_applied": tot_app,
+                    "total_skipped": tot_skip,
+                })
+            return result
 
     def get_jobs_for_skill(
         self,

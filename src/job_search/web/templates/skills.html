@@ -1,0 +1,1156 @@
+{% extends "base.html" %}
+
+{% block title %}Skills Intelligence & A/B Testing Lab{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  .glass-card {
+    background: rgba(30, 41, 59, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(59, 72, 94, 0.8);
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .glass-card:hover {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  }
+  .stat-glow-red {
+    border-left: 4px solid #f43f5e;
+  }
+  .stat-glow-green {
+    border-left: 4px solid #10b981;
+  }
+  .stat-glow-blue {
+    border-left: 4px solid #38bdf8;
+  }
+  .stat-glow-purple {
+    border-left: 4px solid #a855f7;
+  }
+  .metric-value {
+    font-size: 1.85rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+  .metric-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+    font-weight: 600;
+  }
+  .nav-pills-custom .nav-link {
+    color: #cbd5e1;
+    border: 1px solid #3b485e;
+    background: #182234;
+    border-radius: 20px;
+    padding: 0.45rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.15s ease;
+  }
+  .nav-pills-custom .nav-link.active {
+    background: #38bdf8;
+    color: #0f172a;
+    border-color: #38bdf8;
+    font-weight: 600;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+  }
+  .table-skills th {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94a3b8 !important;
+    background: #111827 !important;
+  }
+  .badge-stat {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.35em 0.65em;
+    border-radius: 6px;
+    letter-spacing: 0.02em;
+  }
+  .badge-deficit-fdr {
+    background: rgba(244, 63, 94, 0.2);
+    color: #fb7185;
+    border: 1px solid rgba(244, 63, 94, 0.4);
+  }
+  .badge-deficit-raw {
+    background: rgba(249, 115, 22, 0.2);
+    color: #fb923c;
+    border: 1px solid rgba(249, 115, 22, 0.4);
+  }
+  .badge-strength-fdr {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+  }
+  .badge-strength-raw {
+    background: rgba(45, 212, 191, 0.2);
+    color: #5eead4;
+    border: 1px solid rgba(45, 212, 191, 0.4);
+  }
+  .badge-parity {
+    background: rgba(56, 189, 248, 0.15);
+    color: #7dd3fc;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+  }
+  .badge-underpowered {
+    background: rgba(100, 116, 139, 0.2);
+    color: #cbd5e1;
+    border: 1px solid rgba(100, 116, 139, 0.4);
+  }
+  .code-token {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.85rem;
+  }
+  .gap-bar-wrap {
+    height: 6px;
+    background: #1e293b;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .gap-bar-pos {
+    background: #f43f5e;
+    height: 100%;
+  }
+  .gap-bar-neg {
+    background: #10b981;
+    height: 100%;
+  }
+  .matrix-cell {
+    background: #182234;
+    border: 1px solid #3b485e;
+    border-radius: 8px;
+    padding: 0.85rem;
+    text-align: center;
+  }
+  .ci-bar-container {
+    height: 24px;
+    background: #182234;
+    border: 1px solid #3b485e;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .ci-zero-line {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #94a3b8;
+    z-index: 2;
+  }
+  .ci-interval {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    background: rgba(56, 189, 248, 0.35);
+    border: 1px solid #38bdf8;
+    border-radius: 4px;
+    z-index: 3;
+  }
+  .ci-point {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    width: 4px;
+    background: #f8fafc;
+    border-radius: 2px;
+    z-index: 4;
+  }
+  .quick-chip {
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .quick-chip:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-0">
+
+  <!-- Header Banner -->
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-4 pb-2 border-bottom border-secondary-subtle">
+    <div>
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-1 rounded-pill">
+          <i class="bi bi-cpu-fill me-1"></i> Data-Driven Skill Intelligence
+        </span>
+        <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-2 py-1 rounded-pill">
+          <i class="bi bi-graph-up me-1"></i> Two-Proportion Z-Testing
+        </span>
+      </div>
+      <h1 class="h2 mb-1 text-light fw-bold">Skills Intelligence & A/B Testing Lab</h1>
+      <p class="text-secondary mb-0 small">
+        Deterministic open-vocabulary extraction, longitudinal market tracking, and statistically rigorous candidate behavioral analysis.
+      </p>
+    </div>
+
+    <!-- Quick Time Horizon Pills -->
+    <div class="d-flex align-items-center gap-2 mt-3 mt-lg-0">
+      <span class="text-secondary small fw-medium">Horizon:</span>
+      <div class="nav nav-pills nav-pills-custom" role="tablist">
+        <a class="nav-link {% if selected_days == 'all' or not selected_days %}active{% endif %}"
+           href="{{ url_for('skills_dashboard', days='all', keyword=selected_keyword, min_count=min_count, sort=selected_sort, q=search_query) }}">All Time</a>
+        <a class="nav-link {% if selected_days == '180d' %}active{% endif %}"
+           href="{{ url_for('skills_dashboard', days='180d', keyword=selected_keyword, min_count=min_count, sort=selected_sort, q=search_query) }}">180d</a>
+        <a class="nav-link {% if selected_days == '90d' %}active{% endif %}"
+           href="{{ url_for('skills_dashboard', days='90d', keyword=selected_keyword, min_count=min_count, sort=selected_sort, q=search_query) }}">90d</a>
+        <a class="nav-link {% if selected_days == '30d' %}active{% endif %}"
+           href="{{ url_for('skills_dashboard', days='30d', keyword=selected_keyword, min_count=min_count, sort=selected_sort, q=search_query) }}">30d</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI Metric Cards -->
+  <div class="row g-3 mb-4">
+    <div class="col-sm-6 col-xl-3">
+      <div class="glass-card stat-glow-blue p-3 h-100">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="metric-label">Skills Tracked</div>
+            <div class="metric-value text-info mt-1">{{ total_skills_count | thousands }}</div>
+            <div class="text-secondary small mt-1">Across {{ total_jobs | thousands }} scraped jobs</div>
+          </div>
+          <div class="p-2 bg-info-subtle rounded-3 text-info">
+            <i class="bi bi-tags fs-4"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="glass-card stat-glow-red p-3 h-100">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="metric-label">Skill Deficits</div>
+            <div class="metric-value text-danger mt-1">{{ sig_deficits_count }}</div>
+            <div class="text-secondary small mt-1">Skipped significantly more (p &lt; 0.05)</div>
+          </div>
+          <div class="p-2 bg-danger-subtle rounded-3 text-danger">
+            <i class="bi bi-exclamation-diamond fs-4"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="glass-card stat-glow-green p-3 h-100">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="metric-label">Candidate Advantages</div>
+            <div class="metric-value text-success mt-1">{{ sig_strengths_count }}</div>
+            <div class="text-secondary small mt-1">Applied significantly more (p &lt; 0.05)</div>
+          </div>
+          <div class="p-2 bg-success-subtle rounded-3 text-success">
+            <i class="bi bi-trophy fs-4"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-xl-3">
+      <div class="glass-card stat-glow-purple p-3 h-100">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="metric-label">Application Parity</div>
+            <div class="metric-value text-light mt-1">{{ parity_count }}</div>
+            <div class="text-secondary small mt-1">{{ total_applied }} applied vs {{ total_skipped }} skipped</div>
+          </div>
+          <div class="p-2 bg-purple-subtle rounded-3 text-light">
+            <i class="bi bi-check2-circle fs-4"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Primary Tab Navigation -->
+  <ul class="nav nav-tabs border-secondary mb-4" id="skillsTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active text-light px-4 py-2 fw-semibold" id="tab-leaderboard-btn" data-bs-toggle="tab" data-bs-target="#tab-leaderboard" type="button" role="tab">
+        <i class="bi bi-table me-2 text-info"></i>Skill Gap Leaderboard
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link text-light px-4 py-2 fw-semibold" id="tab-trends-btn" data-bs-toggle="tab" data-bs-target="#tab-trends" type="button" role="tab">
+        <i class="bi bi-graph-up me-2 text-warning"></i>Longitudinal Time Trends
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link text-light px-4 py-2 fw-semibold" id="tab-ablab-btn" data-bs-toggle="tab" data-bs-target="#tab-ablab" type="button" role="tab">
+        <i class="bi bi-flask-fill me-2 text-primary"></i>Interactive A/B Testing Lab
+      </button>
+    </li>
+  </ul>
+
+  <!-- Tab Content -->
+  <div class="tab-content" id="skillsTabsContent">
+
+    <!-- TAB 1: LEADERBOARD -->
+    <div class="tab-pane fade show active" id="tab-leaderboard" role="tabpanel">
+
+      <!-- Filter Controls Toolbar -->
+      <div class="glass-card p-3 mb-4">
+        <form method="get" action="{{ url_for('skills_dashboard') }}" class="row g-2 align-items-center">
+          <input type="hidden" name="days" value="{{ selected_days or 'all' }}">
+
+          <!-- Search by Skill Name -->
+          <div class="col-md-3">
+            <div class="input-group input-group-sm">
+              <span class="input-group-text bg-dark border-secondary text-secondary"><i class="bi bi-search"></i></span>
+              <input type="text" class="form-control form-control-sm" name="q" id="skill-search-input"
+                     placeholder="Search skill (e.g. Python, A/B...)" value="{{ search_query }}">
+            </div>
+          </div>
+
+          <!-- Keyword Filter -->
+          <div class="col-md-3">
+            <select class="form-select form-select-sm" name="keyword" onchange="this.form.submit()">
+              <option value="">All Search Keywords ({{ keywords|length }})</option>
+              {% for kw in keywords %}
+              <option value="{{ kw }}" {% if selected_keyword == kw %}selected{% endif %}>{{ kw }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Min Market Frequency -->
+          <div class="col-md-2">
+            <select class="form-select form-select-sm" name="min_count" onchange="this.form.submit()">
+              <option value="1" {% if min_count == 1 %}selected{% endif %}>Min Frequency: 1+</option>
+              <option value="3" {% if min_count == 3 %}selected{% endif %}>Min Frequency: 3+</option>
+              <option value="5" {% if min_count == 5 %}selected{% endif %}>Min Frequency: 5+</option>
+              <option value="10" {% if min_count == 10 %}selected{% endif %}>Min Frequency: 10+</option>
+              <option value="25" {% if min_count == 25 %}selected{% endif %}>Min Frequency: 25+</option>
+            </select>
+          </div>
+
+          <!-- Sort Order -->
+          <div class="col-md-3">
+            <select class="form-select form-select-sm" name="sort" onchange="this.form.submit()">
+              <option value="gap_desc" {% if selected_sort == 'gap_desc' %}selected{% endif %}>Sort: Highest Skill Gap (Skipped &gt; Applied)</option>
+              <option value="gap_asc" {% if selected_sort == 'gap_asc' %}selected{% endif %}>Sort: Highest Strength (Applied &gt; Skipped)</option>
+              <option value="market_desc" {% if selected_sort == 'market_desc' %}selected{% endif %}>Sort: Market Demand (Volume)</option>
+              <option value="applied_desc" {% if selected_sort == 'applied_desc' %}selected{% endif %}>Sort: Applied Volume</option>
+              <option value="skipped_desc" {% if selected_sort == 'skipped_desc' %}selected{% endif %}>Sort: Skipped Volume</option>
+              <option value="p_value_asc" {% if selected_sort == 'p_value_asc' %}selected{% endif %}>Sort: Most Statistically Significant (p-val)</option>
+            </select>
+          </div>
+
+          <div class="col-md-1 d-flex gap-1">
+            <button type="submit" class="btn btn-sm btn-primary w-100">Filter</button>
+            {% if search_query or selected_keyword or min_count != 3 or selected_sort != 'gap_desc' %}
+            <a href="{{ url_for('skills_dashboard') }}" class="btn btn-sm btn-outline-secondary" title="Reset Filters"><i class="bi bi-x-lg"></i></a>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+
+      <!-- Skills Table -->
+      <div class="glass-card overflow-hidden mb-4">
+        <div class="table-responsive">
+          <table class="table table-hover table-skills align-middle mb-0" id="skills-table">
+            <thead>
+              <tr>
+                <th style="min-width: 170px;">Skill Name</th>
+                <th class="text-end" style="width: 110px;">Market Vol</th>
+                <th class="text-end" style="width: 110px;">Applied Rate</th>
+                <th class="text-end" style="width: 110px;">Skipped Rate</th>
+                <th style="width: 150px;">Behavioral Gap</th>
+                <th style="width: 170px;">Statistical Decision</th>
+                <th class="text-end" style="width: 90px;">Z-Stat</th>
+                <th class="text-end" style="width: 90px;">p-Value</th>
+                <th style="width: 120px;" class="text-center">95% Conf. Int.</th>
+                <th class="text-end" style="width: 80px;">Power</th>
+                <th class="text-end" style="width: 90px;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in skills %}
+              <tr>
+                <!-- Skill Name & Inspection Link -->
+                <td>
+                  <a href="javascript:void(0)" onclick="openSkillModal('{{ s.skill_name }}')"
+                     class="text-light text-decoration-none fw-semibold d-inline-flex align-items-center gap-1 hover-link">
+                    {{ s.skill_name }}
+                    <i class="bi bi-box-arrow-up-right text-info" style="font-size: 0.75rem;"></i>
+                  </a>
+                  <div class="text-dim small code-token">{{ s.company_count }} companies</div>
+                </td>
+
+                <!-- Market Presence -->
+                <td class="text-end">
+                  <div class="fw-semibold text-light">{{ s.all_count }}</div>
+                  <div class="text-dim small">{{ "%.1f"|format(s.all_pct) }}%</div>
+                </td>
+
+                <!-- Applied Rate -->
+                <td class="text-end">
+                  <div class="fw-semibold text-info">{{ s.applied_count }}</div>
+                  <div class="text-dim small">{{ "%.1f"|format(s.applied_pct) }}%</div>
+                </td>
+
+                <!-- Skipped Rate -->
+                <td class="text-end">
+                  <div class="fw-semibold text-secondary">{{ s.skipped_count }}</div>
+                  <div class="text-dim small">{{ "%.1f"|format(s.skipped_pct) }}%</div>
+                </td>
+
+                <!-- Gap Score -->
+                <td>
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="code-token fw-semibold {% if s.gap_pct > 0.5 %}text-danger{% elif s.gap_pct < -0.5 %}text-success{% else %}text-secondary{% endif %}">
+                      {% if s.gap_pct > 0 %}+{% endif %}{{ "%.2f"|format(s.gap_pct) }}%
+                    </span>
+                  </div>
+                  <div class="gap-bar-wrap">
+                    {% if s.gap_pct > 0 %}
+                    <div class="gap-bar-pos" style="width: {{ [s.gap_pct * 15, 100]|min }}%;"></div>
+                    {% elif s.gap_pct < 0 %}
+                    <div class="gap-bar-neg" style="width: {{ [-s.gap_pct * 15, 100]|min }}%;"></div>
+                    {% endif %}
+                  </div>
+                </td>
+
+                <!-- Statistical Decision Badge -->
+                <td>
+                  {% if s.badge_type == 'deficit_fdr' %}
+                  <span class="badge-stat badge-deficit-fdr" title="Statistically significant skill deficit (FDR q < 0.05)">
+                    <i class="bi bi-shield-slash me-1"></i>Deficit (FDR)
+                  </span>
+                  {% elif s.badge_type == 'deficit_raw' %}
+                  <span class="badge-stat badge-deficit-raw" title="Candidate skipped significantly more (p < 0.05)">
+                    <i class="bi bi-arrow-down-right me-1"></i>Deficit (p&lt;0.05)
+                  </span>
+                  {% elif s.badge_type == 'strength_fdr' %}
+                  <span class="badge-stat badge-strength-fdr" title="Statistically significant candidate strength (FDR q < 0.05)">
+                    <i class="bi bi-shield-check me-1"></i>Advantage (FDR)
+                  </span>
+                  {% elif s.badge_type == 'strength_raw' %}
+                  <span class="badge-stat badge-strength-raw" title="Candidate applied significantly more (p < 0.05)">
+                    <i class="bi bi-arrow-up-right me-1"></i>Advantage (p&lt;0.05)
+                  </span>
+                  {% elif s.badge_type == 'underpowered' %}
+                  <span class="badge-stat badge-underpowered" title="Low statistical sample size to detect small difference">
+                    <i class="bi bi-battery me-1"></i>Underpowered
+                  </span>
+                  {% else %}
+                  <span class="badge-stat badge-parity" title="Behavior matches baseline market distribution">
+                    <i class="bi bi-dash-circle me-1"></i>Parity
+                  </span>
+                  {% endif %}
+                </td>
+
+                <!-- Z-Statistic -->
+                <td class="text-end code-token text-secondary">
+                  {{ s.z_stat }}
+                </td>
+
+                <!-- p-Value -->
+                <td class="text-end code-token {% if s.p_value < 0.05 %}text-warning fw-semibold{% else %}text-dim{% endif %}">
+                  {% if s.p_value < 0.001 %}&lt;0.001{% else %}{{ "%.3f"|format(s.p_value) }}{% endif %}
+                </td>
+
+                <!-- 95% Confidence Interval -->
+                <td class="text-center code-token text-dim small">
+                  [{{ "%.1f"|format(s.ci_lower) }}%, {{ "%.1f"|format(s.ci_upper) }}%]
+                </td>
+
+                <!-- Statistical Power -->
+                <td class="text-end code-token text-secondary small">
+                  {{ s.power }}%
+                </td>
+
+                <!-- Action Button -->
+                <td class="text-end">
+                  <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary py-0 px-2" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                      <i class="bi bi-three-dots"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
+                      <li>
+                        <a class="dropdown-item small" href="javascript:void(0)" onclick="openSkillModal('{{ s.skill_name }}')">
+                          <i class="bi bi-briefcase me-2 text-info"></i>Inspect Job Ads
+                        </a>
+                      </li>
+                      <li>
+                        <a class="dropdown-item small" href="javascript:void(0)" onclick="loadSkillInLab('{{ s.skill_name }}')">
+                          <i class="bi bi-flask me-2 text-primary"></i>Test in A/B Lab
+                        </a>
+                      </li>
+                      <li>
+                        <a class="dropdown-item small" href="javascript:void(0)" onclick="loadSkillInTrends('{{ s.skill_name }}')">
+                          <i class="bi bi-graph-up me-2 text-warning"></i>View Time Trend
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="11" class="text-center py-5 text-secondary">
+                  <i class="bi bi-search fs-1 d-block mb-2 text-dim"></i>
+                  No extracted skills found matching the active filters.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        {% if total_pages > 1 %}
+        <div class="d-flex justify-content-between align-items-center p-3 border-top border-secondary">
+          <div class="text-secondary small">
+            Showing {{ ((page - 1) * 50) + 1 }} to {{ [page * 50, total_skills_count]|min }} of {{ total_skills_count }} skills
+          </div>
+          <nav aria-label="Skills table pagination">
+            <ul class="pagination pagination-sm mb-0">
+              <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+                <a class="page-link" href="{{ url_for('skills_dashboard', page=page-1, days=selected_days, keyword=selected_keyword, min_count=min_count, sort=selected_sort, q=search_query) }}">Previous</a>
+              </li>
+              {% for p in range([1, page - 2]|max, [total_pages + 1, page + 3]|min) %}
+              <li class="page-item {% if p == page %}active{% endif %}">
+                <a class="page-link" href="{{ url_for('skills_dashboard', page=p, days=selected_days, keyword=selected_keyword, min_count=min_count, sort=selected_sort, q=search_query) }}">{{ p }}</a>
+              </li>
+              {% endfor %}
+              <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+                <a class="page-link" href="{{ url_for('skills_dashboard', page=page+1, days=selected_days, keyword=selected_keyword, min_count=min_count, sort=selected_sort, q=search_query) }}">Next</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+        {% endif %}
+      </div>
+
+    </div>
+
+    <!-- TAB 2: TIME TRENDS -->
+    <div class="tab-pane fade" id="tab-trends" role="tabpanel">
+      <div class="glass-card p-4 mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+          <div>
+            <h4 class="h5 mb-1 text-light fw-bold">Market Penetration vs Application Rate Timeline</h4>
+            <p class="text-secondary small mb-0">Track monthly shifts in employer demand alongside candidate application frequency (May – October 2026).</p>
+          </div>
+
+          <div class="d-flex align-items-center gap-2">
+            <label for="trendSkillSelect" class="text-secondary small fw-medium text-nowrap">Skill:</label>
+            <select class="form-select form-select-sm" id="trendSkillSelect" style="min-width: 200px;">
+              {% for s in top_lab_skills %}
+              <option value="{{ s }}" {% if s == 'A/B Testing' %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+            <div class="btn-group btn-group-sm ms-2" role="group">
+              <button type="button" class="btn btn-outline-secondary active" id="btn-metric-pct" onclick="switchTrendMetric('pct')">Rate (%)</button>
+              <button type="button" class="btn btn-outline-secondary" id="btn-metric-count" onclick="switchTrendMetric('count')">Volume (#)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Pick Chips -->
+        <div class="mb-4">
+          <span class="text-dim small me-2">Quick Compare:</span>
+          <div class="d-inline-flex flex-wrap gap-1">
+            {% for chip in ['A/B Testing', 'Python', 'SQL', 'Azure', 'Git', 'Docker', 'Large Language Models (LLMs)', 'Power BI', 'Machine Learning'] %}
+            <span class="badge bg-secondary-subtle text-light border border-secondary px-2 py-1 quick-chip"
+                  onclick="selectTrendSkill('{{ chip }}')">{{ chip }}</span>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Chart Canvas -->
+        <div style="position: relative; height: 360px; width: 100%;">
+          <canvas id="skillTrendChart"></canvas>
+        </div>
+
+        <!-- Trend Data Table -->
+        <div class="mt-4 pt-3 border-top border-secondary">
+          <h5 class="h6 text-secondary mb-3">Monthly Distribution Breakdown</h5>
+          <div class="table-responsive">
+            <table class="table table-sm table-dark table-bordered align-middle mb-0" id="trendTable">
+              <thead>
+                <tr class="text-secondary small">
+                  <th>Month</th>
+                  <th class="text-end">Market Demand (%)</th>
+                  <th class="text-end">Market Volume (#)</th>
+                  <th class="text-end">Applied Rate (%)</th>
+                  <th class="text-end">Applied Volume (#)</th>
+                  <th class="text-end">Skipped Rate (%)</th>
+                  <th class="text-end">Skipped Volume (#)</th>
+                </tr>
+              </thead>
+              <tbody id="trendTableBody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: A/B TESTING LAB -->
+    <div class="tab-pane fade" id="tab-ablab" role="tabpanel">
+      <div class="row g-4 mb-4">
+        <!-- Lab Input Panel -->
+        <div class="col-lg-4">
+          <div class="glass-card p-4 h-100">
+            <div class="d-flex align-items-center gap-2 mb-3">
+              <div class="p-2 bg-primary-subtle text-primary rounded-3">
+                <i class="bi bi-sliders fs-5"></i>
+              </div>
+              <h4 class="h5 mb-0 text-light fw-bold">Experiment Setup</h4>
+            </div>
+            <p class="text-secondary small mb-3">
+              Select any skill from your catalog to run a full two-sample proportion Z-test comparing Applied vs. Skipped jobs.
+            </p>
+
+            <div class="mb-3">
+              <label for="labSkillSelect" class="form-label text-secondary small fw-medium">Target Skill:</label>
+              <select class="form-select form-select-sm" id="labSkillSelect">
+                {% for s in top_lab_skills %}
+                <option value="{{ s }}" {% if s == 'A/B Testing' %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label text-secondary small fw-medium">Quick Suggestions:</label>
+              <div class="d-flex flex-wrap gap-1">
+                {% for chip in ['A/B Testing', 'Git', 'Large Language Models (LLMs)', 'SQL', 'Python', 'Power BI'] %}
+                <button type="button" class="btn btn-xs btn-outline-secondary py-1 px-2 small"
+                        onclick="setLabSkill('{{ chip }}')">{{ chip }}</button>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="p-3 bg-dark bg-opacity-50 border border-secondary rounded-3 mt-4">
+              <div class="small fw-semibold text-info mb-1"><i class="bi bi-info-circle me-1"></i> Statistical Protocol</div>
+              <ul class="text-secondary small mb-0 ps-3">
+                <li>Null Hypothesis: $H_0: p_{\text{applied}} = p_{\text{skipped}}$</li>
+                <li>Alternative: $H_1: p_{\text{applied}} \neq p_{\text{skipped}}$ (Two-Tailed)</li>
+                <li>Significance Ceiling: $\alpha = 0.05$</li>
+                <li>Target Power: $1 - \beta = 0.80$</li>
+                <li>Pooled variance used for Z-score; unpooled used for 95% Wald CI.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lab Results Display -->
+        <div class="col-lg-8">
+          <div class="glass-card p-4 h-100" id="labResultCard">
+
+            <!-- Title & Status Header -->
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 pb-2 border-bottom border-secondary">
+              <div>
+                <span class="badge bg-secondary-subtle text-light border border-secondary px-2 py-1 mb-1" id="labSkillBadge">Skill: A/B Testing</span>
+                <h3 class="h4 text-light fw-bold mb-0" id="labSkillName">A/B Testing</h3>
+              </div>
+              <div id="labDecisionBadge">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
+
+            <!-- 2x2 Contingency Matrix -->
+            <div class="row g-2 mb-4">
+              <div class="col-6 col-md-3">
+                <div class="matrix-cell">
+                  <div class="text-dim small text-uppercase fw-semibold">Applied + Skill</div>
+                  <div class="fs-4 fw-bold text-info" id="labAppWith">-</div>
+                  <div class="text-secondary small" id="labAppRate">-</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="matrix-cell">
+                  <div class="text-dim small text-uppercase fw-semibold">Applied No Skill</div>
+                  <div class="fs-4 fw-bold text-light" id="labAppWithout">-</div>
+                  <div class="text-secondary small">Baseline</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="matrix-cell">
+                  <div class="text-dim small text-uppercase fw-semibold">Skipped + Skill</div>
+                  <div class="fs-4 fw-bold text-danger" id="labSkipWith">-</div>
+                  <div class="text-secondary small" id="labSkipRate">-</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="matrix-cell">
+                  <div class="text-dim small text-uppercase fw-semibold">Skipped No Skill</div>
+                  <div class="fs-4 fw-bold text-light" id="labSkipWithout">-</div>
+                  <div class="text-secondary small">Baseline</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mathematical Parameters Row -->
+            <div class="row g-3 mb-4">
+              <div class="col-sm-4">
+                <div class="p-3 bg-dark bg-opacity-40 border border-secondary rounded-3">
+                  <div class="text-dim small fw-semibold text-uppercase">Z-Statistic</div>
+                  <div class="fs-4 fw-bold text-light mt-1 code-token" id="labZStat">-</div>
+                  <div class="text-secondary small">Critical $Z_{\alpha/2} = \pm 1.96$</div>
+                </div>
+              </div>
+              <div class="col-sm-4">
+                <div class="p-3 bg-dark bg-opacity-40 border border-secondary rounded-3">
+                  <div class="text-dim small fw-semibold text-uppercase">Two-Tailed p-Value</div>
+                  <div class="fs-4 fw-bold text-light mt-1 code-token" id="labPValue">-</div>
+                  <div class="text-secondary small" id="labSigVerdict">Testing $\alpha = 0.05$</div>
+                </div>
+              </div>
+              <div class="col-sm-4">
+                <div class="p-3 bg-dark bg-opacity-40 border border-secondary rounded-3">
+                  <div class="text-dim small fw-semibold text-uppercase">Effect Size (Cohen's h)</div>
+                  <div class="fs-4 fw-bold text-light mt-1 code-token" id="labCohensH">-</div>
+                  <div class="text-secondary small" id="labEffectMagnitude">Arcsine transformed</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 95% Confidence Interval Graphic -->
+            <div class="mb-4">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="text-secondary small fw-medium">95% Confidence Interval for $\Delta p$ (Applied - Skipped):</span>
+                <span class="code-token small text-info fw-semibold" id="labCIText">[-]</span>
+              </div>
+              <div class="ci-bar-container" id="labCIContainer">
+                <div class="ci-zero-line" title="Null Difference (0%)"></div>
+                <div class="ci-interval" id="labCIInterval" style="left: 40%; width: 20%;"></div>
+                <div class="ci-point" id="labCIPoint" style="left: 50%;"></div>
+              </div>
+              <div class="d-flex justify-content-between text-dim small mt-1">
+                <span>Favors Skipped (&lt; 0)</span>
+                <span>Parity (0)</span>
+                <span>Favors Applied (&gt; 0)</span>
+              </div>
+            </div>
+
+            <!-- Statistical Power & MDE -->
+            <div class="row g-3 mb-4">
+              <div class="col-sm-6">
+                <div class="p-3 bg-dark bg-opacity-40 border border-secondary rounded-3">
+                  <div class="d-flex justify-content-between">
+                    <span class="text-secondary small fw-medium">Statistical Power ($1 - \beta$):</span>
+                    <span class="code-token fw-bold text-light" id="labPowerVal">-%</span>
+                  </div>
+                  <div class="progress mt-2" style="height: 6px;">
+                    <div class="progress-bar bg-info" id="labPowerBar" role="progressbar" style="width: 0%;"></div>
+                  </div>
+                  <div class="text-dim small mt-1">Target power 80% to avoid Type II errors.</div>
+                </div>
+              </div>
+              <div class="col-sm-6">
+                <div class="p-3 bg-dark bg-opacity-40 border border-secondary rounded-3">
+                  <div class="d-flex justify-content-between">
+                    <span class="text-secondary small fw-medium">Min Detectable Effect (MDE):</span>
+                    <span class="code-token fw-bold text-light" id="labMDEVal">-%</span>
+                  </div>
+                  <div class="text-secondary small mt-2">Smallest difference detectable at $80\%$ power given active sample sizes ($n_1={{ total_applied }}, n_2={{ total_skipped }}$).</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Automated Portfolio Case Study Narrative -->
+            <div class="p-3 bg-dark border border-primary-subtle rounded-3">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="text-primary fw-semibold small">
+                  <i class="bi bi-file-earmark-text me-1"></i> Executive Portfolio Narrative (CV / Case Study Ready)
+                </span>
+                <button type="button" class="btn btn-xs btn-outline-primary" onclick="copyNarrative()">
+                  <i class="bi bi-clipboard me-1"></i> Copy
+                </button>
+              </div>
+              <div class="text-light small code-token p-2 bg-black bg-opacity-40 rounded" id="labNarrativeText" style="white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.8rem; line-height: 1.5;">
+                Loading experimentation results...
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Job Drilldown Modal -->
+<div class="modal fade" id="skillJobsModal" tabindex="-1" aria-labelledby="skillJobsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <div>
+          <h5 class="modal-title text-light fw-bold" id="skillJobsModalLabel">Job Postings Requiring Skill</h5>
+          <div class="text-secondary small" id="skillModalSubtitle">Loading postings...</div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="modal-body p-3">
+        <!-- Status Filter Buttons in Modal -->
+        <div class="d-flex gap-2 mb-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary active" id="modal-filter-all" onclick="filterModalJobs(null)">All Postings</button>
+          <button type="button" class="btn btn-sm btn-outline-success" id="modal-filter-applied" onclick="filterModalJobs('applied')">Applied</button>
+          <button type="button" class="btn btn-sm btn-outline-danger" id="modal-filter-skipped" onclick="filterModalJobs('skipped')">Skipped</button>
+        </div>
+
+        <!-- Postings Container -->
+        <div id="modalJobsContainer" class="d-flex flex-column gap-2">
+          <div class="text-center py-4 text-secondary">
+            <div class="spinner-border text-info mb-2" role="status"></div>
+            <div>Loading job records...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let trendChartInstance = null;
+  let activeTrendMetric = 'pct';
+  let activeModalSkill = '';
+  let activeModalStatus = null;
+
+  // Initialize Trends chart on load
+  document.addEventListener('DOMContentLoaded', () => {
+    initTrendChart();
+    loadSkillInTrends('A/B Testing');
+    loadSkillInLab('A/B Testing');
+
+    // Handle tab change events
+    const trendsTabBtn = document.getElementById('tab-trends-btn');
+    if (trendsTabBtn) {
+      trendsTabBtn.addEventListener('shown.bs.tab', () => {
+        if (trendChartInstance) {
+          trendChartInstance.resize();
+        }
+      });
+    }
+
+    // Select change listeners
+    document.getElementById('trendSkillSelect').addEventListener('change', (e) => {
+      loadSkillInTrends(e.target.value);
+    });
+    document.getElementById('labSkillSelect').addEventListener('change', (e) => {
+      loadSkillInLab(e.target.value);
+    });
+  });
+
+  // Trend Chart Logic
+  function initTrendChart() {
+    const ctx = document.getElementById('skillTrendChart').getContext('2d');
+    trendChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Market Demand Rate (%)',
+            data: [],
+            borderColor: '#38bdf8',
+            backgroundColor: 'rgba(56, 189, 248, 0.15)',
+            fill: true,
+            tension: 0.3,
+            borderWidth: 2,
+            pointBackgroundColor: '#38bdf8',
+            pointRadius: 4,
+          },
+          {
+            label: 'Candidate Application Rate (%)',
+            data: [],
+            borderColor: '#10b981',
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            borderWidth: 2.5,
+            borderDash: [5, 5],
+            pointBackgroundColor: '#10b981',
+            pointRadius: 5,
+          },
+          {
+            label: 'Skipped Rate (%)',
+            data: [],
+            borderColor: '#f43f5e',
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            borderWidth: 1.5,
+            pointBackgroundColor: '#f43f5e',
+            pointRadius: 3,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#cbd5e1', font: { family: 'Inter', size: 12 } }
+          },
+          tooltip: {
+            backgroundColor: '#1e293b',
+            titleColor: '#f8fafc',
+            bodyColor: '#cbd5e1',
+            borderColor: '#3b485e',
+            borderWidth: 1,
+            padding: 10,
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(59, 72, 94, 0.4)' },
+            ticks: { color: '#94a3b8' }
+          },
+          y: {
+            grid: { color: 'rgba(59, 72, 94, 0.4)' },
+            ticks: { color: '#94a3b8' }
+          }
+        }
+      }
+    });
+  }
+
+  function selectTrendSkill(skill) {
+    document.getElementById('trendSkillSelect').value = skill;
+    loadSkillInTrends(skill);
+  }
+
+  function switchTrendMetric(metric) {
+    activeTrendMetric = metric;
+    document.getElementById('btn-metric-pct').classList.toggle('active', metric === 'pct');
+    document.getElementById('btn-metric-count').classList.toggle('active', metric === 'count');
+    const skill = document.getElementById('trendSkillSelect').value;
+    loadSkillInTrends(skill);
+  }
+
+  function loadSkillInTrends(skill) {
+    fetch(`/api/skills/time-series?skill=${encodeURIComponent(skill)}`)
+      .then(res => res.json())
+      .then(data => {
+        const timeline = data.timeline;
+        const labels = timeline.map(t => t.month);
+        let mData, aData, sData;
+
+        if (activeTrendMetric === 'pct') {
+          mData = timeline.map(t => t.market_pct);
+          aData = timeline.map(t => t.applied_pct);
+          sData = timeline.map(t => t.skipped_pct);
+          trendChartInstance.data.datasets[0].label = 'Market Demand Rate (%)';
+          trendChartInstance.data.datasets[1].label = 'Candidate Application Rate (%)';
+          trendChartInstance.data.datasets[2].label = 'Skipped Rate (%)';
+        } else {
+          mData = timeline.map(t => t.market_count);
+          aData = timeline.map(t => t.applied_count);
+          sData = timeline.map(t => t.skipped_count);
+          trendChartInstance.data.datasets[0].label = 'Market Volume (#)';
+          trendChartInstance.data.datasets[1].label = 'Applied Volume (#)';
+          trendChartInstance.data.datasets[2].label = 'Skipped Volume (#)';
+        }
+
+        trendChartInstance.data.labels = labels;
+        trendChartInstance.data.datasets[0].data = mData;
+        trendChartInstance.data.datasets[1].data = aData;
+        trendChartInstance.data.datasets[2].data = sData;
+        trendChartInstance.update();
+
+        // Populate table
+        const tbody = document.getElementById('trendTableBody');
+        tbody.innerHTML = '';
+        timeline.forEach(row => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="text-light fw-medium">${row.month}</td>
+            <td class="text-end text-info">${row.market_pct.toFixed(2)}%</td>
+            <td class="text-end text-light">${row.market_count}</td>
+            <td class="text-end text-success">${row.applied_pct.toFixed(2)}%</td>
+            <td class="text-end text-light">${row.applied_count}</td>
+            <td class="text-end text-danger">${row.skipped_pct.toFixed(2)}%</td>
+            <td class="text-end text-light">${row.skipped_count}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      })
+      .catch(err => console.error('Error fetching trend:', err));
+  }
+
+  // A/B Testing Lab Logic
+  function setLabSkill(skill) {
+    document.getElementById('labSkillSelect').value = skill;
+    loadSkillInLab(skill);
+  }
+
+  function loadSkillInLab(skill) {
+    const days = '{{ selected_days or "all" }}';
+    const keyword = '{{ selected_keyword or "" }}';
+    fetch(`/api/skills/test?skill=${encodeURIComponent(skill)}&days=${days}&keyword=${keyword}`)
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('labSkillBadge').textContent = `Skill: ${data.skill_name}`;
+        document.getElementById('labSkillName').textContent = data.skill_name;
+
+        // Contingency Matrix
+        document.getElementById('labAppWith').textContent = data.contingency.applied_with;
+        document.getElementById('labAppRate').textContent = `${data.p_applied_pct}% of applied`;
+        document.getElementById('labAppWithout').textContent = data.contingency.applied_without;
+
+        document.getElementById('labSkipWith').textContent = data.contingency.skipped_with;
+        document.getElementById('labSkipRate').textContent = `${data.p_skipped_pct}% of skipped`;
+        document.getElementById('labSkipWithout').textContent = data.contingency.skipped_without;
+
+        // Stats
+        document.getElementById('labZStat').textContent = data.z_stat;
+        document.getElementById('labPValue').textContent = data.p_value < 0.001 ? '< 0.001' : data.p_value.toFixed(4);
+        document.getElementById('labCohensH').textContent = data.cohens_h;
+
+        // Decision Badge
+        const decisionBadge = document.getElementById('labDecisionBadge');
+        if (data.is_significant) {
+          if (data.diff_pct > 0) {
+            decisionBadge.innerHTML = `<span class="badge-stat badge-strength-raw fs-6"><i class="bi bi-shield-check me-1"></i>Significant Advantage (p < 0.05)</span>`;
+          } else {
+            decisionBadge.innerHTML = `<span class="badge-stat badge-deficit-raw fs-6"><i class="bi bi-shield-slash me-1"></i>Significant Deficit (p < 0.05)</span>`;
+          }
+        } else {
+          decisionBadge.innerHTML = `<span class="badge-stat badge-parity fs-6"><i class="bi bi-dash-circle me-1"></i>Statistical Parity (p = ${data.p_value.toFixed(3)})</span>`;
+        }
+
+        // CI Graphic
+        document.getElementById('labCIText').textContent = `[${data.ci_lower_pct}%, ${data.ci_upper_pct}%] (Point Diff: ${data.diff_pct}%)`;
+
+        // Normalize graphic to +/- 10% bounds
+        const range = 20; // -10% to +10%
+        const zeroPct = 50;
+        const lowerPct = Math.max(0, Math.min(100, zeroPct + (data.ci_lower_pct / range) * 50));
+        const upperPct = Math.max(0, Math.min(100, zeroPct + (data.ci_upper_pct / range) * 50));
+        const pointPct = Math.max(0, Math.min(100, zeroPct + (data.diff_pct / range) * 50));
+
+        const intervalEl = document.getElementById('labCIInterval');
+        intervalEl.style.left = `${Math.min(lowerPct, upperPct)}%`;
+        intervalEl.style.width = `${Math.abs(upperPct - lowerPct)}%`;
+        document.getElementById('labCIPoint').style.left = `${pointPct}%`;
+
+        // Power & MDE
+        document.getElementById('labPowerVal').textContent = `${data.power}%`;
+        document.getElementById('labPowerBar').style.width = `${Math.min(100, data.power)}%`;
+        document.getElementById('labMDEVal').textContent = `±${data.mde_pct}%`;
+
+        // Narrative Generator
+        let narrative = `CASE STUDY: Behavioral A/B Testing on Skill "${data.skill_name}"\n\n`;
+        narrative += `1. HYPOTHESIS & OBJECTIVE:\n`;
+        narrative += `   Investigated candidate application bias toward job ads mentioning "${data.skill_name}" (Two-Proportion Z-Test, alpha=0.05, power=80%).\n`;
+        narrative += `   H0: P(Applied | "${data.skill_name}") = P(Skipped | "${data.skill_name}")\n\n`;
+        narrative += `2. SAMPLE & PROPORTIONS:\n`;
+        narrative += `   - Applied Cohort: n1 = ${data.n_applied}, x1 = ${data.x_applied} (${data.p_applied_pct}%)\n`;
+        narrative += `   - Skipped Cohort: n2 = ${data.n_skipped}, x2 = ${data.x_skipped} (${data.p_skipped_pct}%)\n`;
+        narrative += `   - Observed Delta: ${data.diff_pct > 0 ? '+' : ''}${data.diff_pct}% (95% CI: [${data.ci_lower_pct}%, ${data.ci_upper_pct}%])\n\n`;
+        narrative += `3. STATISTICAL INFERENCE:\n`;
+        narrative += `   - Z-Score: ${data.z_stat}, p-value: ${data.p_value < 0.001 ? '<0.001' : data.p_value.toFixed(4)}\n`;
+        narrative += `   - Effect Size: Cohen's h = ${data.cohens_h}, Statistical Power = ${data.power}%\n`;
+        narrative += `   - Decision: ${data.interpretation}\n\n`;
+        narrative += `4. MARKET CONTEXT:\n`;
+        narrative += `   Mentioned in ${data.total_market_jobs} total job listings (${data.market_pct}% market penetration across ${data.company_count} companies).`;
+
+        document.getElementById('labNarrativeText').textContent = narrative;
+      })
+      .catch(err => console.error('Error fetching lab test:', err));
+  }
+
+  function copyNarrative() {
+    const text = document.getElementById('labNarrativeText').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      alert('Case study narrative copied to clipboard!');
+    });
+  }
+
+  // Job Modal Logic
+  function openSkillModal(skill) {
+    activeModalSkill = skill;
+    activeModalStatus = null;
+    document.getElementById('skillJobsModalLabel').textContent = `Job Postings Requiring "${skill}"`;
+    document.getElementById('skillModalSubtitle').textContent = 'Fetching matching jobs from database...';
+    filterModalJobs(null);
+
+    const modal = new bootstrap.Modal(document.getElementById('skillJobsModal'));
+    modal.show();
+  }
+
+  function filterModalJobs(status) {
+    activeModalStatus = status;
+    document.getElementById('modal-filter-all').classList.toggle('active', status === null);
+    document.getElementById('modal-filter-applied').classList.toggle('active', status === 'applied');
+    document.getElementById('modal-filter-skipped').classList.toggle('active', status === 'skipped');
+
+    const container = document.getElementById('modalJobsContainer');
+    container.innerHTML = `
+      <div class="text-center py-4 text-secondary">
+        <div class="spinner-border text-info mb-2" role="status"></div>
+        <div>Loading records...</div>
+      </div>
+    `;
+
+    const statusParam = status ? `&status=${status}` : '';
+    fetch(`/api/skills/jobs?skill=${encodeURIComponent(activeModalSkill)}${statusParam}&limit=50`)
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('skillModalSubtitle').textContent = `Displaying ${data.jobs.length} postings matching filter.`;
+        if (data.jobs.length === 0) {
+          container.innerHTML = `<div class="text-center py-4 text-secondary">No job postings found with status "${status || 'all'}".</div>`;
+          return;
+        }
+
+        container.innerHTML = '';
+        data.jobs.forEach(job => {
+          let statusBadge = '<span class="badge bg-secondary">Unscreened</span>';
+          if (job.application_status === 'applied') {
+            statusBadge = '<span class="badge bg-success">Applied</span>';
+          } else if (job.application_status === 'skipped') {
+            statusBadge = '<span class="badge bg-danger">Skipped</span>';
+          }
+
+          const card = document.createElement('div');
+          card.className = 'p-3 bg-dark bg-opacity-75 border border-secondary rounded-3';
+          card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <div>
+                <a href="/jobs/${job.job_id}" target="_blank" class="text-light fw-bold text-decoration-none hover-link">
+                  ${job.title || 'Untitled Position'}
+                  <i class="bi bi-box-arrow-up-right text-info ms-1" style="font-size:0.75rem;"></i>
+                </a>
+                <div class="text-secondary small">
+                  <strong>${job.company_name || 'Unknown Company'}</strong> &bull; ${job.formattedLocation || 'Remote/Unknown'} &bull; ${job.created_at ? job.created_at.substring(0, 10) : ''}
+                </div>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                ${statusBadge}
+                ${job.cv_match_score ? `<span class="badge bg-info-subtle text-info border border-info-subtle">Match: ${(job.cv_match_score * 100).toFixed(0)}%</span>` : ''}
+              </div>
+            </div>
+            <div class="text-dim small p-2 bg-black bg-opacity-30 rounded border border-secondary border-opacity-50">
+              "${job.snippet || 'No description preview available.'}..."
+            </div>
+          `;
+          container.appendChild(card);
+        });
+      })
+      .catch(err => {
+        container.innerHTML = `<div class="text-danger text-center py-4">Failed to load postings: ${err}</div>`;
+      });
+  }
+</script>
+{% endblock %}

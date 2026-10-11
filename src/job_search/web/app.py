@@ -29,6 +29,7 @@ from job_search.core.database import (
     DatabaseManager,
 )
 from job_search.scraping.external.orchestrator import DEFAULT_PROVIDERS
+from job_search.skills.experimentation import ABTestEngine, HypothesisTestResult
 from job_search.utils.formatting import clean_cover_letter_text
 
 # Flask finds templates relative to this file's directory
@@ -587,10 +588,12 @@ def job_detail(job_id: int):
         abort(404)
     prev_job_id, next_job_id = db.get_adjacent_job_ids(job_id)
     skills = db.get_skills_for_job(job_id)
-    if not skills and (job.description or job.skillsDescription):
+    skills_desc = getattr(job, "skillsDescription", None)
+    job_desc = getattr(job, "description", None) or ""
+    if not skills and (job_desc or skills_desc):
         try:
             from job_search.skills.open_extractor import OpenSkillExtractor
-            extracted = OpenSkillExtractor().extract_all(job.description or "", job.skillsDescription)
+            extracted = OpenSkillExtractor().extract_all(job_desc, skills_desc)
             if extracted:
                 db.index_job_skills(job_id, extracted)
                 skills = sorted(list(extracted))
@@ -2213,5 +2216,308 @@ def stop_external_search_route():
     else:
         flash("External search is not running.", "info")
     return redirect(url_for("external_jobs"))
+
+
+# ---------------------------------------------------------------------------
+# Skills Analysis & A/B Testing Lab Routes
+# ---------------------------------------------------------------------------
+
+@app.route("/skills")
+def skills_dashboard():
+    db = get_db()
+    keywords = db.get_distinct_keywords()
+
+    days_param = request.args.get("days", "all").strip().lower()
+    days_map = {"30d": 30, "90d": 90, "180d": 180, "all": None}
+    days_val = days_map.get(days_param, None)
+
+    keyword_filter = request.args.get("keyword", "").strip() or None
+    try:
+        min_count = max(1, int(request.args.get("min_count", 3)))
+    except ValueError:
+        min_count = 3
+
+    sort_param = request.args.get("sort", "gap_desc").strip().lower()
+    search_query = request.args.get("q", "").strip()
+
+    stats = db.get_skill_stats(days=days_val, search_keyword=keyword_filter, min_frequency=min_count)
+    total_jobs = stats["total_jobs"]
+    total_applied = stats["total_applied"]
+    total_skipped = stats["total_skipped"]
+    raw_skills = stats["skills"]
+
+    engine = ABTestEngine(alpha=0.05, target_power=0.80)
+
+    # For Benjamini-Hochberg FDR control, test skills present in screened jobs
+    screened_tests = []
+    for s in raw_skills:
+        s_name = s["skill_name"]
+        app_c = s["applied_count"]
+        skip_c = s["skipped_count"]
+        if (app_c + skip_c > 0) and total_applied > 0 and total_skipped > 0:
+            t = engine.two_proportion_z_test(
+                skill_name=s_name,
+                x1=app_c,
+                n1=total_applied,
+                x2=skip_c,
+                n2=total_skipped,
+                label1="Applied",
+                label2="Skipped",
+            )
+            screened_tests.append(t)
+
+    fdr_results = engine.apply_benjamini_hochberg(screened_tests)
+    fdr_map = {r.skill_name: r for r in fdr_results}
+
+    enriched_skills = []
+    sig_deficits_count = 0
+    sig_strengths_count = 0
+    parity_count = 0
+
+    for s in raw_skills:
+        s_name = s["skill_name"]
+
+        # Text query filtering
+        if search_query and search_query.lower() not in s_name.lower():
+            continue
+
+        t = fdr_map.get(s_name)
+        if not t and (total_applied > 0 and total_skipped > 0):
+            t = engine.two_proportion_z_test(
+                skill_name=s_name,
+                x1=s["applied_count"],
+                n1=total_applied,
+                x2=s["skipped_count"],
+                n2=total_skipped,
+                label1="Applied",
+                label2="Skipped",
+            )
+
+        gap_pct = (s["skipped_pct"] - s["applied_pct"]) if (total_skipped > 0 and total_applied > 0) else 0.0
+
+        is_sig_fdr = t.is_significant_fdr if t else False
+        is_sig_raw = t.is_significant_raw if t else False
+
+        if is_sig_fdr:
+            if gap_pct > 0:
+                sig_deficits_count += 1
+                badge_type = "deficit_fdr"
+                badge_label = "Significant Deficit (FDR)"
+            else:
+                sig_strengths_count += 1
+                badge_type = "strength_fdr"
+                badge_label = "Candidate Advantage (FDR)"
+        elif is_sig_raw:
+            if gap_pct > 0:
+                sig_deficits_count += 1
+                badge_type = "deficit_raw"
+                badge_label = "Skill Deficit (p < 0.05)"
+            else:
+                sig_strengths_count += 1
+                badge_type = "strength_raw"
+                badge_label = "Advantage (p < 0.05)"
+        else:
+            parity_count += 1
+            if t and t.statistical_power < 0.30 and abs(gap_pct) > 1.0:
+                badge_type = "underpowered"
+                badge_label = "Underpowered"
+            else:
+                badge_type = "parity"
+                badge_label = "Parity"
+
+        enriched_skills.append({
+            **s,
+            "gap_pct": round(gap_pct, 2),
+            "z_stat": round(t.z_stat, 2) if t else 0.0,
+            "p_value": t.p_value if t else 1.0,
+            "p_adjusted_fdr": t.p_adjusted_fdr if t else 1.0,
+            "ci_lower": round(t.ci_lower * 100.0, 2) if t else 0.0,
+            "ci_upper": round(t.ci_upper * 100.0, 2) if t else 0.0,
+            "cohens_h": round(t.cohens_h, 3) if t else 0.0,
+            "power": round((t.statistical_power * 100.0), 1) if t else 0.0,
+            "is_significant_fdr": is_sig_fdr,
+            "is_significant_raw": is_sig_raw,
+            "interpretation": t.interpretation if t else "Parity",
+            "badge_type": badge_type,
+            "badge_label": badge_label,
+        })
+
+    # Sort
+    if sort_param == "gap_desc":
+        enriched_skills.sort(key=lambda x: (x["gap_pct"], x["all_count"]), reverse=True)
+    elif sort_param == "gap_asc":
+        enriched_skills.sort(key=lambda x: (x["gap_pct"], -x["all_count"]))
+    elif sort_param == "market_desc":
+        enriched_skills.sort(key=lambda x: x["all_count"], reverse=True)
+    elif sort_param == "applied_desc":
+        enriched_skills.sort(key=lambda x: (x["applied_count"], x["all_count"]), reverse=True)
+    elif sort_param == "skipped_desc":
+        enriched_skills.sort(key=lambda x: (x["skipped_count"], x["all_count"]), reverse=True)
+    elif sort_param == "p_value_asc":
+        enriched_skills.sort(key=lambda x: (x["p_value"], -abs(x["gap_pct"])))
+
+    # Pagination
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except ValueError:
+        page = 1
+    per_page = 50
+    total_skills_count = len(enriched_skills)
+    total_pages = max(1, (total_skills_count + per_page - 1) // per_page)
+    start_idx = (page - 1) * per_page
+    skills_page = enriched_skills[start_idx:start_idx + per_page]
+
+    # Prepopulate top skills for dropdowns
+    top_lab_skills = [
+        s["skill_name"] for s in sorted(raw_skills, key=lambda x: x["all_count"], reverse=True)[:35]
+    ]
+    if "A/B Testing" not in top_lab_skills:
+        top_lab_skills.insert(0, "A/B Testing")
+
+    return render_template(
+        "skills.html",
+        skills=skills_page,
+        total_skills_count=total_skills_count,
+        total_jobs=total_jobs,
+        total_applied=total_applied,
+        total_skipped=total_skipped,
+        sig_deficits_count=sig_deficits_count,
+        sig_strengths_count=sig_strengths_count,
+        parity_count=parity_count,
+        keywords=keywords,
+        selected_keyword=keyword_filter,
+        selected_days=days_param,
+        selected_sort=sort_param,
+        min_count=min_count,
+        search_query=search_query,
+        page=page,
+        total_pages=total_pages,
+        top_lab_skills=top_lab_skills,
+    )
+
+
+@app.route("/api/skills/time-series")
+def api_skill_time_series():
+    skill_name = request.args.get("skill", "A/B Testing").strip()
+    db = get_db()
+    timeline = db.get_skill_time_series(skill_name)
+    return jsonify({
+        "skill": skill_name,
+        "timeline": timeline,
+    })
+
+
+@app.route("/api/skills/test")
+def api_skill_ab_test():
+    skill_name = request.args.get("skill", "A/B Testing").strip()
+    db = get_db()
+    days_param = request.args.get("days", "all").strip().lower()
+    days_map = {"30d": 30, "90d": 90, "180d": 180, "all": None}
+    days_val = days_map.get(days_param, None)
+    keyword = request.args.get("keyword", "").strip() or None
+
+    stats = db.get_skill_stats(days=days_val, search_keyword=keyword, min_frequency=1)
+    tot_app = stats["total_applied"]
+    tot_skip = stats["total_skipped"]
+
+    target = None
+    for s in stats["skills"]:
+        if s["skill_name"].lower() == skill_name.lower():
+            target = s
+            break
+
+    engine = ABTestEngine(alpha=0.05, target_power=0.80)
+    if target and tot_app > 0 and tot_skip > 0:
+        x1 = target["applied_count"]
+        x2 = target["skipped_count"]
+        res = engine.two_proportion_z_test(
+            skill_name=target["skill_name"],
+            x1=x1,
+            n1=tot_app,
+            x2=x2,
+            n2=tot_skip,
+            label1="Applied",
+            label2="Skipped",
+        )
+        data = {
+            "skill_name": target["skill_name"],
+            "total_market_jobs": target["all_count"],
+            "market_pct": round(target["all_pct"], 2),
+            "company_count": target["company_count"],
+            "n_applied": tot_app,
+            "x_applied": x1,
+            "p_applied_pct": round(res.p_group1 * 100.0, 2),
+            "n_skipped": tot_skip,
+            "x_skipped": x2,
+            "p_skipped_pct": round(res.p_group2 * 100.0, 2),
+            "diff_pct": round(res.diff * 100.0, 2),
+            "gap_pct": round((res.p_group2 - res.p_group1) * 100.0, 2),
+            "ci_lower_pct": round(res.ci_lower * 100.0, 2),
+            "ci_upper_pct": round(res.ci_upper * 100.0, 2),
+            "z_stat": round(res.z_stat, 3),
+            "p_value": res.p_value,
+            "cohens_h": round(res.cohens_h, 4),
+            "power": round(res.statistical_power * 100.0, 1),
+            "mde_pct": round(res.mde_abs * 100.0, 2),
+            "is_significant": res.is_significant_raw,
+            "interpretation": res.interpretation,
+            "contingency": {
+                "applied_with": x1,
+                "applied_without": tot_app - x1,
+                "skipped_with": x2,
+                "skipped_without": tot_skip - x2,
+                "total_screened": tot_app + tot_skip,
+            },
+        }
+    else:
+        data = {
+            "skill_name": skill_name,
+            "total_market_jobs": 0,
+            "market_pct": 0.0,
+            "company_count": 0,
+            "n_applied": tot_app,
+            "x_applied": 0,
+            "p_applied_pct": 0.0,
+            "n_skipped": tot_skip,
+            "x_skipped": 0,
+            "p_skipped_pct": 0.0,
+            "diff_pct": 0.0,
+            "gap_pct": 0.0,
+            "ci_lower_pct": 0.0,
+            "ci_upper_pct": 0.0,
+            "z_stat": 0.0,
+            "p_value": 1.0,
+            "cohens_h": 0.0,
+            "power": 0.0,
+            "mde_pct": 0.0,
+            "is_significant": False,
+            "interpretation": "Insufficient data in selected segment",
+            "contingency": {
+                "applied_with": 0,
+                "applied_without": tot_app,
+                "skipped_with": 0,
+                "skipped_without": tot_skip,
+                "total_screened": tot_app + tot_skip,
+            },
+        }
+    return jsonify(data)
+
+
+@app.route("/api/skills/jobs")
+def api_skill_jobs():
+    skill_name = request.args.get("skill", "").strip()
+    status = request.args.get("status", "").strip() or None
+    try:
+        limit = min(100, max(1, int(request.args.get("limit", 30))))
+    except ValueError:
+        limit = 30
+    db = get_db()
+    jobs = db.get_jobs_for_skill(skill_name=skill_name, status=status, limit=limit)
+    return jsonify({
+        "skill": skill_name,
+        "status": status,
+        "jobs": jobs,
+    })
+
 
 
