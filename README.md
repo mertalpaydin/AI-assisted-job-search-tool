@@ -3,10 +3,12 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaged%20with-uv-DE5FE9?logo=astral&logoColor=white)
 ![Flask](https://img.shields.io/badge/Web%20UI-Flask-000000?logo=flask&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-549%20passing-2ea44f)
+![Tests](https://img.shields.io/badge/tests-578%20passing-2ea44f)
+![A/B Testing](https://img.shields.io/badge/A%2FB%20Testing-Z--Test%20%7C%20FDR-orange)
+![Skill Extraction](https://img.shields.io/badge/Skill%20Extraction-Open--Vocabulary-blue)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-orange)
 
-Automates LinkedIn job discovery, external job-board search (Indeed, Bundesagentur für Arbeit), deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, and application tracking — all from your local machine.
+Automates LinkedIn job discovery, external job-board search (Indeed, Bundesagentur für Arbeit), deterministic prefiltering, AI screening against your CV, role-family classification, tailored cover letter generation, 1-page LaTeX PDF exports, job expiration cleaning, unattended scheduling, open-vocabulary market skill extraction, and statistically rigorous A/B testing & skill gap analysis — all from your local machine.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -39,6 +41,13 @@ Automates LinkedIn job discovery, external job-board search (Indeed, Bundesagent
 - **Company Size From the Declared Band** — LinkedIn reports two different numbers and they disagree badly: `staffCount` is how many members list a company as their employer, while `staffCountRange` is the band the company declares. gategroup declares **10,001+** and has **2,457** members; SAP's member count *exceeds* its real headcount. Both are stored and shown, the size filter buckets on the band across seven distinct ranges (including dedicated **Startup (11–50)** and **Scale-up (51–200)** splits), and every bucket boundary sits on one of LinkedIn's nine band edges so a bucket never splits one.
 - **Resilient SQLite Concurrency & Snapshots** — Database operates in WAL mode with a 30-second `busy_timeout`, `synchronous=NORMAL`, explicit WAL checkpoints on close, and optimized partial indexes (`idx_jobs_unscreened`, `idx_cover_letters_job_status`). Verified `VACUUM INTO` snapshots are taken at run boundaries and after Web UI edits, protected by quick-check integrity verification on every open and before every restore (`job-search restore latest`).
 - **Application Tracking** — Mark jobs as `applied`, `interviewing`, `offered`, `rejected`, or `clear`.
+- **Open-Vocabulary Skill Intelligence & Empirical A/B Testing Lab** — Deterministic, zero-LLM skill extraction and statistical hypothesis testing across 42,700+ scraped postings:
+  - **Open-Vocabulary NLP Pipeline**: Avoids static dictionaries by dynamically extracting skills from requirement sections via grammatical trigger patterns, compound conjunction parsing, and LinkedIn tag harvesting.
+  - **4-Stage Filtering & Dispersion**: Purges verbal clauses, duration phrases, degree boilerplate, and single-occurrence noise ($CompanyCount \ge 2$) while preserving technical symbols (`C++`, `.NET`, `CI/CD`).
+  - **Two-Proportion Hypothesis Testing ($Z$-Tests)**: Rigorous two-sided statistical tests comparing applied ($n_1=744$) vs. skipped ($n_2=622$) cohorts with pooled standard errors, exact $p$-values, Wald 95% Confidence Intervals, Cohen's $h$ effect sizes, and statistical power ($1 - \beta$).
+  - **Benjamini-Hochberg FDR Control**: Corrects for multiple testing across $m=397$ screened skills at $Q=0.05$.
+  - **Interactive Web Lab (`/skills`)**: Dedicated web UI with KPI metric cards, Skill Gap Leaderboard, Longitudinal Time Trends (May–Oct 2026), and an interactive A/B Testing Lab with an automated case study narrative generator.
+  - *Full Technical Case Study*: See [docs/AB_TESTING_CASE_STUDY.md](docs/AB_TESTING_CASE_STUDY.md).
 - **Web UI Dashboard** — Local Flask web application (`http://127.0.0.1:5000/`) to review jobs, inspect prefiltered rejections, manage the unscreened queue, edit Job Title / Company Name / Cover Letter text live, export the exact per-job prompt, generate 1-page PDFs instantly, drive the runner and batch collection, import jobs, and track status.
 
 ---
@@ -90,8 +99,44 @@ flowchart LR
 | Phase 6: Orchestration | Complete | Parallel coordinator with resume, stage scoping, and cross-process run control |
 | Phase 7: Web UI & LaTeX PDF Export | Complete | Flask dashboard, runner panel, MS Word formatting, 1-page LaTeX PDF |
 | Phase 8: Scheduling | Complete | Windows Task Scheduler integration, session persistence, schedule pause |
+| Phase 9: Skills Intelligence & A/B Testing Lab | Complete | Open-vocabulary NLP extraction, SQLite indexing (v16), Two-Proportion Z-tests, Benjamini-Hochberg FDR, and web lab |
 
 ---
+
+### Skills Intelligence & Behavioral Experimentation Architecture
+
+```mermaid
+flowchart TD
+    subgraph INGEST [1. Extraction & Dispersion]
+        A1[42,720 Scraped Job Postings] --> A2[Regex Section & Trigger Parser]
+        A2 --> A3[4-Stage Rule-Based Filter]
+        A3 --> A4[Normalizer & Alias Folding]
+        A4 --> A5{CompanyCount >= 2}
+        A5 -- Yes --> A6[(job_skills SQLite Index<br/>274k rows, 3.4k skills)]
+    end
+
+    subgraph EXP [2. Behavioral A/B Experimentation]
+        A6 --> B1[Segment Cohorts:<br/>Applied (n=744) vs. Skipped (n=622)]
+        B1 --> B2[Two-Proportion Z-Test<br/>Pooled SE, Z-stat, p-value]
+        B2 --> B3[Wald 95% Confidence Intervals]
+        B2 --> B4[Cohen's h Effect Size & Power Analysis]
+        B2 --> B5[Benjamini-Hochberg FDR Multiple Testing Control]
+    end
+
+    subgraph LAB [3. Interactive Web Dashboard]
+        B3 & B4 & B5 --> C1[Skill Gap Leaderboard]
+        B3 & B4 & B5 --> C2[Longitudinal Trend Charts - May to Oct 2026]
+        B3 & B4 & B5 --> C3[Interactive A/B Hypothesis Testing Lab]
+        C1 & C2 & C3 --> C4([Portfolio Case Study Report])
+    end
+
+    classDef ing fill:#1e293b,stroke:#38bdf8,color:#f8fafc;
+    classDef exp fill:#1e293b,stroke:#f59e0b,color:#f8fafc;
+    classDef lab fill:#1e293b,stroke:#10b981,color:#f8fafc;
+    class A1,A2,A3,A4,A5,A6 ing;
+    class B1,B2,B3,B4,B5 exp;
+    class C1,C2,C3,C4 lab;
+```
 
 ## Setup
 
@@ -433,6 +478,7 @@ uv run pytest tests/ -v
 │   ├── export/                      # Default text/CSV/PDF export directory (gitignored)
 │   └── samples/                     # Discovery field catalog and SQL schemas
 ├── docs/
+│   ├── AB_TESTING_CASE_STUDY.md     # In-depth statistical case study & A/B testing methodology
 │   └── screenshots/                 # Web UI screenshots used in this README
 ├── scripts/
 │   ├── cleanup_errors.py            # Standalone script to clear pipeline errors
@@ -455,9 +501,10 @@ uv run pytest tests/ -v
 │       ├── scraping/                # Selenium LinkedIn auth, search & details workers,
 │       │   │                        #   company size backfill (company_backfill.py)
 │       │   └── external/            # External providers, LinkedIn matcher, external search orchestrator
+│       ├── skills/                  # Open-vocabulary extractor, normalizer, dispersion harvester, A/B engine
 │       ├── utils/                   # Logging (loguru), Gemini API key rotation, formatting helpers
 │       └── web/                     # Flask web dashboard (templates, static CSS, routes)
-└── tests/                           # Unit test suite (531 tests)
+└── tests/                           # Unit test suite (578 tests)
 ```
 
 ---
